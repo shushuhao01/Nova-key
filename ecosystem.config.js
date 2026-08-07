@@ -28,6 +28,8 @@ module.exports = {
       out_file: "/www/wwwroot/nova-key/logs/api.out.log",
       error_file: "/www/wwwroot/nova-key/logs/api.err.log",
       merge_logs: true,
+      max_size: "50M", // 单个日志文件超过 50M 自动轮转（避免日志爆满磁盘）
+      retain: 5, // 保留最近 5 份轮转日志
       kill_timeout: 15000,
     },
 
@@ -47,6 +49,8 @@ module.exports = {
       out_file: "/www/wwwroot/nova-key/logs/web.out.log",
       error_file: "/www/wwwroot/nova-key/logs/web.err.log",
       merge_logs: true,
+      max_size: "50M", // 单个日志文件超过 50M 自动轮转（避免日志爆满磁盘）
+      retain: 5, // 保留最近 5 份轮转日志
     },
   ],
 }
