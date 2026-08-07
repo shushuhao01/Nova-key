@@ -20,4 +20,9 @@ public interface AdminPaymentChannelService {
      * @return { success: boolean, message: 详细原因或成功提示 }
      */
     Map<String, Object> testChannel(UUID id);
+
+    /**
+     * 获取渠道的完整配置（含私钥/公钥等敏感字段明文），仅用于管理员在后台查看原值。
+     */
+    Map<String, Object> getRawConfig(UUID id);
 }

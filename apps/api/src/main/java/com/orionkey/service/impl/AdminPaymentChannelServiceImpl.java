@@ -109,6 +109,24 @@ public class AdminPaymentChannelServiceImpl implements AdminPaymentChannelServic
         }
     }
 
+    @Override
+    public Map<String, Object> getRawConfig(UUID id) {
+        PaymentChannel channel = paymentChannelRepository.findById(id)
+                .filter(c -> c.getIsDeleted() == 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "支付渠道不存在"));
+        Map<String, Object> config = deserializeConfigData(channel.getConfigData());
+        if (config == null) {
+            config = new LinkedHashMap<>();
+        }
+        Map<String, Object> result = new LinkedHashMap<>(config);
+        // 附上系统生成的回调地址，方便前端统一展示
+        Object notifyUrl = withDefaultNotifyUrl(channel).get("notify_url");
+        if (notifyUrl != null) {
+            result.put("notify_url", notifyUrl);
+        }
+        return result;
+    }
+
     /** 易支付渠道测试：校验配置完整性 + 探测网关可达性 */
     private String testEpayConnectivity(PaymentChannel channel) {
         Map<String, Object> cfg = deserializeConfigData(channel.getConfigData());

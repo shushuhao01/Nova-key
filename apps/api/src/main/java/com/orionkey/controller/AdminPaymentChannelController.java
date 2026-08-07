@@ -48,4 +48,10 @@ public class AdminPaymentChannelController {
     public ApiResponse<?> testChannel(@PathVariable UUID id) {
         return ApiResponse.success(adminPaymentChannelService.testChannel(id));
     }
+
+    /** 获取渠道完整配置（含私钥/公钥明文），仅管理员可用，用于后台查看原值 */
+    @GetMapping("/{id}/raw-config")
+    public ApiResponse<?> getRawConfig(@PathVariable UUID id) {
+        return ApiResponse.success(adminPaymentChannelService.getRawConfig(id));
+    }
 }

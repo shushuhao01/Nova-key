@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from "react"
-import { Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle, ChevronDown, Shield, Key, CheckCircle2, Copy, Activity, Loader2 } from "lucide-react"
+import { Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle, ChevronDown, Shield, Key, CheckCircle2, Copy, Activity, Loader2, Eye } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
 import { toast } from "sonner"
@@ -29,6 +29,8 @@ interface ConfigField {
   accept?: string
   /** file 类型：上传成功后的提示文案 */
   hint?: string
+  /** 敏感字段（私钥/公钥/密钥等）：编辑模式显示"查看原值"按钮，点击拉取明文展示 */
+  sensitive?: boolean
 }
 
 interface ProviderOption {
@@ -51,7 +53,7 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     ],
     configFields: [
       { key: "pid", label: "商户ID (PID)", placeholder: "例如：743794" },
-      { key: "key", label: "商户密钥 (Key)", placeholder: "MD5 密钥", type: "password" },
+      { key: "key", label: "商户密钥 (Key)", placeholder: "MD5 密钥", type: "password", sensitive: true },
       { key: "api_url", label: "API 地址", placeholder: "例如：https://pay.example.com/" },
       { key: "notify_url", label: "异步回调地址", placeholder: "例如：https://yourdomain.com/api/payments/webhook/epay" },
       { key: "return_url", label: "同步跳转地址", placeholder: "例如：https://yourdomain.com/order/query" },
@@ -64,8 +66,8 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     channels: [{ code: "alipay", name: "支付宝" }],
     configFields: [
       { key: "appid", label: "应用 AppID", placeholder: "支付宝开放平台应用 AppID" },
-      { key: "private_key", label: "应用私钥", placeholder: "粘贴应用私钥（RSA2，可含 -----BEGIN PRIVATE KEY----- 头）", type: "textarea" },
-      { key: "alipay_public_key", label: "支付宝公钥", placeholder: "粘贴支付宝平台提供的公钥", type: "textarea" },
+      { key: "private_key", label: "应用私钥", placeholder: "粘贴应用私钥（RSA2，可含 -----BEGIN PRIVATE KEY----- 头）", type: "textarea", sensitive: true },
+      { key: "alipay_public_key", label: "支付宝公钥", placeholder: "粘贴支付宝平台提供的公钥", type: "textarea", sensitive: true },
       { key: "sign_type", label: "签名类型", placeholder: "RSA2", readonly: true, readonlyValue: "RSA2" },
       { key: "notify_url", label: "支付回调地址", placeholder: "系统自动生成", readonly: true, copyable: true, hint: "支付成功后支付宝会回调此地址，请确保服务器可访问；请在支付宝开放平台「开发设置」中绑定该回调地址" },
     ],
@@ -78,9 +80,9 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     configFields: [
       { key: "appid", label: "应用 AppID", placeholder: "微信公众号/小程序 AppID" },
       { key: "mchid", label: "商户号 (MchID)", placeholder: "微信支付商户号" },
-      { key: "api_v3_key", label: "APIv3 密钥", placeholder: "微信支付 APIv3 密钥", type: "password" },
+      { key: "api_v3_key", label: "APIv3 密钥", placeholder: "微信支付 APIv3 密钥", type: "password", sensitive: true },
       { key: "serial_no", label: "证书序列号", placeholder: "API 证书序列号（商户平台 → API安全 → 查看证书）" },
-      { key: "private_key", label: "商户私钥（PEM 内容，可选）", placeholder: "可直接粘贴 apiclient_key.pem 全部内容；也可用下方上传按钮上传文件", type: "textarea" },
+      { key: "private_key", label: "商户私钥（PEM 内容，可选）", placeholder: "可直接粘贴 apiclient_key.pem 全部内容；也可用下方上传按钮上传文件", type: "textarea", sensitive: true },
       {
         key: "private_key_path",
         label: "上传商户私钥 apiclient_key.pem",
@@ -110,7 +112,7 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     ],
     configFields: [
       { key: "api_url", label: "BEpusdt 服务地址", placeholder: "例如：http://bepusdt:8080" },
-      { key: "api_token", label: "API Token", placeholder: "BEpusdt 管理后台获取", type: "password" },
+      { key: "api_token", label: "API Token", placeholder: "BEpusdt 管理后台获取", type: "password", sensitive: true },
       { key: "notify_url", label: "回调通知地址", placeholder: "例如：https://domain.com/api/payments/webhook/usdt" },
       { key: "redirect_url", label: "支付成功跳转（可选）", placeholder: "例如：https://domain.com/order/query" },
       { key: "trade_type", label: "交易类型", placeholder: "usdt.trc20 或 usdt.bep20" },
@@ -160,6 +162,8 @@ export default function AdminPaymentChannelsPage() {
   const [uploadingKey, setUploadingKey] = useState<string | null>(null)
   /** 正在测试连接的渠道 id */
   const [testingId, setTestingId] = useState<string | null>(null)
+  /** 正在拉取明文的敏感字段 key */
+  const [revealingField, setRevealingField] = useState<string | null>(null)
   const providerBtnRef = useRef<HTMLButtonElement>(null)
   const channelNameRef = useRef<HTMLInputElement>(null)
 
@@ -438,6 +442,27 @@ export default function AdminPaymentChannelsPage() {
       toast.error(err instanceof Error ? err.message : "连接测试失败")
     } finally {
       setTestingId(null)
+    }
+  }
+
+  /** 查看敏感字段原值：拉取渠道完整配置，将明文填入表单当前字段 */
+  const handleRevealSecret = async (fieldKey: string) => {
+    if (!editId) return
+    setRevealingField(fieldKey)
+    try {
+      const raw = await adminPaymentApi.getRawConfig(editId)
+      const val = raw && raw[fieldKey]
+      if (val && val.trim()) {
+        setConfigData(prev => ({ ...prev, [fieldKey]: val }))
+        if (!showKeys) setShowKeys(true)
+        toast.success("已显示明文，请注意屏幕安全，不要外传")
+      } else {
+        toast.error("该字段当前没有存储值（尚未配置）")
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "获取明文失败")
+    } finally {
+      setRevealingField(null)
     }
   }
 
@@ -737,7 +762,25 @@ export default function AdminPaymentChannelsPage() {
                 const fieldValue = resolveFieldValue(field)
                 return (
                 <div key={field.key} className="flex flex-col gap-1">
-                  <label className="text-xs font-medium text-muted-foreground">{field.label}</label>
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-medium text-muted-foreground">{field.label}</label>
+                    {field.sensitive && editId && !field.readonly && (
+                      <button
+                        type="button"
+                        className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-primary"
+                        title="从服务器读取并显示该字段的原值（明文）"
+                        onClick={() => handleRevealSecret(field.key)}
+                        disabled={revealingField !== null}
+                      >
+                        {revealingField === field.key ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Eye className="h-3 w-3" />
+                        )}
+                        {revealingField === field.key ? "加载中..." : "查看原值"}
+                      </button>
+                    )}
+                  </div>
                   {field.type === "file" ? (
                     <div className="flex flex-col gap-1.5">
                       <div className="flex items-center gap-2">

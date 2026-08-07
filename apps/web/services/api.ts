@@ -563,6 +563,9 @@ export const adminPaymentApi = {
   // 测试支付渠道配置与支付平台的连通性，返回 { success, message }
   testChannel: (id: string) =>
     request<{ success: boolean; message: string }>(`/admin/payment-channels/${id}/test`, { method: "POST" }),
+  // 获取渠道完整配置（含私钥/公钥明文），仅管理员，用于后台"查看原值"
+  getRawConfig: (id: string) =>
+    request<Record<string, string | undefined>>(`/admin/payment-channels/${id}/raw-config`),
 }
 
 // ============================================================
