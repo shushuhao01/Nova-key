@@ -116,7 +116,7 @@ public class PaymentServiceImpl implements PaymentService {
         String productName = buildProductName(order.getId());
 
         BepusdtPaymentResult result = bepusdtService.createPayment(
-                config, order.getId().toString(), amount, productName);
+                config, formatOutTradeNo(order.getId()), amount, productName);
 
         order.setPaymentUrl(result.paymentUrl());
         order.setUsdtWalletAddress(result.walletAddress());
@@ -159,7 +159,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         EpayResult epayResult = epayService.createPayment(
                 config,
-                order.getId().toString(),
+                formatOutTradeNo(order.getId()),
                 epayType,
                 productName,
                 amount,
@@ -182,7 +182,7 @@ public class PaymentServiceImpl implements PaymentService {
         String productName = buildProductName(order.getId());
 
         WxpayPaymentResult result = wxpayService.createNativePayment(
-                config, order.getId().toString(), productName, amount, order.getClientIp());
+                config, formatOutTradeNo(order.getId()), productName, amount, order.getClientIp());
 
         order.setQrcodeUrl(result.codeUrl());
         orderRepository.save(order);
@@ -198,11 +198,11 @@ public class PaymentServiceImpl implements PaymentService {
         boolean pc = device == null || "pc".equals(device);
         if (pc) {
             AlipayPaymentResult result = alipayService.createPrecreate(
-                    config, order.getId().toString(), productName, amount);
+                    config, formatOutTradeNo(order.getId()), productName, amount);
             order.setQrcodeUrl(result.qrCode());
         } else {
             String wapPayUrl = alipayService.buildWapPayUrl(
-                    config, order.getId().toString(), productName, amount);
+                    config, formatOutTradeNo(order.getId()), productName, amount);
             order.setPaymentUrl(wapPayUrl);
         }
         orderRepository.save(order);
@@ -426,14 +426,14 @@ public class PaymentServiceImpl implements PaymentService {
         boolean paid = switch (channel.getProviderType()) {
             case "native_wxpay" -> {
                 WxpayOrderQueryResult r = wxpayService.queryOrder(
-                        buildWxpayConfig(channel), order.getId().toString());
+                        buildWxpayConfig(channel), formatOutTradeNo(order.getId()));
                 yield r != null && "SUCCESS".equals(r.tradeState())
                         && r.total() != null
                         && BigDecimal.valueOf(r.total()).compareTo(expected.multiply(HUNDRED)) == 0;
             }
             case "native_alipay" -> {
                 AlipayOrderQueryResult r = alipayService.queryOrder(
-                        buildAlipayConfig(channel), order.getId().toString());
+                        buildAlipayConfig(channel), formatOutTradeNo(order.getId()));
                 yield r != null && isAlipayPaid(r.tradeStatus())
                         && r.totalAmount() != null
                         && new BigDecimal(r.totalAmount()).compareTo(expected) == 0;
@@ -487,5 +487,31 @@ public class PaymentServiceImpl implements PaymentService {
 
     private boolean isAlipayPaid(String tradeStatus) {
         return "TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus);
+    }
+
+    /**
+     * 生成支付平台商户订单号（out_trade_no）。
+     * 内部订单 ID 为 UUID（36 字符含连字符），而微信支付 APIv3 要求 out_trade_no ≤ 32 字符，
+     * 因此去掉连字符得到 32 字符的紧凑格式；回调时通过 {@link #parseOutTradeNo} 还原。
+     */
+    public static String formatOutTradeNo(UUID orderId) {
+        return orderId.toString().replace("-", "");
+    }
+
+    /**
+     * 将支付平台回调的 out_trade_no 还原为内部订单 UUID。
+     * 兼容紧凑格式（32 字符无连字符）与旧版完整 UUID（36 字符含连字符）两种写法。
+     */
+    public static UUID parseOutTradeNo(String outTradeNo) {
+        if (outTradeNo == null) {
+            throw new IllegalArgumentException("out_trade_no is null");
+        }
+        String compact = outTradeNo.replace("-", "");
+        if (compact.length() != 32) {
+            throw new IllegalArgumentException("invalid out_trade_no: " + outTradeNo);
+        }
+        return UUID.fromString(String.format("%s-%s-%s-%s-%s",
+                compact.substring(0, 8), compact.substring(8, 12), compact.substring(12, 16),
+                compact.substring(16, 20), compact.substring(20)));
     }
 }

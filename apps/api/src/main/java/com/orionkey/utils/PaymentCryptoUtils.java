@@ -45,7 +45,17 @@ public final class PaymentCryptoUtils {
         if (cleaned.contains("BEGIN RSA PRIVATE KEY")) {
             return parsePkcs1PrivateKey(base64Decode(stripPem(cleaned, "RSA PRIVATE KEY")));
         }
-        throw new IllegalArgumentException("不支持的私钥格式（需 PKCS#8 或 PKCS#1 PEM）");
+        // 无 PEM 头：支付宝应用私钥常见裸 Base64（PKCS#8 或 PKCS#1），自动识别解析
+        try {
+            byte[] der = base64Decode(cleaned.replaceAll("\\s", ""));
+            try {
+                return KeyFactory.getInstance(RSA).generatePrivate(new PKCS8EncodedKeySpec(der));
+            } catch (Exception pkcs8Err) {
+                return parsePkcs1PrivateKey(der);
+            }
+        } catch (Exception e) {
+            throw new IllegalArgumentException("不支持的私钥格式（需 PKCS#8 或 PKCS#1 PEM，或裸 Base64）", e);
+        }
     }
 
     // ── 公钥解析（支付宝公钥） ──

@@ -41,7 +41,13 @@ public class DeliverServiceImpl implements DeliverService {
 
         List<String> orderIdStrs = (List<String>) request.get("order_ids");
         if (orderIdStrs != null) {
-            orderIdStrs.forEach(id -> orderIds.add(UUID.fromString(id)));
+            for (String id : orderIdStrs) {
+                try {
+                    orderIds.add(PaymentServiceImpl.parseOutTradeNo(id));
+                } catch (IllegalArgumentException e) {
+                    log.warn("Query orders skipped invalid order_id: {}", id);
+                }
+            }
         }
 
         List<String> emails = (List<String>) request.get("emails");

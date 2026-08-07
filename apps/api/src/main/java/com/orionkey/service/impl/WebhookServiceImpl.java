@@ -74,7 +74,7 @@ public class WebhookServiceImpl implements WebhookService {
         // Step 1: Parse order ID
         UUID orderId;
         try {
-            orderId = UUID.fromString(outTradeNo);
+            orderId = PaymentServiceImpl.parseOutTradeNo(outTradeNo);
         } catch (IllegalArgumentException e) {
             log.error("Epay callback invalid out_trade_no: {}", outTradeNo);
             return "FAIL";
@@ -219,7 +219,7 @@ public class WebhookServiceImpl implements WebhookService {
         // 2. 解析订单
         UUID orderUuid;
         try {
-            orderUuid = UUID.fromString(orderId);
+            orderUuid = PaymentServiceImpl.parseOutTradeNo(orderId);
         } catch (IllegalArgumentException e) {
             log.error("BEpusdt callback invalid order_id: {}", orderId);
             return "ok";
@@ -383,7 +383,7 @@ public class WebhookServiceImpl implements WebhookService {
             // 4. 解析订单
             UUID orderId;
             try {
-                orderId = UUID.fromString(notification.outTradeNo());
+                orderId = PaymentServiceImpl.parseOutTradeNo(notification.outTradeNo());
             } catch (Exception e) {
                 log.error("Wxpay callback invalid out_trade_no: {}", notification.outTradeNo());
                 return "FAIL";
@@ -411,7 +411,8 @@ public class WebhookServiceImpl implements WebhookService {
             // 6. 服务端主动查单二次确认（防止伪造回调）
             PaymentChannel orderChannel = resolveChannelForOrder(order, "native_wxpay");
             WxpayOrderQueryResult queryResult = wxpayService.queryOrder(
-                    paymentService.buildWxpayConfig(orderChannel), orderId.toString());
+                    paymentService.buildWxpayConfig(orderChannel),
+                    PaymentServiceImpl.formatOutTradeNo(orderId));
             if (queryResult == null) {
                 log.warn("Wxpay callback deferred: server-side order query failed, out_trade_no={}", orderId);
                 return "FAIL";
@@ -466,7 +467,7 @@ public class WebhookServiceImpl implements WebhookService {
         // 1. 解析订单
         UUID orderId;
         try {
-            orderId = UUID.fromString(outTradeNo);
+            orderId = PaymentServiceImpl.parseOutTradeNo(outTradeNo);
         } catch (Exception e) {
             log.error("Alipay callback invalid out_trade_no: {}", outTradeNo);
             return "fail";
