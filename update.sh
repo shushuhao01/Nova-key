@@ -34,6 +34,11 @@ if [ ! -f ".env" ]; then
     echo -e "${RED}[X] 已生成 .env 模板，请先填写 DB_PASSWORD 等真实值后重新执行: bash update.sh${NC}"
     exit 1
 fi
+# 防止 .env 仍是模板占位符（占位符含 < >），否则 PM2 会拿模板启动导致连库失败、无限重启
+if grep -q '<[^>]*>' .env; then
+    echo -e "${RED}[X] .env 仍含模板占位符（<...>），请先填写真实值（APP_BASE_URL/DB_URL/DB_USERNAME/DB_PASSWORD/JWT_SECRET）后重新执行: bash update.sh${NC}"
+    exit 1
+fi
 # 缺失 JWT_SECRET 时自动生成（固定写入 .env，避免每次重启导致登录态失效）
 if ! grep -q '^JWT_SECRET=' .env; then
     echo "JWT_SECRET=$(openssl rand -base64 48)" >> .env
