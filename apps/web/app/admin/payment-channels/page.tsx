@@ -65,7 +65,7 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
       { key: "private_key", label: "应用私钥", placeholder: "粘贴应用私钥（RSA2，可含 -----BEGIN PRIVATE KEY----- 头）", type: "textarea" },
       { key: "alipay_public_key", label: "支付宝公钥", placeholder: "粘贴支付宝平台提供的公钥", type: "textarea" },
       { key: "sign_type", label: "签名类型", placeholder: "RSA2", readonly: true, readonlyValue: "RSA2" },
-      { key: "notify_url", label: "回调地址", placeholder: "系统自动生成", readonly: true },
+      { key: "notify_url", label: "支付回调地址", placeholder: "系统自动生成", readonly: true, hint: "支付成功后支付宝会回调此地址，请确保服务器可访问；请在支付宝开放平台「开发设置」中绑定该回调地址" },
     ],
   },
   {
@@ -95,7 +95,7 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
         accept: ".pem",
         hint: "微信支付证书（apiclient_cert.pem），存储于服务器 payment-certs 目录（不在 /uploads 下，不会公开下载）",
       },
-      { key: "notify_url", label: "回调地址", placeholder: "系统自动生成", readonly: true },
+      { key: "notify_url", label: "支付回调地址", placeholder: "系统自动生成", readonly: true, hint: "支付成功后微信会回调此地址，请确保服务器可访问；请在微信商户平台「产品中心 → 开发配置」中绑定该回调地址" },
     ],
   },
   {
@@ -757,7 +757,7 @@ export default function AdminPaymentChannelsPage() {
                     <span className="text-[11px] text-muted-foreground">
                       {field.readonlyValue
                         ? "支付宝目前仅支持 RSA2 签名，请确保支付宝后台「密钥管理」与应用私钥一致"
-                        : "系统根据站点公网地址自动生成，无需手动填写；点击「复制」到微信商户平台（产品中心 → 开发配置）或支付宝开放平台（开发设置）绑定回调"}
+                        : (field.hint ?? "系统根据站点公网地址自动生成，无需手动填写；点击「复制」到对应平台绑定回调")}
                     </span>
                   )}
                 </div>

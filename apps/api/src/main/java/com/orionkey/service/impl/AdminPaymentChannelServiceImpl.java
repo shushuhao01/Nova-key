@@ -97,12 +97,15 @@ public class AdminPaymentChannelServiceImpl implements AdminPaymentChannelServic
     }
 
     /**
-     * 原生微信/支付宝渠道：若配置中未填写回调地址，则自动补上系统生成的默认回调地址
-     * （基于 app.base-url），前端表单以只读方式展示，避免手动填写错误。
+     * 原生微信/支付宝渠道：回调地址始终由系统按站点公网地址（app.base-url）生成，
+     * 不依赖数据库存值（put 覆盖），保证前端始终能展示完整回调地址，
+     * 且站点域名变更后地址自动跟随，不会沿用旧地址。
      */
     private Map<String, Object> withDefaultNotifyUrl(PaymentChannel c) {
         Map<String, Object> config = deserializeConfigData(c.getConfigData());
-        if (config == null) return null;
+        if (config == null) {
+            config = new LinkedHashMap<>();
+        }
         String webhookPath = switch (c.getProviderType()) {
             case "native_wxpay" -> WXPAY_WEBHOOK_PATH;
             case "native_alipay" -> ALIPAY_WEBHOOK_PATH;
@@ -111,7 +114,7 @@ public class AdminPaymentChannelServiceImpl implements AdminPaymentChannelServic
         if (webhookPath != null) {
             String base = appBaseUrl == null ? "" : appBaseUrl.endsWith("/")
                     ? appBaseUrl.substring(0, appBaseUrl.length() - 1) : appBaseUrl;
-            config.putIfAbsent("notify_url", base + webhookPath);
+            config.put("notify_url", base + webhookPath);
         }
         return config;
     }
