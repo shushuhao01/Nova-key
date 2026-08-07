@@ -167,6 +167,48 @@ if [ "$API_OK" != 1 ] || [ "$WEB_OK" != 1 ]; then
     exit 1
 fi
 
+# ═══════ Step 7: Nginx 自愈与公网验证 ═══════
+echo -e "${YELLOW}[7] Nginx 配置自愈与公网验证...${NC}"
+NGINX_CONF="/www/server/panel/vhost/nginx/noepay.cn.conf"
+if [ -f "$NGINX_CONF" ]; then
+    # 备份当前配置（时间戳后缀，不覆盖旧备份）
+    cp "$NGINX_CONF" "$NGINX_CONF.bak.$(date +%s)" 2>/dev/null || true
+    # 1) 清理粘贴混入的反引号（会导致 80→443 跳转地址变成坏 URL，浏览器报错/000）
+    if grep -q '`' "$NGINX_CONF"; then
+        echo -e "${YELLOW}[i] 清理 Nginx 配置中的反引号...${NC}"
+        sed -i 's/`//g' "$NGINX_CONF"
+    else
+        echo -e "${GREEN}[i] Nginx 配置无反引号${NC}"
+    fi
+    # 2) 检查反代配置完整性（location / → 3001, location /api/ → 8083）
+    if ! grep -q 'proxy_pass http://127.0.0.1:3001' "$NGINX_CONF" || ! grep -q 'location /api/' "$NGINX_CONF"; then
+        echo -e "${RED}[X] Nginx 反代配置缺失！请到宝塔面板检查站点 noepay.cn 的配置文件，需要包含:${NC}"
+        echo -e "${RED}    location /     { proxy_pass http://127.0.0.1:3001; }${NC}"
+        echo -e "${RED}    location /api/  { proxy_pass http://127.0.0.1:8083; }${NC}"
+    else
+        echo -e "${GREEN}[i] Nginx 反代配置完整${NC}"
+    fi
+    # 3) 配置测试通过则重载，失败提示（不破坏现有配置）
+    if nginx -t >/dev/null 2>&1; then
+        /etc/init.d/nginx reload >/dev/null 2>&1 || systemctl reload nginx >/dev/null 2>&1 || true
+        echo -e "${GREEN}[i] Nginx 已重载${NC}"
+    else
+        echo -e "${RED}[X] Nginx 配置语法错误，未重载！请查看: nginx -t${NC}"
+    fi
+else
+    echo -e "${YELLOW}[i] 未找到 Nginx 站点配置 ${NGINX_CONF}，跳过自愈（请确认 Nginx 站点名是否为 noepay.cn）${NC}"
+fi
+# 4) 公网验证（从服务器访问域名，200/301/302 视为正常）
+sleep 2
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://noepay.cn/ || echo "000")
+echo -e "${YELLOW}[i] 公网首页: ${HTTP_CODE}${NC}"
+if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "301" ] && [ "$HTTP_CODE" != "302" ]; then
+    echo -e "${RED}[X] 公网访问异常（HTTP ${HTTP_CODE}），请检查:${NC}"
+    echo -e "${RED}    nginx -t;  pm2 logs noepay.cn-web --lines 30 --nostream${NC}"
+else
+    echo -e "${GREEN}[OK] 公网访问正常${NC}"
+fi
+
 cd "$PROJECT_DIR"
 echo ""
 echo -e "${CYAN}==========================================${NC}"
