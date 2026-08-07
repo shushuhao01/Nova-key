@@ -23,6 +23,8 @@ interface ConfigField {
   readonly?: boolean
   /** readonly 字段固定展示的值（如签名类型 RSA2），优先于 config_data */
   readonlyValue?: string
+  /** 只读字段提供一键复制按钮（如回调地址，需复制去支付平台绑定） */
+  copyable?: boolean
   /** file 类型：允许的文件扩展名 */
   accept?: string
   /** file 类型：上传成功后的提示文案 */
@@ -65,7 +67,7 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
       { key: "private_key", label: "应用私钥", placeholder: "粘贴应用私钥（RSA2，可含 -----BEGIN PRIVATE KEY----- 头）", type: "textarea" },
       { key: "alipay_public_key", label: "支付宝公钥", placeholder: "粘贴支付宝平台提供的公钥", type: "textarea" },
       { key: "sign_type", label: "签名类型", placeholder: "RSA2", readonly: true, readonlyValue: "RSA2" },
-      { key: "notify_url", label: "支付回调地址", placeholder: "系统自动生成", readonly: true, hint: "支付成功后支付宝会回调此地址，请确保服务器可访问；请在支付宝开放平台「开发设置」中绑定该回调地址" },
+      { key: "notify_url", label: "支付回调地址", placeholder: "系统自动生成", readonly: true, copyable: true, hint: "支付成功后支付宝会回调此地址，请确保服务器可访问；请在支付宝开放平台「开发设置」中绑定该回调地址" },
     ],
   },
   {
@@ -95,7 +97,7 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
         accept: ".pem",
         hint: "微信支付证书（apiclient_cert.pem），存储于服务器 payment-certs 目录（不在 /uploads 下，不会公开下载）",
       },
-      { key: "notify_url", label: "支付回调地址", placeholder: "系统自动生成", readonly: true, hint: "支付成功后微信会回调此地址，请确保服务器可访问；请在微信商户平台「产品中心 → 开发配置」中绑定该回调地址" },
+      { key: "notify_url", label: "支付回调地址", placeholder: "系统自动生成", readonly: true, copyable: true, hint: "支付成功后微信会回调此地址，请确保服务器可访问；请在微信商户平台「产品中心 → 开发配置」中绑定该回调地址" },
     ],
   },
   {
@@ -306,6 +308,24 @@ export default function AdminPaymentChannelsPage() {
     } catch {
       toast.error("复制失败，请手动选择复制")
     }
+  }
+
+  /**
+   * 回调地址兜底生成：基于当前站点 origin（生产环境前后端同域，Nginx 反代 /api），
+   * 使新增渠道（尚未保存配置、无 config_data）时也能展示完整回调地址。
+   */
+  const autoNotifyUrl = () => {
+    if (typeof window === "undefined") return ""
+    const suffix = currentProvider.type === "native_wxpay" ? "wxpay" : "alipay"
+    return `${window.location.origin}/api/payments/webhook/${suffix}`
+  }
+
+  /** 字段展示值：readonlyValue > config_data 存值 > 回调地址前端自动生成 */
+  const resolveFieldValue = (field: ConfigField): string => {
+    if (field.readonlyValue) return field.readonlyValue
+    const fromConfig = configData[field.key]
+    if (fromConfig) return fromConfig
+    return field.key === "notify_url" ? autoNotifyUrl() : ""
   }
 
   const handleSave = async () => {
@@ -680,7 +700,9 @@ export default function AdminPaymentChannelsPage() {
                   </button>
                 )}
               </div>
-              {currentProvider.configFields.map((field) => (
+              {currentProvider.configFields.map((field) => {
+                const fieldValue = resolveFieldValue(field)
+                return (
                 <div key={field.key} className="flex flex-col gap-1">
                   <label className="text-xs font-medium text-muted-foreground">{field.label}</label>
                   {field.type === "file" ? (
@@ -724,7 +746,7 @@ export default function AdminPaymentChannelsPage() {
                         field.readonly ? "cursor-not-allowed border-dashed bg-muted/50 text-muted-foreground" : "border-input"
                       )}
                       placeholder={field.placeholder}
-                      value={field.readonlyValue ?? configData[field.key] ?? ""}
+                      value={fieldValue}
                       onChange={(e) => handleConfigChange(field.key, e.target.value)}
                     />
                   ) : (
@@ -737,15 +759,15 @@ export default function AdminPaymentChannelsPage() {
                           field.readonly ? "cursor-not-allowed border-dashed bg-muted/50 text-muted-foreground" : "border-input"
                         )}
                         placeholder={field.placeholder}
-                        value={field.readonlyValue ?? configData[field.key] ?? ""}
+                        value={fieldValue}
                         onChange={(e) => handleConfigChange(field.key, e.target.value)}
                       />
-                      {field.readonly && (field.readonlyValue ?? configData[field.key]) && (
+                      {field.readonly && field.copyable && fieldValue && (
                         <button
                           type="button"
                           title="复制"
                           className="flex h-9 shrink-0 items-center gap-1 rounded-md border border-input px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          onClick={() => copyText(field.readonlyValue ?? configData[field.key] ?? "", field.label)}
+                          onClick={() => copyText(fieldValue, field.label)}
                         >
                           <Copy className="h-3.5 w-3.5" />
                           复制
@@ -761,7 +783,8 @@ export default function AdminPaymentChannelsPage() {
                     </span>
                   )}
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
