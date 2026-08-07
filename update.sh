@@ -39,6 +39,21 @@ if grep -q '<[^>]*>' .env; then
     echo -e "${RED}[X] .env 仍含模板占位符（<...>），请先填写真实值（APP_BASE_URL/DB_URL/DB_USERNAME/DB_PASSWORD/JWT_SECRET）后重新执行: bash update.sh${NC}"
     exit 1
 fi
+# 防止 .env 混入反引号（粘贴模板/文档时常见，如 APP_BASE_URL= `https://...`）。
+# 反引号会被 bash 当作命令替换执行，导致配置值变空，PM2 启动后回调地址/连库出错。
+# 配置值不允许出现反引号，检测到直接自动清除。
+if grep -q '`' .env; then
+    echo -e "${YELLOW}[i] .env 含反引号（\`），自动清除（配置值不允许出现反引号）...${NC}"
+    sed -i 's/`//g' .env
+fi
+# 关键配置非空校验（空值会导致后端用默认值连库失败 / 回调地址生成错误）
+for _var in APP_BASE_URL DB_URL DB_USERNAME DB_PASSWORD; do
+    _val=$(grep -E "^${_var}=" .env | head -1 | cut -d= -f2-)
+    if [ -z "$_val" ]; then
+        echo -e "${RED}[X] .env 缺少 ${_var} 配置值（为空），请填写后重新执行: bash update.sh${NC}"
+        exit 1
+    fi
+done
 # 缺失 JWT_SECRET 时自动生成（固定写入 .env，避免每次重启导致登录态失效）
 if ! grep -q '^JWT_SECRET=' .env; then
     echo "JWT_SECRET=$(openssl rand -base64 48)" >> .env
