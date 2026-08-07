@@ -85,8 +85,8 @@ turnstile:
 app:
   base-url: ${APP_BASE_URL:http://localhost:8083}
 
-# Logging
+# Logging（生产用 INFO；DEBUG 会刷大量日志拖慢启动并加速 50M 日志轮转）
 logging:
   level:
-    com.orionkey: DEBUG
+    com.orionkey: INFO
     org.springframework.security: WARN
