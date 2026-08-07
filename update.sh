@@ -5,6 +5,8 @@
 # 流程：检查配置 → 拉取代码 → 后端打包 → 前端构建 → PM2 重启 → 验证
 # ════════════════════════════════════════════════════════════════
 set -e
+# 管道中任一命令失败即整体失败（配合 tee 记录日志后判断 mvn/pnpm 真实退出码）
+set -o pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -64,7 +66,7 @@ if ! bash -n .env 2>/dev/null; then
 fi
 # 关键配置非空校验（空值会导致后端用默认值连库失败 / 回调地址生成错误）
 for _var in APP_BASE_URL DB_URL DB_USERNAME DB_PASSWORD; do
-    _val=$(grep -E "^${_var}=" .env | head -1 | cut -d= -f2-)
+    _val=$(grep -E "^${_var}=" .env | head -1 | cut -d= -f2- || true)
     if [ -z "$_val" ]; then
         echo -e "${RED}[X] .env 缺少 ${_var} 配置值（为空），请填写后重新执行: bash update.sh${NC}"
         exit 1
@@ -91,16 +93,25 @@ echo -e "${GREEN}[OK] 代码已更新${NC}"
 
 # ═══════ Step 3: 后端打包 ═══════
 echo -e "${YELLOW}[3] 后端打包 (Maven)...${NC}"
+mkdir -p "$PROJECT_DIR/logs"
 cd "$PROJECT_DIR/apps/api"
-mvn -DskipTests package
+# 完整输出落盘 logs/maven-build.log，失败时自动显示 ERROR 摘要
+if ! mvn -DskipTests package 2>&1 | tee "$PROJECT_DIR/logs/maven-build.log"; then
+    echo -e "${RED}[X] Maven 打包失败！错误摘要:${NC}"
+    grep -E '\[ERROR\]|BUILD FAILURE|error:' "$PROJECT_DIR/logs/maven-build.log" | tail -n 40 || true
+    echo -e "${RED}    完整日志: cat logs/maven-build.log${NC}"
+    exit 1
+fi
 echo -e "${GREEN}[OK] 后端打包完成${NC}"
 
 # ═══════ Step 4: 前端依赖 + 构建 ═══════
 echo -e "${YELLOW}[4] 前端构建 (pnpm)...${NC}"
 cd "$PROJECT_DIR"
 # 依赖安装失败时直接恢复 web 进程，避免网页停在不可用状态
-if ! pnpm install; then
-    echo -e "${RED}[X] pnpm install 失败！恢复旧前端进程...${NC}"
+if ! pnpm install 2>&1 | tee "$PROJECT_DIR/logs/pnpm-install.log"; then
+    echo -e "${RED}[X] pnpm install 失败！错误摘要:${NC}"
+    grep -iE 'error|ERR_|Failed|npm error' "$PROJECT_DIR/logs/pnpm-install.log" | tail -n 30 || true
+    echo -e "${RED}    完整日志: cat logs/pnpm-install.log${NC}"
     pm2 restart noepay.cn-web 2>/dev/null || true
     exit 1
 fi
@@ -109,11 +120,14 @@ fi
 # 构建前先停前端进程，避免覆盖 .next 目录时写冲突
 pm2 stop noepay.cn-web 2>/dev/null || pkill -f 'next start -p 3001' 2>/dev/null || true
 cd apps/web
-if ! env -u NODE_OPTIONS BACKEND_URL=http://127.0.0.1:8083 pnpm build; then
+# 完整输出落盘 logs/web-build.log，失败时自动显示错误尾部（避免被刷屏截断看不到真实报错）
+if ! env -u NODE_OPTIONS BACKEND_URL=http://127.0.0.1:8083 pnpm build 2>&1 | tee "$PROJECT_DIR/logs/web-build.log"; then
     echo -e "${RED}[X] 前端构建失败！回滚旧版本并恢复 web 进程...${NC}"
     [ -d .next.bak ] && { rm -rf .next; mv .next.bak .next; }
     pm2 restart noepay.cn-web 2>/dev/null || true
-    echo -e "${RED}    请查看构建错误: pnpm build 2>&1 | tail -80${NC}"
+    echo -e "${RED}    构建错误摘要（最后 40 行）:${NC}"
+    tail -n 40 "$PROJECT_DIR/logs/web-build.log" || true
+    echo -e "${RED}    完整日志: cat logs/web-build.log${NC}"
     exit 1
 fi
 rm -rf .next.bak
@@ -172,9 +186,9 @@ fi
 # 表结构由后端 ddl-auto:update 启动时自动创建/补字段；data.sql 只插入种子行，
 # 全部 WHERE NOT EXISTS 可重复执行。放在后端就绪后执行，保证表已存在。
 echo -e "${YELLOW}[6.5] 初始化种子数据 (data.sql)...${NC}"
-DB_URL_VAL=$(grep -E '^DB_URL=' .env | head -1 | cut -d= -f2-)
-DB_USER_VAL=$(grep -E '^DB_USERNAME=' .env | head -1 | cut -d= -f2-)
-DB_PASS_VAL=$(grep -E '^DB_PASSWORD=' .env | head -1 | cut -d= -f2-)
+DB_URL_VAL=$(grep -E '^DB_URL=' .env | head -1 | cut -d= -f2- || true)
+DB_USER_VAL=$(grep -E '^DB_USERNAME=' .env | head -1 | cut -d= -f2- || true)
+DB_PASS_VAL=$(grep -E '^DB_PASSWORD=' .env | head -1 | cut -d= -f2- || true)
 # 解析 JDBC URL: jdbc:postgresql://HOST:PORT/DBNAME
 DB_HOST=$(echo "$DB_URL_VAL" | sed -nE 's|jdbc:postgresql://([^:/]+)(:[0-9]+)?/.*|\1|p')
 DB_PORT=$(echo "$DB_URL_VAL" | sed -nE 's|jdbc:postgresql://[^:]+:([0-9]+)/.*|\1|p')
@@ -265,21 +279,21 @@ if [ -f "$NGINX_CONF" ]; then
             else
                 echo -e "${RED}[X] 注入修复规则后 nginx -t 失败，自动回滚最新备份${NC}"
                 mv "$NGINX_CONF" "$NGINX_CONF.tmp.broken"
-                LATEST_BAK=$(ls -t "$NGINX_CONF".bak.* 2>/dev/null | head -1)
+                LATEST_BAK=$(ls -t "$NGINX_CONF".bak.* 2>/dev/null | head -1 || true)
                 [ -n "$LATEST_BAK" ] && cp "$LATEST_BAK" "$NGINX_CONF"
                 NGINX_FAIL=1
             fi
         fi
     fi
     # 3) SSL 证书配置检查（"连接不是专用连接"= 证书无效/过期/域名不匹配，必须前置拦截）
-    SSL_CERT=$(grep -oE 'ssl_certificate[[:space:]]+[^;]+;' "$NGINX_CONF" | head -1 | awk '{print $2}' | tr -d ';')
-    SSL_CERT_KEY=$(grep -oE 'ssl_certificate_key[[:space:]]+[^;]+;' "$NGINX_CONF" | head -1 | awk '{print $2}' | tr -d ';')
+    SSL_CERT=$(grep -oE 'ssl_certificate[[:space:]]+[^;]+;' "$NGINX_CONF" | head -1 | awk '{print $2}' | tr -d ';' || true)
+    SSL_CERT_KEY=$(grep -oE 'ssl_certificate_key[[:space:]]+[^;]+;' "$NGINX_CONF" | head -1 | awk '{print $2}' | tr -d ';' || true)
     # 展开可能的变量（如 $server_root）
     [ -n "$SSL_CERT" ] && SSL_CERT=$(eval echo "$SSL_CERT")
     [ -n "$SSL_CERT_KEY" ] && SSL_CERT_KEY=$(eval echo "$SSL_CERT_KEY")
     if [ -n "$SSL_CERT" ] && [ -f "$SSL_CERT" ]; then
         # 证书过期时间检查（取结束时间与当前时间比较，剩余 <30 天告警、已过期则失败）
-        CERT_END=$(openssl x509 -enddate -noout -in "$SSL_CERT" 2>/dev/null | cut -d= -f2)
+        CERT_END=$(openssl x509 -enddate -noout -in "$SSL_CERT" 2>/dev/null | cut -d= -f2 || true)
         if [ -n "$CERT_END" ]; then
             END_EPOCH=$(date -d "$CERT_END" +%s 2>/dev/null)
             NOW_EPOCH=$(date +%s)
@@ -338,7 +352,7 @@ fi
 #      注意：直接 curl /_next/static/（目录本身）Next.js 返回 404，会误报失败；
 #      必须拿页面真实引用的资源文件验证。资源 404 → 宝塔静态缓存 location 拦截或构建产物损坏 → 首页白屏。
 STATIC_HTML=$(curl -s https://noepay.cn/ || echo "")
-STATIC_ASSET=$(echo "$STATIC_HTML" | grep -oE '/_next/static/[A-Za-z0-9_./-]+' | head -1)
+STATIC_ASSET=$(echo "$STATIC_HTML" | grep -oE '/_next/static/[A-Za-z0-9_./-]+' | head -1 || true)
 if [ -n "$STATIC_ASSET" ]; then
     ASSET_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://noepay.cn${STATIC_ASSET}" || echo "000")
     echo -e "${YELLOW}[i] 静态资源(${STATIC_ASSET}): ${ASSET_CODE}${NC}"
