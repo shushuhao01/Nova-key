@@ -93,14 +93,18 @@ MAIL_USERNAME=your@email.com
 MAIL_PASSWORD=你的SMTP授权码
 MAIL_SITE_URL=https://你的域名
 
-# 时区（必须，否则订单时间偏差 8 小时）
+# 时区（必须，否则订单时间偏差 8 小时；同时影响支付宝签名时间戳，偏差超 5 分钟会被拒绝）
 TZ=Asia/Shanghai
 ```
+> **为什么必须北京时间**：微信支付签名用 Unix 时间戳（与时区无关，天然正确）；
+> 支付宝签名中的 `timestamp` 为 `yyyy-MM-dd HH:mm:ss` 格式、按 JVM 时区生成，
+> 若服务器时区不是 `Asia/Shanghai`，时间戳偏差超 5 分钟会被支付宝直接拒单。
+> 因此除 `TZ` 环境变量外，启动命令还需显式加 `-Duser.timezone=Asia/Shanghai`（见下）。
 
 启动命令：
 
 ```bash
-nohup java -jar target/nova-key-1.0.0-SNAPSHOT.jar --server.port=8083 > logs/api.log 2>&1 &
+nohup java -Duser.timezone=Asia/Shanghai -jar target/nova-key-1.0.0-SNAPSHOT.jar --server.port=8083 > logs/api.log 2>&1 &
 ```
 
 > **端口冲突检查**：若 8083/3000 被占用（`ss -lntp | grep -E '8083|3000'`），

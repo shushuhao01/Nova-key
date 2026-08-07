@@ -21,6 +21,7 @@ import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -162,7 +163,9 @@ public class AlipayServiceImpl implements AlipayService {
         params.put("format", "JSON");
         params.put("charset", "utf-8");
         params.put("sign_type", "RSA2");
-        params.put("timestamp", LocalDateTime.now().format(TIMESTAMP_FORMAT));
+        // 支付宝要求 timestamp 为商户本地时间（北京时间），固定时区格式化，
+        // 避免服务器 JVM 时区非 Asia/Shanghai 时签名时间戳偏差被支付宝拒绝
+        params.put("timestamp", LocalDateTime.now(ZoneId.of("Asia/Shanghai")).format(TIMESTAMP_FORMAT));
         params.put("version", "1.0");
         if (config.notifyUrl() != null && !config.notifyUrl().isBlank()) {
             params.put("notify_url", config.notifyUrl());

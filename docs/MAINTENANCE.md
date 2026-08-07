@@ -144,10 +144,12 @@ PGPASSWORD='<密码>' psql -U novakey -h 127.0.0.1 -d nova_key -c '\dt'
 
 ### 5.5 时间偏差
 
-订单过期判断、支付超时依赖服务器时间。确认进程时区：
+订单过期判断、支付超时、支付宝签名时间戳均依赖北京时间（微信签名用 Unix 时间戳，无时区问题）。
+确认进程时区与启动参数：
 
 ```bash
-date +%Z   # 应输出 CST 或 +0800
+date +%Z                          # 应输出 CST 或 +0800
+ps -ef | grep java                # 确认启动命令含 -Duser.timezone=Asia/Shanghai
 ```
 
 ---
