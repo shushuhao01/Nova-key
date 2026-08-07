@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Save, AlertTriangle, Upload, Loader2, ImagePlus } from "lucide-react"
+import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { adminConfigApi, adminProductApi, withMockFallback } from "@/services/api"
@@ -22,7 +22,7 @@ function validateImageFile(file: File): string | null {
   return null
 }
 
-type TabKey = "basic" | "announcement" | "points" | "contact" | "maintenance"
+type TabKey = "basic" | "announcement" | "points" | "contact" | "email" | "maintenance"
 
 export default function AdminSiteConfigPage() {
   const { t } = useLocale()
@@ -32,6 +32,8 @@ export default function AdminSiteConfigPage() {
   const [saving, setSaving] = useState(false)
   const [logoUploading, setLogoUploading] = useState(false)
   const [popupUploading, setPopupUploading] = useState(false)
+  const [testEmailTo, setTestEmailTo] = useState("")
+  const [testSending, setTestSending] = useState(false)
   const popupTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   const fetchConfig = useCallback(async () => {
@@ -67,10 +69,13 @@ export default function AdminSiteConfigPage() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      const configs = Object.entries(configMap).map(([config_key, config_value]) => ({
-        config_key,
-        config_value,
-      }))
+      // SMTP 密码：留空或 __SET__ 表示不修改，剔除后不提交（后端也跳过空值）
+      const configs = Object.entries(configMap)
+        .filter(([key, value]) => !(key === "smtp_password" && (value === "" || value === "__SET__")))
+        .map(([config_key, config_value]) => ({
+          config_key,
+          config_value,
+        }))
       await withMockFallback(
         () => adminConfigApi.update({ configs }),
         () => null
@@ -94,6 +99,33 @@ export default function AdminSiteConfigPage() {
       toast.success(newEnabled ? "已开启维护模式" : "已关闭维护模式")
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "操作失败")
+    }
+  }
+
+  // 先保存当前表单的邮件配置，再用最新配置发测试邮件
+  const handleTestEmail = async () => {
+    if (!testEmailTo.trim()) {
+      toast.error("请输入测试收件邮箱")
+      return
+    }
+    setTestSending(true)
+    try {
+      const configs = Object.entries(configMap)
+        .filter(([key, value]) => !(key === "smtp_password" && (value === "" || value === "__SET__")))
+        .map(([config_key, config_value]) => ({ config_key, config_value }))
+      await withMockFallback(
+        () => adminConfigApi.update({ configs }),
+        () => null
+      )
+      await withMockFallback(
+        () => adminConfigApi.testEmail(testEmailTo.trim()),
+        () => null
+      )
+      toast.success("测试邮件已发送，请查收")
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "测试邮件发送失败")
+    } finally {
+      setTestSending(false)
     }
   }
 
@@ -124,6 +156,7 @@ export default function AdminSiteConfigPage() {
           { key: "announcement" as const, label: t("admin.announcementTab") },
           { key: "points" as const, label: t("admin.pointsSettings") },
           { key: "contact" as const, label: t("admin.contactTab") },
+          { key: "email" as const, label: t("admin.emailSettings") },
           { key: "maintenance" as const, label: t("admin.maintenanceTab") },
         ]).map((tabItem) => (
           <button
@@ -440,6 +473,170 @@ export default function AdminSiteConfigPage() {
               />
               <p className="text-xs text-muted-foreground">{t("admin.contactTelegramGroupHint")}</p>
             </div>
+            <button
+              type="button"
+              className="flex w-fit items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+              onClick={handleSave}
+              disabled={saving}
+            >
+              <Save className="h-4 w-4" />
+              {saving ? t("admin.saving") : t("admin.saveSettings")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Email Settings */}
+      {tab === "email" && (
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          <div className="flex flex-col gap-5 max-w-xl">
+            <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4">
+              <div className="flex items-start gap-3">
+                <Mail className="mt-0.5 h-5 w-5 shrink-0 text-blue-500" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">邮箱发件（SMTP）配置</p>
+                  <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                    买家下单支付成功并自动发货后，系统会把<b>订单信息 + 卡密</b>发送到买家填写的邮箱。
+                    常见服务商：QQ 邮箱 <code className="rounded bg-muted px-1">smtp.qq.com</code>（465/587）、
+                    163 <code className="rounded bg-muted px-1">smtp.163.com</code>（465/587）、
+                    阿里云企业邮箱 <code className="rounded bg-muted px-1">smtp.qiye.aliyun.com</code>（465）等。
+                    <b>密码请填邮箱的 SMTP 授权码</b>（登录密码无法用于 SMTP）。
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 启用开关 */}
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-sm font-medium text-foreground">启用邮件自动发货通知</label>
+                <p className="text-xs text-muted-foreground">关闭后买家不会收到发货邮件（卡密仍可在订单查询页查看）</p>
+              </div>
+              <button
+                type="button"
+                className={cn(
+                  "relative h-6 w-11 rounded-full transition-colors",
+                  (configMap.mail_enabled === undefined ? true : getBool("mail_enabled")) ? "bg-primary" : "bg-muted"
+                )}
+                onClick={() => toggleBool("mail_enabled")}
+              >
+                <span className={cn(
+                  "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                  (configMap.mail_enabled === undefined ? true : getBool("mail_enabled")) && "translate-x-5"
+                )} />
+              </button>
+            </div>
+
+            {/* SMTP 服务器 + 端口 */}
+            <div className="flex gap-3">
+              <div className="flex flex-1 flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">SMTP 服务器</label>
+                <input
+                  type="text"
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="smtp.qq.com"
+                  value={getValue("smtp_host")}
+                  onChange={(e) => setValue("smtp_host", e.target.value)}
+                />
+              </div>
+              <div className="flex w-28 flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">端口</label>
+                <input
+                  type="number"
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="465"
+                  value={getValue("smtp_port")}
+                  onChange={(e) => setValue("smtp_port", e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* 账号 */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">SMTP 账号</label>
+              <input
+                type="text"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="noreply@qq.com"
+                value={getValue("smtp_username")}
+                onChange={(e) => setValue("smtp_username", e.target.value)}
+              />
+            </div>
+
+            {/* 授权码 */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">SMTP 授权码 / 密码</label>
+              <input
+                type="password"
+                autoComplete="new-password"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder={getValue("smtp_password") === "__SET__" ? "已设置，留空则不修改" : "邮箱的 SMTP 授权码"}
+                value={getValue("smtp_password") === "__SET__" ? "" : getValue("smtp_password")}
+                onChange={(e) => setValue("smtp_password", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">出于安全考虑不显示已保存的授权码；留空表示不修改</p>
+            </div>
+
+            {/* 发件人信息 */}
+            <div className="flex flex-col gap-5 border-t border-border pt-5">
+              <p className="text-sm font-medium text-foreground">发件人信息</p>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">发件人邮箱</label>
+                <input
+                  type="email"
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="noreply@qq.com"
+                  value={getValue("mail_from")}
+                  onChange={(e) => setValue("mail_from", e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">留空则使用 SMTP 账号作为发件人</p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">发件人名称</label>
+                <input
+                  type="text"
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="Nova key"
+                  value={getValue("mail_from_name")}
+                  onChange={(e) => setValue("mail_from_name", e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">站点地址（邮件中订单详情链接使用）</label>
+                <input
+                  type="url"
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="https://noepay.cn"
+                  value={getValue("mail_site_url")}
+                  onChange={(e) => setValue("mail_site_url", e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* 测试邮件 */}
+            <div className="rounded-lg border border-border p-4">
+              <p className="text-sm font-medium text-foreground">发送测试邮件</p>
+              <p className="mt-1 text-xs text-muted-foreground">填一个收件邮箱，使用以上配置立即发送测试邮件，验证配置是否正确</p>
+              <div className="mt-3 flex gap-2">
+                <input
+                  type="email"
+                  className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="收件邮箱，如 you@example.com"
+                  value={testEmailTo}
+                  onChange={(e) => setTestEmailTo(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  onClick={handleTestEmail}
+                  disabled={testSending}
+                >
+                  {testSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {testSending ? "发送中..." : "发送测试邮件"}
+                </button>
+              </div>
+            </div>
+
             <button
               type="button"
               className="flex w-fit items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"

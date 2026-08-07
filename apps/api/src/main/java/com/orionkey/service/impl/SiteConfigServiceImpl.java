@@ -46,6 +46,9 @@ public class SiteConfigServiceImpl implements SiteConfigService {
             "footer_text", "github_url",
             // 自定义样式
             "custom_css",
+            // 邮箱发件（SMTP）— 供管理后台「网站设置 → 邮箱发件」配置
+            "mail_enabled", "smtp_host", "smtp_port", "smtp_username", "smtp_password",
+            "mail_from", "mail_from_name", "mail_site_url",
             // 系统参数
             "order_expire_minutes", "max_pending_orders_per_user", "max_pending_orders_per_ip",
             "rate_limit_per_second"
@@ -97,7 +100,12 @@ public class SiteConfigServiceImpl implements SiteConfigService {
                 .map(c -> {
                     Map<String, Object> map = new LinkedHashMap<>();
                     map.put("config_key", c.getConfigKey());
-                    map.put("config_value", c.getConfigValue());
+                    String value = c.getConfigValue();
+                    // SMTP 密码不回传明文，已配置时标记 __SET__（前端显示"已设置，留空则不修改"）
+                    if ("smtp_password".equals(c.getConfigKey()) && value != null && !value.isBlank()) {
+                        value = "__SET__";
+                    }
+                    map.put("config_value", value);
                     map.put("config_group", c.getConfigGroup());
                     return map;
                 }).toList();
@@ -112,6 +120,10 @@ public class SiteConfigServiceImpl implements SiteConfigService {
             // F16: 只允许白名单内的 key 被修改，防止注入系统内部配置
             if (key == null || !EDITABLE_KEYS.contains(key)) {
                 log.warn("Rejected config update for non-editable key: {}", key);
+                continue;
+            }
+            // SMTP 密码：前端空值或 __SET__ 表示不修改，保留原密码
+            if ("smtp_password".equals(key) && (value == null || value.isBlank() || "__SET__".equals(value))) {
                 continue;
             }
             // F15: custom_css 写入时也做安全过滤

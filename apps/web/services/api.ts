@@ -579,6 +579,9 @@ export const adminConfigApi = {
     request<null>("/admin/site-config", { method: "PUT", body: JSON.stringify(data) }),
   toggleMaintenance: (enabled: boolean) =>
     request<null>("/admin/site-config/maintenance", { method: "POST", body: JSON.stringify({ enabled }) }),
+  // 用当前 SMTP 配置发送测试邮件
+  testEmail: (toEmail: string) =>
+    request<null>("/admin/site-config/email/test", { method: "POST", body: JSON.stringify({ to_email: toEmail }) }),
 }
 
 // ============================================================
