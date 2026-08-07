@@ -46,6 +46,22 @@ if grep -q '`' .env; then
     echo -e "${YELLOW}[i] .env 含反引号（\`），自动清除（配置值不允许出现反引号）...${NC}"
     sed -i 's/`//g' .env
 fi
+# 清理复制粘贴混入的垃圾内容：
+# 1) 终端提示符（如 root@xxx:/path#）被粘进 .env → source 时报 command not found
+# 2) grep 输出的行号前缀（如 "6:APP_BASE_URL=..."）被粘进 → 变量名解析错误
+if grep -qE '^(root@|bash:|No such file|command not found)' .env; then
+    echo -e "${YELLOW}[i] .env 混入了终端提示符等非法内容，自动清理...${NC}"
+    sed -i -E '/^(root@|bash:|No such file|command not found)/d' .env
+fi
+if grep -qE '^[0-9]+:[A-Za-z_]+=' .env; then
+    echo -e "${YELLOW}[i] .env 混入了带行号的配置行（如 "6:APP_BASE_URL=..."），自动去掉行号前缀...${NC}"
+    sed -i -E 's/^[0-9]+://' .env
+fi
+# 语法检查：引号/括号未闭合会在 source .env 时直接失败，导致 PM2 启动崩溃
+if ! bash -n .env 2>/dev/null; then
+    echo -e "${RED}[X] .env 语法错误（引号/括号未闭合），请修复后重新执行: bash update.sh${NC}"
+    exit 1
+fi
 # 关键配置非空校验（空值会导致后端用默认值连库失败 / 回调地址生成错误）
 for _var in APP_BASE_URL DB_URL DB_USERNAME DB_PASSWORD; do
     _val=$(grep -E "^${_var}=" .env | head -1 | cut -d= -f2-)
