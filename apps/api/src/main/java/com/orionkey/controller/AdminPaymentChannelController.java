@@ -41,4 +41,11 @@ public class AdminPaymentChannelController {
         adminPaymentChannelService.deleteChannel(id);
         return ApiResponse.success();
     }
+
+    /** 测试支付渠道配置与支付平台的连通性，返回 { success, message: 详细原因 } */
+    @LogOperation(action = "payment.test", targetType = "PAYMENT_CHANNEL", targetId = "#id", detail = "'测试支付渠道连接'")
+    @PostMapping("/{id}/test")
+    public ApiResponse<?> testChannel(@PathVariable UUID id) {
+        return ApiResponse.success(adminPaymentChannelService.testChannel(id));
+    }
 }

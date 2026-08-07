@@ -55,6 +55,15 @@ public interface WxpayService {
     WxpayOrderQueryResult queryOrder(WxpayConfig config, String outTradeNo);
 
     /**
+     * 测试商户配置与微信支付平台的连通性（调用 GET /v3/certificates 验证
+     * 商户号/证书序列号/商户私钥签名是否有效）。
+     *
+     * @return 成功消息
+     * @throws com.orionkey.exception.BusinessException 失败时抛出，message 为详细原因
+     */
+    String testConnection(WxpayConfig config);
+
+    /**
      * 验证微信回调签名（平台证书）并解密资源内容。
      *
      * @param headers 回调请求头（键已转为小写，含 wechatpay-* 头）

@@ -44,6 +44,15 @@ public interface AlipayService {
     AlipayOrderQueryResult queryOrder(AlipayConfig config, String outTradeNo);
 
     /**
+     * 测试商户配置与支付宝开放平台的连通性：使用一笔不存在的订单号调用
+     * alipay.trade.query，验证 AppID、应用私钥签名与支付宝公钥验签是否有效。
+     *
+     * @return 成功消息
+     * @throws com.orionkey.exception.BusinessException 失败时抛出，message 为详细原因
+     */
+    String testConnection(AlipayConfig config);
+
+    /**
      * 验证支付宝异步通知签名（RSA2）。
      *
      * @param alipayPublicKey 支付宝公钥

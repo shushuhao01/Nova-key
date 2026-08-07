@@ -8,10 +8,18 @@ import com.orionkey.entity.PaymentChannel;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.PaymentChannelRepository;
 import com.orionkey.service.AdminPaymentChannelService;
+import com.orionkey.service.AlipayService;
+import com.orionkey.service.WxpayService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
 
@@ -21,6 +29,10 @@ public class AdminPaymentChannelServiceImpl implements AdminPaymentChannelServic
 
     private final PaymentChannelRepository paymentChannelRepository;
     private final ObjectMapper objectMapper;
+    private final WxpayService wxpayService;
+    private final AlipayService alipayService;
+    private final PaymentServiceImpl paymentService;
+    private final RestTemplate restTemplate;
 
     /** 应用公网地址（application.yml: app.base-url），用于自动生成原生支付回调地址 */
     @Value("${app.base-url:http://localhost:8083}")
@@ -75,6 +87,75 @@ public class AdminPaymentChannelServiceImpl implements AdminPaymentChannelServic
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "支付渠道不存在"));
         channel.setIsDeleted(1);
         paymentChannelRepository.save(channel);
+    }
+
+    @Override
+    public Map<String, Object> testChannel(UUID id) {
+        PaymentChannel channel = paymentChannelRepository.findById(id)
+                .filter(c -> c.getIsDeleted() == 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "支付渠道不存在"));
+        try {
+            String message = switch (channel.getProviderType()) {
+                case "native_wxpay" -> wxpayService.testConnection(paymentService.buildWxpayConfig(channel));
+                case "native_alipay" -> alipayService.testConnection(paymentService.buildAlipayConfig(channel));
+                case "epay" -> testEpayConnectivity(channel);
+                case "usdt" -> testBepusdtConnectivity(channel);
+                default -> throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
+                        "暂不支持测试该渠道类型：" + channel.getProviderType());
+            };
+            return Map.of("success", true, "message", message);
+        } catch (BusinessException e) {
+            return Map.of("success", false, "message", e.getMessage());
+        }
+    }
+
+    /** 易支付渠道测试：校验配置完整性 + 探测网关可达性 */
+    private String testEpayConnectivity(PaymentChannel channel) {
+        Map<String, Object> cfg = deserializeConfigData(channel.getConfigData());
+        String pid = strValue(cfg, "pid");
+        String key = strValue(cfg, "key");
+        String apiUrl = strValue(cfg, "api_url");
+        if (pid.isBlank() || key.isBlank() || apiUrl.isBlank()) {
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
+                    "易支付配置不完整：请填写 商户ID(pid)、商户密钥(key)、API地址(api_url)");
+        }
+        probeGateway(apiUrl, "易支付");
+        return "连接成功：易支付网关可访问，商户配置完整（PID=" + pid
+                + "）。建议用一笔 0.01 元订单实际验证收款回调";
+    }
+
+    /** USDT（BEpusdt）渠道测试：校验配置完整性 + 探测服务可达性 */
+    private String testBepusdtConnectivity(PaymentChannel channel) {
+        Map<String, Object> cfg = deserializeConfigData(channel.getConfigData());
+        String apiUrl = strValue(cfg, "api_url");
+        String apiToken = strValue(cfg, "api_token");
+        if (apiUrl.isBlank() || apiToken.isBlank()) {
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
+                    "USDT 配置不完整：请填写 BEpusdt 服务地址(api_url)、API Token(api_token)");
+        }
+        probeGateway(apiUrl, "BEpusdt");
+        return "连接成功：BEpusdt 服务可访问，API Token 已配置";
+    }
+
+    /** 探测支付网关/服务地址可达性：4xx/5xx 也视为可达（网关在线），网络异常才报错 */
+    private void probeGateway(String apiUrl, String name) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(java.util.List.of(MediaType.TEXT_HTML, MediaType.APPLICATION_JSON, MediaType.ALL));
+            restTemplate.exchange(apiUrl, org.springframework.http.HttpMethod.GET,
+                    new HttpEntity<>(headers), String.class);
+        } catch (HttpStatusCodeException ignored) {
+            // 网关返回 4xx/5xx 说明服务在线
+        } catch (RestClientException e) {
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
+                    "无法访问 " + name + " 服务 " + apiUrl + "：" + e.getMessage());
+        }
+    }
+
+    private static String strValue(Map<String, Object> cfg, String key) {
+        if (cfg == null) return "";
+        Object v = cfg.get(key);
+        return v == null ? "" : String.valueOf(v).trim();
     }
 
     /** 需要在 API 响应中脱敏的敏感字段名 */

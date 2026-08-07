@@ -560,6 +560,9 @@ export const adminPaymentApi = {
     formData.append("file", file)
     return uploadRequest<{ path: string; filename: string }>("/upload/cert", formData)
   },
+  // 测试支付渠道配置与支付平台的连通性，返回 { success, message }
+  testChannel: (id: string) =>
+    request<{ success: boolean; message: string }>(`/admin/payment-channels/${id}/test`, { method: "POST" }),
 }
 
 // ============================================================

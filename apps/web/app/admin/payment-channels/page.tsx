@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from "react"
-import { Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle, ChevronDown, Shield, Key, CheckCircle2, Copy } from "lucide-react"
+import { Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle, ChevronDown, Shield, Key, CheckCircle2, Copy, Activity, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
 import { toast } from "sonner"
@@ -158,6 +158,8 @@ export default function AdminPaymentChannelsPage() {
   const [formErrors, setFormErrors] = useState<Record<string, boolean>>({})
   /** 正在上传证书的字段 key（用于显示上传中状态） */
   const [uploadingKey, setUploadingKey] = useState<string | null>(null)
+  /** 正在测试连接的渠道 id */
+  const [testingId, setTestingId] = useState<string | null>(null)
   const providerBtnRef = useRef<HTMLButtonElement>(null)
   const channelNameRef = useRef<HTMLInputElement>(null)
 
@@ -422,6 +424,23 @@ export default function AdminPaymentChannelsPage() {
     }
   }
 
+  /** 测试支付渠道连接：调用后端真实请求支付平台验证配置，失败时展示详细原因 */
+  const handleTestChannel = async (id: string) => {
+    setTestingId(id)
+    try {
+      const res = await adminPaymentApi.testChannel(id)
+      if (res.success) {
+        toast.success(res.message)
+      } else {
+        toast.error(res.message)
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "连接测试失败")
+    } finally {
+      setTestingId(null)
+    }
+  }
+
   const getConfigStatus = (channel: PaymentChannelItem) => {
     const config = channel.config_data
     if (!config || typeof config !== "object") return false
@@ -525,6 +544,20 @@ export default function AdminPaymentChannelsPage() {
               </div>
 
               <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-50"
+                  title="测试该渠道配置与支付平台的连通性"
+                  onClick={() => handleTestChannel(channel.id)}
+                  disabled={testingId !== null}
+                >
+                  {testingId === channel.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Activity className="h-3.5 w-3.5" />
+                  )}
+                  {testingId === channel.id ? "测试中..." : "测试连接"}
+                </button>
                 <button
                   type="button"
                   className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"

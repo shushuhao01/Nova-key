@@ -14,6 +14,9 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.ByteArrayInputStream;
@@ -184,6 +187,60 @@ public class WxpayServiceImpl implements WxpayService {
             log.warn("Wxpay notification processing failed: {}", e.getMessage());
             return null;
         }
+    }
+
+    @Override
+    public String testConnection(WxpayConfig config) {
+        // 1. 提前验证商户私钥可解析（最常见的配置错误：私钥为空 / 格式不对 / PEM 头缺失）
+        try {
+            PaymentCryptoUtils.parsePrivateKey(config.privateKey());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
+                    "商户私钥解析失败：" + e.getMessage()
+                            + "。请检查 apiclient_key.pem 内容是否正确完整（含 -----BEGIN ...----- 头）");
+        }
+        // 2. 调用微信支付 APIv3 获取平台证书，验证 商户号+证书序列号+私钥签名 是否有效
+        String canonicalPath = "/v3/certificates";
+        String gateway = trimSlash(config.gatewayUrl());
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    gateway + canonicalPath, HttpMethod.GET,
+                    new HttpEntity<>(apiV3Headers(config, "GET", canonicalPath, "")),
+                    String.class);
+            Map<String, Object> resp = objectMapper.readValue(response.getBody(), new TypeReference<>() {
+            });
+            int count = resp.get("data") instanceof List<?> list ? list.size() : 0;
+            return "连接成功：微信支付平台证书获取正常（共 " + count + " 张），商户号与证书序列号签名验证通过";
+        } catch (HttpClientErrorException e) {
+            String detail = extractWxErrorDetail(e);
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
+                    "微信支付认证失败（HTTP " + e.getStatusCode().value() + "）：" + detail
+                            + "。请核对商户号(mchid)、证书序列号(serial_no)、商户私钥是否一致，且商户平台已配置 APIv3 密钥");
+        } catch (HttpServerErrorException e) {
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
+                    "微信支付服务异常（HTTP " + e.getStatusCode().value() + "）：" + e.getResponseBodyAsString());
+        } catch (RestClientException e) {
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
+                    "无法连接微信支付服务器：" + e.getMessage()
+                            + "。请检查服务器网络能否访问 api.mch.weixin.qq.com");
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE, "微信支付连接测试异常：" + e.getMessage());
+        }
+    }
+
+    /** 从微信 APIv3 错误响应体中提取 message 字段（如签名错误的具体原因） */
+    private String extractWxErrorDetail(HttpClientErrorException e) {
+        String body = e.getResponseBodyAsString();
+        if (body == null || body.isBlank()) return e.getMessage();
+        try {
+            Map<String, Object> m = objectMapper.readValue(body, new TypeReference<>() {
+            });
+            Object message = m.get("message");
+            if (message != null && !message.toString().isBlank()) return message.toString();
+        } catch (Exception ignored) {
+            // fall through
+        }
+        return body.length() > 300 ? body.substring(0, 300) : body;
     }
 
     /**

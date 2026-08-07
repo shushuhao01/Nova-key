@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
@@ -123,6 +124,56 @@ public class AlipayServiceImpl implements AlipayService {
         } catch (Exception e) {
             log.warn("Alipay order query failed: outTradeNo={}, error={}", outTradeNo, e.getMessage());
             return null;
+        }
+    }
+
+    @Override
+    public String testConnection(AlipayConfig config) {
+        // 用一笔不存在的订单号调用查询接口，验证 AppID / 应用私钥签名 / 支付宝公钥验签是否有效
+        String outTradeNo = "NOVA_TEST_" + System.currentTimeMillis();
+        String bizContent = "{\"out_trade_no\":\"" + outTradeNo + "\"}";
+        Map<String, String> params = baseParams(config, "alipay.trade.query", bizContent);
+        try {
+            String sign = sign(params, config.privateKey());
+            params.put("sign", sign);
+            String respBody = postForm(config.gatewayUrl(), params);
+            Map<String, Object> resp = objectMapper.readValue(respBody, new TypeReference<>() {
+            });
+            Map<String, Object> apiResp = readApiResponse(resp, "alipay_trade_query_response");
+
+            // 先验证响应签名：能验签通过说明支付宝公钥正确
+            if (resp.get("sign") instanceof String respSign && !respSign.isBlank()) {
+                Map<String, String> verifyParams = new LinkedHashMap<>();
+                for (Map.Entry<String, Object> entry : apiResp.entrySet()) {
+                    verifyParams.put(entry.getKey(), String.valueOf(entry.getValue()));
+                }
+                if (!verifySign(config.alipayPublicKey(), verifyParams, respSign)) {
+                    throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
+                            "支付宝响应验签失败：支付宝公钥可能不正确，请在支付宝开放平台「密钥管理」中核对公钥（应用公钥需与私钥匹配）");
+                }
+            }
+
+            String code = apiResp.get("code") != null ? apiResp.get("code").toString() : null;
+            String subMsg = apiResp.get("sub_msg") != null ? apiResp.get("sub_msg").toString() : null;
+            // code=10000 成功；code=40004(ACQ.TRADE_NOT_EXIST) 表示签名验证通过、仅订单不存在（测试单号必然不存在）
+            if ("10000".equals(code) || "40004".equals(code)) {
+                return "连接成功：AppID 与应用私钥、支付宝公钥配置正确，签名验证通过";
+            }
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
+                    "支付宝接口返回错误：code=" + code + "（msg=" + apiResp.get("msg")
+                            + (subMsg != null ? "，sub_msg=" + subMsg : "") + "）");
+        } catch (BusinessException e) {
+            throw e;
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
+                    "应用私钥解析失败：" + e.getMessage()
+                            + "。请检查应用私钥内容是否正确完整（含 -----BEGIN ...----- 头）");
+        } catch (RestClientException e) {
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
+                    "无法连接支付宝服务器：" + e.getMessage()
+                            + "。请检查服务器网络能否访问 openapi.alipay.com");
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE, "支付宝连接测试异常：" + e.getMessage());
         }
     }
 
