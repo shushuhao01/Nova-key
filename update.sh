@@ -66,12 +66,26 @@ echo -e "${GREEN}[OK] 后端打包完成${NC}"
 
 # ═══════ Step 4: 前端依赖 + 构建 ═══════
 echo -e "${YELLOW}[4] 前端构建 (pnpm)...${NC}"
+cd "$PROJECT_DIR"
+# 依赖安装失败时直接恢复 web 进程，避免网页停在不可用状态
+if ! pnpm install; then
+    echo -e "${RED}[X] pnpm install 失败！恢复旧前端进程...${NC}"
+    pm2 restart noepay.cn-web 2>/dev/null || true
+    exit 1
+fi
+# 备份旧构建产物，构建失败时可回滚（防止网页长期打不开）
+[ -d apps/web/.next ] && { rm -rf apps/web/.next.bak; cp -r apps/web/.next apps/web/.next.bak; }
 # 构建前先停前端进程，避免覆盖 .next 目录时写冲突
 pm2 stop noepay.cn-web 2>/dev/null || pkill -f 'next start -p 3001' 2>/dev/null || true
-cd "$PROJECT_DIR"
-pnpm install
 cd apps/web
-env -u NODE_OPTIONS BACKEND_URL=http://127.0.0.1:8083 pnpm build
+if ! env -u NODE_OPTIONS BACKEND_URL=http://127.0.0.1:8083 pnpm build; then
+    echo -e "${RED}[X] 前端构建失败！回滚旧版本并恢复 web 进程...${NC}"
+    [ -d .next.bak ] && { rm -rf .next; mv .next.bak .next; }
+    pm2 restart noepay.cn-web 2>/dev/null || true
+    echo -e "${RED}    请查看构建错误: pnpm build 2>&1 | tail -80${NC}"
+    exit 1
+fi
+rm -rf .next.bak
 echo -e "${GREEN}[OK] 前端构建完成${NC}"
 
 # ═══════ Step 5: PM2 启动/重启 ═══════
@@ -96,12 +110,31 @@ else
     exit 1
 fi
 
-# ═══════ Step 6: 验证 ═══════
-echo -e "${YELLOW}[6] 验证服务...${NC}"
-sleep 5
-API_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8083/api/products || echo "000")
-WEB_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001 || echo "000")
-echo -e "${GREEN}[i] 后端(8083): $API_CODE（401/200 均正常）  前端(3001): $WEB_CODE${NC}"
+# ═══════ Step 6: 等待服务就绪并验证 ═══════
+echo -e "${YELLOW}[6] 等待服务就绪并验证...${NC}"
+# Spring Boot 启动 + Next.js 冷启动需要时间，轮询等待（最长 90 秒），
+# 避免固定 sleep 后 curl 到启动中的服务误报 000、误以为更新失败
+API_OK=0; WEB_OK=0
+for i in $(seq 1 30); do
+    if [ "$API_OK" != 1 ]; then
+        code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8083/api/products || echo "000")
+        { [ "$code" = "200" ] || [ "$code" = "401" ]; } && API_OK=1
+    fi
+    if [ "$WEB_OK" != 1 ]; then
+        code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001 || echo "000")
+        [ "$code" != "000" ] && [ "$code" != "502" ] && [ "$code" != "503" ] && WEB_OK=1
+    fi
+    [ "$API_OK" = 1 ] && [ "$WEB_OK" = 1 ] && break
+    echo -e "${YELLOW}[i] 等待服务启动... (${i}/30)  api=$([ "$API_OK" = 1 ] && echo OK || echo 启动中)  web=$([ "$WEB_OK" = 1 ] && echo OK || echo 启动中)${NC}"
+    sleep 3
+done
+echo -e "${GREEN}[i] 后端(8083): $([ "$API_OK" = 1 ] && echo 正常 || echo 未就绪)  前端(3001): $([ "$WEB_OK" = 1 ] && echo 正常 || echo 未就绪)${NC}"
+if [ "$API_OK" != 1 ] || [ "$WEB_OK" != 1 ]; then
+    echo -e "${RED}[X] 服务未在 90 秒内就绪！请查看日志定位问题:${NC}"
+    echo -e "${RED}    后端: pm2 logs noepay.cn-api --lines 50 --nostream${NC}"
+    echo -e "${RED}    前端: pm2 logs noepay.cn-web --lines 50 --nostream${NC}"
+    exit 1
+fi
 
 cd "$PROJECT_DIR"
 echo ""
