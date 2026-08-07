@@ -24,17 +24,10 @@ spring:
     hibernate:
       ddl-auto: update
     open-in-view: false
-    # 让 Hibernate 先自动建表/补字段，再执行 data.sql（保证首次启动时种子数据表已存在）
-    defer-datasource-initialization: true
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: false
-  # 每次启动自动执行 data.sql（所有 INSERT 均带 WHERE NOT EXISTS，幂等可重复执行）
-  # 站点配置 / 管理员等种子数据无需手动 psql，改库自建自补
-  sql:
-    init:
-      mode: always
   jackson:
     property-naming-strategy: SNAKE_CASE
     date-format: yyyy-MM-dd HH:mm:ss

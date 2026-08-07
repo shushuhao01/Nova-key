@@ -159,11 +159,48 @@ for i in $(seq 1 30); do
 done
 echo -e "${GREEN}[i] 后端(8083): $([ "$API_OK" = 1 ] && echo 正常 || echo 未就绪)  前端(3001): $([ "$WEB_OK" = 1 ] && echo 正常 || echo 未就绪)${NC}"
 if [ "$API_OK" != 1 ] || [ "$WEB_OK" != 1 ]; then
-    echo -e "${RED}[X] 服务未在 90 秒内就绪！请查看日志定位问题:${NC}"
-    echo -e "${RED}    后端: pm2 logs noepay.cn-api --lines 50 --nostream${NC}"
-    echo -e "${RED}    前端: pm2 logs noepay.cn-web --lines 50 --nostream${NC}"
+    echo -e "${RED}[X] 服务未在 90 秒内就绪！自动打印最近日志定位问题:${NC}"
+    echo -e "${CYAN}────── 后端日志(noepay.cn-api) ──────${NC}"
+    pm2 logs noepay.cn-api --lines 100 --nostream 2>/dev/null || true
+    echo -e "${CYAN}────── 前端日志(noepay.cn-web) ──────${NC}"
+    pm2 logs noepay.cn-web --lines 30 --nostream 2>/dev/null || true
+    echo -e "${RED}    后端日志已打印在上方，请根据报错定位（种子数据由本脚本 psql 步骤执行，不阻塞后端启动）${NC}"
     exit 1
 fi
+
+# ═══════ Step 6.5: 初始化种子数据 (data.sql，幂等) ═══════
+# 表结构由后端 ddl-auto:update 启动时自动创建/补字段；data.sql 只插入种子行，
+# 全部 WHERE NOT EXISTS 可重复执行。放在后端就绪后执行，保证表已存在。
+echo -e "${YELLOW}[6.5] 初始化种子数据 (data.sql)...${NC}"
+DB_URL_VAL=$(grep -E '^DB_URL=' .env | head -1 | cut -d= -f2-)
+DB_USER_VAL=$(grep -E '^DB_USERNAME=' .env | head -1 | cut -d= -f2-)
+DB_PASS_VAL=$(grep -E '^DB_PASSWORD=' .env | head -1 | cut -d= -f2-)
+# 解析 JDBC URL: jdbc:postgresql://HOST:PORT/DBNAME
+DB_HOST=$(echo "$DB_URL_VAL" | sed -nE 's|jdbc:postgresql://([^:/]+)(:[0-9]+)?/.*|\1|p')
+DB_PORT=$(echo "$DB_URL_VAL" | sed -nE 's|jdbc:postgresql://[^:]+:([0-9]+)/.*|\1|p')
+[ -z "$DB_PORT" ] && DB_PORT=5432
+DB_NAME=$(echo "$DB_URL_VAL" | sed -nE 's|jdbc:postgresql://[^/]+/([^?]+).*|\1|p')
+if [ -z "$DB_HOST" ] || [ -z "$DB_NAME" ]; then
+    echo -e "${RED}[X] 无法解析 DB_URL（$DB_URL_VAL），请检查 .env 中 DB_URL 格式: jdbc:postgresql://host:port/dbname${NC}"
+    exit 1
+fi
+# 定位 psql（宝塔安装时完整路径优先）
+PSQL_BIN=""
+for p in psql /www/server/pgsql/bin/psql /usr/local/pgsql/bin/psql /usr/bin/psql; do
+    if command -v "$p" >/dev/null 2>&1; then PSQL_BIN=$(command -v "$p"); break; fi
+    if [ -x "$p" ]; then PSQL_BIN="$p"; break; fi
+done
+if [ -z "$PSQL_BIN" ]; then
+    echo -e "${RED}[X] 未找到 psql，请安装 postgresql-client 或修正 PATH 后重新执行${NC}"
+    exit 1
+fi
+export PGPASSWORD="$DB_PASS_VAL"
+"$PSQL_BIN" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER_VAL" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$PROJECT_DIR/apps/api/src/main/resources/data.sql" || {
+    echo -e "${RED}[X] 种子数据执行失败！请检查上方 psql 报错（缺依赖/权限/表结构不一致等）${NC}"
+    exit 1
+}
+unset PGPASSWORD
+echo -e "${GREEN}[OK] 种子数据已就绪${NC}"
 
 # ═══════ Step 7: Nginx 自愈与公网/SSL 验证 ═══════
 echo -e "${YELLOW}[7] Nginx 配置自愈与公网/SSL 验证...${NC}"

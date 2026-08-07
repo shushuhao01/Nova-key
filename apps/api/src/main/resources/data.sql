@@ -1,8 +1,9 @@
 -- ============================================================
 -- Nova key 初始化数据（基于开源 Orion Key 二开）
--- 已配置 spring.sql.init.mode=always + defer-datasource-initialization=true：
--- 后端启动时自动建表（ddl-auto: update）→ 自动执行本文件（幂等），无需手动 psql。
--- 所有 INSERT 均带 WHERE NOT EXISTS，可安全重复执行
+-- 执行方式：由 update.sh 的 Step 6.5 用 psql 自动执行（后端启动不依赖本文件）。
+-- 表结构由后端 ddl-auto: update 启动时自动创建/补字段，无需手动建表。
+-- 所有 INSERT 均带 WHERE NOT EXISTS，可安全重复执行（幂等）。
+-- 如需手动执行: psql -h <host> -p <port> -U <user> -d <db> -f data.sql
 -- ============================================================
 
 -- ────────────────────────────────────────
