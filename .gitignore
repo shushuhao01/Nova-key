@@ -1,0 +1,54 @@
+# Compiled class file
+*.class
+
+# Maven build output
+target/
+.mvn/timing.properties
+.mvn/wrapper/*.jar
+
+# Log file
+*.log
+
+# BlueJ files
+*.ctxt
+
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
+
+# Package Files #
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+hs_err_pid*
+replay_pid*
+
+# Node.js
+node_modules/
+.next/
+out/
+dist/
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
+
+# Local tools (downloaded binaries, e.g. Maven distribution)
+.tools/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Windows reserved names
+nul
+NUL
+
+# Uploads
+uploads/

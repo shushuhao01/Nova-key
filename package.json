@@ -1,0 +1,10 @@
+{
+  "name": "nova-key",
+  "private": true,
+  "packageManager": "pnpm@10.29.3",
+  "scripts": {
+    "dev:web": "pnpm --filter @nova-key/web dev",
+    "build:web": "pnpm --filter @nova-key/web build",
+    "lint:web": "pnpm --filter @nova-key/web lint"
+  }
+}
