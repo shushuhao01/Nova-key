@@ -1,6 +1,7 @@
 -- ============================================================
 -- Nova key 初始化数据（基于开源 Orion Key 二开）
--- 首次部署时手动执行一次: psql -U <user> -d <db> -f data.sql
+-- 已配置 spring.sql.init.mode=always + defer-datasource-initialization=true：
+-- 后端启动时自动建表（ddl-auto: update）→ 自动执行本文件（幂等），无需手动 psql。
 -- 所有 INSERT 均带 WHERE NOT EXISTS，可安全重复执行
 -- ============================================================
 
@@ -67,6 +68,40 @@ WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'announcement_en
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
 SELECT gen_random_uuid(), 'popup_enabled', 'false', 'site', NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'popup_enabled');
+
+-- ────────────────────────────────────────
+-- 2.1 邮箱发件配置 (config_group = 'email')
+-- 管理后台「网站设置 → 邮箱发件」可修改；此处仅占位空值：
+-- 留空时后端自动回退到 .env 环境变量（MAIL_HOST / MAIL_USERNAME / MAIL_PASSWORD 等），
+-- 因此不会覆盖已有 SMTP 配置。mail_enabled 不在此写入，避免锁死环境变量的开关。
+-- ────────────────────────────────────────
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'smtp_host', '', 'email', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'smtp_host');
+
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'smtp_port', '', 'email', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'smtp_port');
+
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'smtp_username', '', 'email', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'smtp_username');
+
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'smtp_password', '', 'email', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'smtp_password');
+
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'mail_from', '', 'email', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'mail_from');
+
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'mail_from_name', '', 'email', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'mail_from_name');
+
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'mail_site_url', '', 'email', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'mail_site_url');
 
 -- ────────────────────────────────────────
 -- 3. 风控配置 (config_group = 'risk')
@@ -170,5 +205,4 @@ WHERE NOT EXISTS (SELECT 1 FROM currencies WHERE code = 'GBP');
 -- 5. 商品分类 / 商品 / 卡密
 --    演示数据已清理，生产环境请通过管理后台添加商品与卡密。
 -- ────────────────────────────────────────
-
-commit;
+-- Spring 自动执行时每条语句独立提交，无需 commit；psql 手动执行默认 autocommit 亦无需 commit。
