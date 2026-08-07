@@ -453,6 +453,10 @@ export default function AdminPaymentChannelsPage() {
       const raw = await adminPaymentApi.getRawConfig(editId)
       const val = raw && raw[fieldKey]
       if (val && val.trim()) {
+        if (val.includes("****")) {
+          toast.error("该字段在数据库中是掩码（旧版保存导致），无法还原原值，请在输入框重新粘贴真实密钥并保存")
+          return
+        }
         setConfigData(prev => ({ ...prev, [fieldKey]: val }))
         if (!showKeys) setShowKeys(true)
         toast.success("已显示明文，请注意屏幕安全，不要外传")
