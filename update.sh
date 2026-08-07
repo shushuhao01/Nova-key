@@ -336,9 +336,18 @@ else
 fi
 
 # 5) 公网 HTTPS 验证（证书错误时 curl 会失败，需先区分证书问题还是连接问题）
+#    重试 3 次排除瞬态（nginx reload 后短暂不可用 / 网络抖动导致误报）
 sleep 2
-if curl -s -o /dev/null -w "" https://noepay.cn/ >/dev/null 2>&1; then
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://noepay.cn/ || echo "000")
+HTTPS_OK=0
+for _t in 1 2 3; do
+    if curl -s -o /dev/null -w "" --connect-timeout 8 https://noepay.cn/ >/dev/null 2>&1; then
+        HTTPS_OK=1
+        break
+    fi
+    sleep 3
+done
+if [ "$HTTPS_OK" = "1" ]; then
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 8 https://noepay.cn/ || echo "000")
     echo -e "${YELLOW}[i] 公网首页(https): ${HTTP_CODE}${NC}"
     if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "301" ] && [ "$HTTP_CODE" != "302" ]; then
         echo -e "${RED}[X] 公网 HTTPS 返回 HTTP ${HTTP_CODE}，请检查: nginx -t; pm2 logs noepay.cn-web --lines 30 --nostream${NC}"
@@ -348,7 +357,7 @@ if curl -s -o /dev/null -w "" https://noepay.cn/ >/dev/null 2>&1; then
     fi
 else
     # 证书校验失败：先忽略证书测试连通性，区分「证书错误」与「443 端口不通」
-    if curl -sk -o /dev/null -w "" https://noepay.cn/ >/dev/null 2>&1; then
+    if curl -sk -o /dev/null -w "" --connect-timeout 8 https://noepay.cn/ >/dev/null 2>&1; then
         CERT_SUBJECT=$(echo | timeout 5 openssl s_client -connect noepay.cn:443 -servername noepay.cn 2>/dev/null | openssl x509 -noout -subject 2>/dev/null || true)
         echo -e "${RED}[X] HTTPS 端口连通但证书校验失败（浏览器报「你的连接不是专用连接」）！${NC}"
         echo -e "${RED}    当前证书: ${CERT_SUBJECT:-未知}${NC}"
@@ -363,10 +372,10 @@ fi
 # 5.1) 静态资源检查：从首页 HTML 提取真实引用的 /_next/static 资源并验证可访问。
 #      注意：直接 curl /_next/static/（目录本身）Next.js 返回 404，会误报失败；
 #      必须拿页面真实引用的资源文件验证。资源 404 → 宝塔静态缓存 location 拦截或构建产物损坏 → 首页白屏。
-STATIC_HTML=$(curl -s https://noepay.cn/ || echo "")
+STATIC_HTML=$(curl -s --connect-timeout 8 https://noepay.cn/ || echo "")
 STATIC_ASSET=$(echo "$STATIC_HTML" | grep -oE '/_next/static/[A-Za-z0-9_./-]+' | head -1 || true)
 if [ -n "$STATIC_ASSET" ]; then
-    ASSET_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://noepay.cn${STATIC_ASSET}" || echo "000")
+    ASSET_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 8 "https://noepay.cn${STATIC_ASSET}" || echo "000")
     echo -e "${YELLOW}[i] 静态资源(${STATIC_ASSET}): ${ASSET_CODE}${NC}"
     if [ "$ASSET_CODE" != "200" ] && [ "$ASSET_CODE" != "301" ] && [ "$ASSET_CODE" != "302" ] && [ "$ASSET_CODE" != "304" ]; then
         echo -e "${RED}[X] 静态资源不可访问（HTTP ${ASSET_CODE}）→ 首页会白屏！${NC}"
