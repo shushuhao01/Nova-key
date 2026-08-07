@@ -554,6 +554,12 @@ export const adminPaymentApi = {
     request<null>(`/admin/payment-channels/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string) =>
     request<null>(`/admin/payment-channels/${id}`, { method: "DELETE" }),
+  // 微信支付证书上传（apiclient_cert.pem / apiclient_key.pem），返回服务器绝对路径
+  uploadCert: (file: File) => {
+    const formData = new FormData()
+    formData.append("file", file)
+    return uploadRequest<{ path: string; filename: string }>("/upload/cert", formData)
+  },
 }
 
 // ============================================================

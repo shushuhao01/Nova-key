@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from "react"
-import { Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle, ChevronDown, Shield, Key } from "lucide-react"
+import { Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle, ChevronDown, Shield, Key, CheckCircle2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
 import { toast } from "sonner"
@@ -18,9 +18,15 @@ interface ConfigField {
   key: string
   label: string
   placeholder: string
-  type?: "password" | "text" | "textarea"
+  type?: "password" | "text" | "textarea" | "file"
   /** 只读字段（如系统自动生成的回调地址），展示但不参与保存 */
   readonly?: boolean
+  /** readonly 字段固定展示的值（如签名类型 RSA2），优先于 config_data */
+  readonlyValue?: string
+  /** file 类型：允许的文件扩展名 */
+  accept?: string
+  /** file 类型：上传成功后的提示文案 */
+  hint?: string
 }
 
 interface ProviderOption {
@@ -58,6 +64,7 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
       { key: "appid", label: "应用 AppID", placeholder: "支付宝开放平台应用 AppID" },
       { key: "private_key", label: "应用私钥", placeholder: "粘贴应用私钥（RSA2，可含 -----BEGIN PRIVATE KEY----- 头）", type: "textarea" },
       { key: "alipay_public_key", label: "支付宝公钥", placeholder: "粘贴支付宝平台提供的公钥", type: "textarea" },
+      { key: "sign_type", label: "签名类型", placeholder: "RSA2", readonly: true, readonlyValue: "RSA2" },
       { key: "notify_url", label: "回调地址", placeholder: "系统自动生成", readonly: true },
     ],
   },
@@ -70,8 +77,24 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
       { key: "appid", label: "应用 AppID", placeholder: "微信公众号/小程序 AppID" },
       { key: "mchid", label: "商户号 (MchID)", placeholder: "微信支付商户号" },
       { key: "api_v3_key", label: "APIv3 密钥", placeholder: "微信支付 APIv3 密钥", type: "password" },
-      { key: "serial_no", label: "证书序列号", placeholder: "API 证书序列号" },
-      { key: "private_key", label: "商户私钥", placeholder: "粘贴 apiclient_key.pem 内容，或填写服务器上的文件路径", type: "textarea" },
+      { key: "serial_no", label: "证书序列号", placeholder: "API 证书序列号（商户平台 → API安全 → 查看证书）" },
+      { key: "private_key", label: "商户私钥（PEM 内容，可选）", placeholder: "可直接粘贴 apiclient_key.pem 全部内容；也可用下方上传按钮上传文件", type: "textarea" },
+      {
+        key: "private_key_path",
+        label: "上传商户私钥 apiclient_key.pem",
+        placeholder: "点击选择文件上传",
+        type: "file",
+        accept: ".pem,.key",
+        hint: "微信支付证书密钥（apiclient_key.pem），上传后自动写入服务器 payment-certs 目录，下单签名时从文件读取",
+      },
+      {
+        key: "wxpay_cert_path",
+        label: "上传商家支付证书 apiclient_cert.pem",
+        placeholder: "点击选择文件上传",
+        type: "file",
+        accept: ".pem",
+        hint: "微信支付证书（apiclient_cert.pem），存储于服务器 payment-certs 目录（不在 /uploads 下，不会公开下载）",
+      },
       { key: "notify_url", label: "回调地址", placeholder: "系统自动生成", readonly: true },
     ],
   },
@@ -131,6 +154,8 @@ export default function AdminPaymentChannelsPage() {
   })
   const [configData, setConfigData] = useState<Record<string, string>>({})
   const [formErrors, setFormErrors] = useState<Record<string, boolean>>({})
+  /** 正在上传证书的字段 key（用于显示上传中状态） */
+  const [uploadingKey, setUploadingKey] = useState<string | null>(null)
   const providerBtnRef = useRef<HTMLButtonElement>(null)
   const channelNameRef = useRef<HTMLInputElement>(null)
 
@@ -242,6 +267,35 @@ export default function AdminPaymentChannelsPage() {
 
   const handleConfigChange = (key: string, value: string) => {
     setConfigData(prev => ({ ...prev, [key]: value }))
+  }
+
+  /**
+   * 上传微信支付证书（apiclient_cert.pem / apiclient_key.pem）。
+   * 上传成功后把服务器绝对路径写入 configData（保存渠道时随 config_data 入库）。
+   */
+  const handleCertUpload = async (fieldKey: string, file: File | undefined) => {
+    if (!file) return
+    setUploadingKey(fieldKey)
+    try {
+      const res = await withMockFallback(
+        () => adminPaymentApi.uploadCert(file),
+        () => ({ path: "", filename: file.name })
+      )
+      if (res?.path) {
+        setConfigData(prev => ({ ...prev, [fieldKey]: res.path }))
+        toast.success(`上传成功：${res.filename}`)
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "证书上传失败")
+    } finally {
+      setUploadingKey(null)
+    }
+  }
+
+  /** 取文件路径的最后一段文件名用于展示 */
+  const basename = (path: string) => {
+    const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
+    return idx >= 0 ? path.slice(idx + 1) : path
   }
 
   const handleSave = async () => {
@@ -619,7 +673,39 @@ export default function AdminPaymentChannelsPage() {
               {currentProvider.configFields.map((field) => (
                 <div key={field.key} className="flex flex-col gap-1">
                   <label className="text-xs font-medium text-muted-foreground">{field.label}</label>
-                  {field.type === "textarea" ? (
+                  {field.type === "file" ? (
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="file"
+                          accept={field.accept}
+                          disabled={uploadingKey !== null}
+                          className="block w-full text-xs text-muted-foreground file:mr-2 file:cursor-pointer file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            handleCertUpload(field.key, file)
+                            e.target.value = "" // 允许重复选择同一文件
+                          }}
+                        />
+                        {uploadingKey === field.key && (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                            上传中...
+                          </span>
+                        )}
+                      </div>
+                      {configData[field.key] && (
+                        <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
+                          <CheckCircle2 className="h-3 w-3" />
+                          已上传：{basename(configData[field.key])}
+                          <span className="text-muted-foreground">（{configData[field.key]}）</span>
+                        </span>
+                      )}
+                      {field.hint && (
+                        <span className="text-[11px] text-muted-foreground">{field.hint}</span>
+                      )}
+                    </div>
+                  ) : field.type === "textarea" ? (
                     <textarea
                       rows={4}
                       readOnly={field.readonly}
@@ -628,7 +714,7 @@ export default function AdminPaymentChannelsPage() {
                         field.readonly ? "cursor-not-allowed border-dashed bg-muted/50 text-muted-foreground" : "border-input"
                       )}
                       placeholder={field.placeholder}
-                      value={configData[field.key] ?? ""}
+                      value={field.readonlyValue ?? configData[field.key] ?? ""}
                       onChange={(e) => handleConfigChange(field.key, e.target.value)}
                     />
                   ) : (
@@ -640,13 +726,15 @@ export default function AdminPaymentChannelsPage() {
                         field.readonly ? "cursor-not-allowed border-dashed bg-muted/50 text-muted-foreground" : "border-input"
                       )}
                       placeholder={field.placeholder}
-                      value={configData[field.key] ?? ""}
+                      value={field.readonlyValue ?? configData[field.key] ?? ""}
                       onChange={(e) => handleConfigChange(field.key, e.target.value)}
                     />
                   )}
                   {field.readonly && (
                     <span className="text-[11px] text-muted-foreground">
-                      系统根据站点公网地址自动生成（app.base-url），无需手动填写
+                      {field.readonlyValue
+                        ? "支付宝目前仅支持 RSA2 签名，请确保支付宝后台「密钥管理」与应用私钥一致"
+                        : "系统根据站点公网地址自动生成（app.base-url），无需手动填写"}
                     </span>
                   )}
                 </div>

@@ -11,6 +11,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -51,6 +52,12 @@ public class UploadController {
 
     private Path resolvedUploadDir;
 
+    /**
+     * 支付证书存储目录：位于 upload.path 的同级 payment-certs 目录，
+     * 不在 /uploads/** 静态映射范围内，防止私钥文件被 HTTP 公开访问。
+     */
+    private Path resolvedCertDir;
+
     @PostConstruct
     public void init() throws IOException {
         Path dir = Paths.get(uploadPath);
@@ -61,7 +68,14 @@ public class UploadController {
         if (!Files.exists(this.resolvedUploadDir)) {
             Files.createDirectories(this.resolvedUploadDir);
         }
+        // 证书目录 = upload.path 的父目录下 payment-certs（如 /www/wwwroot/nova-key/payment-certs）
+        Path parent = this.resolvedUploadDir.getParent();
+        this.resolvedCertDir = parent != null
+                ? parent.resolve("payment-certs")
+                : this.resolvedUploadDir.resolveSibling("payment-certs");
+        Files.createDirectories(this.resolvedCertDir);
         log.info("Upload directory resolved to: {}", this.resolvedUploadDir);
+        log.info("Payment cert directory resolved to: {}", this.resolvedCertDir);
     }
 
     @PostMapping("/image")
@@ -104,6 +118,66 @@ public class UploadController {
         } catch (IOException e) {
             log.error("File upload failed", e);
             throw new BusinessException(ErrorCode.SERVER_ERROR, "文件上传失败");
+        }
+    }
+
+    /**
+     * 上传微信支付证书文件（apiclient_cert.pem / apiclient_key.pem）。
+     *
+     * 存储位置：{upload.path 父目录}/payment-certs/（如 /www/wwwroot/nova-key/payment-certs），
+     * 该目录不在 /uploads/** 静态映射内，私钥文件不会被 HTTP 公开下载。
+     *
+     * @return { path: 服务器绝对路径, filename: 原文件名 }
+     */
+    @PostMapping("/cert")
+    public ApiResponse<?> uploadCert(@RequestParam("file") MultipartFile file) {
+        if (file.isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "文件不能为空");
+        }
+        String original = file.getOriginalFilename();
+        String filename = original != null ? original.replaceAll(".*[/\\\\]", "") : "";
+        String lower = filename.toLowerCase();
+        if (!(lower.endsWith(".pem") || lower.endsWith(".key"))) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "仅支持 .pem / .key 格式的证书文件");
+        }
+        if (!filename.matches("[A-Za-z0-9._-]+")) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "文件名不合法");
+        }
+        // 校验 PEM 格式头，防止上传任意类型文件
+        try (InputStream is = file.getInputStream()) {
+            byte[] head = is.readNBytes(64);
+            String headStr = new String(head, StandardCharsets.US_ASCII);
+            if (!headStr.contains("-----BEGIN")) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "文件内容不是 PEM 格式（缺少 -----BEGIN 头）");
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "读取文件失败");
+        }
+
+        try {
+            Path target = resolvedCertDir.resolve(filename);
+            // 重复上传同名证书时覆盖旧文件（如重新下载证书后更新）
+            file.transferTo(target.toFile());
+            restrictCertPermissions(target);
+            log.info("Cert uploaded: {}", target);
+            return ApiResponse.success(Map.of(
+                    "path", target.toString(),
+                    "filename", filename));
+        } catch (IOException e) {
+            log.error("Cert upload failed", e);
+            throw new BusinessException(ErrorCode.SERVER_ERROR, "证书上传失败");
+        }
+    }
+
+    /** 私钥文件权限收紧为仅 owner 可读写（Linux 下生效，防止同机其他用户读取） */
+    private void restrictCertPermissions(Path target) {
+        try {
+            Files.setPosixFilePermissions(target,
+                    java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+        } catch (UnsupportedOperationException | IOException e) {
+            log.warn("Unable to restrict permissions for {}: {}", target, e.getMessage());
         }
     }
 

@@ -224,6 +224,13 @@ public class PaymentServiceImpl implements PaymentService {
         // 私钥：优先使用 PEM 内容；若配置的是文件路径则读取文件
         String privateKey = resolveWxpayPrivateKey(cfg, channel.getChannelCode());
 
+        // 商家支付证书（apiclient_cert.pem）：APIv3 下单签名仅需商户私钥 + 证书序列号，
+        // 证书文件作为商户资质文件留存；若配置了路径但文件缺失则告警（不阻断下单）
+        String certPath = cfg.get("wxpay_cert_path");
+        if (certPath != null && !certPath.isBlank() && !Files.exists(Path.of(certPath))) {
+            log.warn("Wxpay merchant cert file missing for channel {}: {}", channel.getChannelCode(), certPath);
+        }
+
         // 回调地址自动生成（与 WebhookController 端点一致）
         String notifyUrl = trimTrailingSlash(appBaseUrl) + WXPAY_WEBHOOK_PATH;
 
@@ -269,7 +276,10 @@ public class PaymentServiceImpl implements PaymentService {
         // 回调地址自动生成（与 WebhookController 端点一致）
         String notifyUrl = trimTrailingSlash(appBaseUrl) + ALIPAY_WEBHOOK_PATH;
 
-        return new AlipayConfig(appId, privateKey, alipayPublicKey, "https://openapi.alipay.com/gateway.do", notifyUrl);
+        // 签名类型：支付宝目前仅支持 RSA2
+        String signType = cfg.getOrDefault("sign_type", "RSA2");
+
+        return new AlipayConfig(appId, privateKey, alipayPublicKey, "https://openapi.alipay.com/gateway.do", notifyUrl, signType);
     }
 
     /** 去掉 base-url 结尾多余的斜杠，避免拼接出双斜杠 */

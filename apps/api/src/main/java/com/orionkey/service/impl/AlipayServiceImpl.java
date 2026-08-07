@@ -162,7 +162,10 @@ public class AlipayServiceImpl implements AlipayService {
         params.put("method", method);
         params.put("format", "JSON");
         params.put("charset", "utf-8");
-        params.put("sign_type", "RSA2");
+        // 签名类型：优先渠道配置，默认 RSA2（支付宝目前仅支持 RSA2）
+        String signType = config.signType() != null && !config.signType().isBlank()
+                ? config.signType() : "RSA2";
+        params.put("sign_type", signType);
         // 支付宝要求 timestamp 为商户本地时间（北京时间），固定时区格式化，
         // 避免服务器 JVM 时区非 Asia/Shanghai 时签名时间戳偏差被支付宝拒绝
         params.put("timestamp", LocalDateTime.now(ZoneId.of("Asia/Shanghai")).format(TIMESTAMP_FORMAT));

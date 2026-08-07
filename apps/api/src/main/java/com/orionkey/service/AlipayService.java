@@ -16,9 +16,10 @@ public interface AlipayService {
      * @param alipayPublicKey 支付宝公钥 PEM 内容
      * @param gatewayUrl      网关地址（默认 https://openapi.alipay.com/gateway.do）
      * @param notifyUrl       异步回调地址
+     * @param signType        签名类型（默认 RSA2，支付宝目前仅支持 RSA2）
      */
     record AlipayConfig(String appId, String privateKey, String alipayPublicKey,
-                        String gatewayUrl, String notifyUrl) {
+                        String gatewayUrl, String notifyUrl, String signType) {
     }
 
     record AlipayPaymentResult(String qrCode) {

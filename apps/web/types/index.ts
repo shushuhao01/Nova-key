@@ -245,6 +245,8 @@ export interface PaymentChannelConfig {
   api_v3_key?: string
   serial_no?: string
   private_key_path?: string
+  /** 商家支付证书 apiclient_cert.pem 的服务器绝对路径（上传后自动写入） */
+  wxpay_cert_path?: string
   // USDT
   wallet_address?: string
   rate_api_url?: string
