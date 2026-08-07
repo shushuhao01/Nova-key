@@ -307,11 +307,15 @@ if [ -f "$NGINX_CONF" ]; then
                 echo -e "${GREEN}[i] SSL 证书有效期正常（剩余 ${DAYS_LEFT} 天）${NC}"
             fi
         fi
-        # 证书域名匹配检查（SAN 必须包含 noepay.cn 或 www.noepay.cn）
-        if openssl x509 -noout -ext subjectAltName -in "$SSL_CERT" 2>/dev/null | grep -qiE 'noepay\.cn' ; then
-            echo -e "${GREEN}[i] SSL 证书域名匹配（noepay.cn）${NC}"
+        # 证书域名匹配检查：SAN 必须精确包含裸域 noepay.cn。
+        # 只含 www.noepay.cn 时（子串匹配会误判通过），浏览器访问 https://noepay.cn 仍报「连接不是专用连接」。
+        if openssl x509 -noout -ext subjectAltName -in "$SSL_CERT" 2>/dev/null | grep -qE 'DNS:noepay\.cn([,]|$)'; then
+            echo -e "${GREEN}[i] SSL 证书域名匹配（SAN 含裸域 noepay.cn）${NC}"
         else
-            echo -e "${RED}[X] SSL 证书域名不匹配！请检查证书是否签发给 noepay.cn（当前证书 SAN 不含该域名）${NC}"
+            CERT_SUBJECT=$(openssl x509 -noout -subject -in "$SSL_CERT" 2>/dev/null || true)
+            echo -e "${RED}[X] SSL 证书 SAN 未覆盖裸域 noepay.cn（当前证书: ${CERT_SUBJECT:-未知}）！${NC}"
+            echo -e "${RED}    浏览器访问 https://noepay.cn 会报「你的连接不是专用连接」。${NC}"
+            echo -e "${RED}    修复: 宝塔面板 → 网站 → noepay.cn → SSL，重新申请/部署同时覆盖 noepay.cn 与 www.noepay.cn 的证书${NC}"
             NGINX_FAIL=1
         fi
     else
@@ -343,9 +347,17 @@ if curl -s -o /dev/null -w "" https://noepay.cn/ >/dev/null 2>&1; then
         echo -e "${GREEN}[OK] 公网 HTTPS 访问正常${NC}"
     fi
 else
-    echo -e "${RED}[X] 公网 HTTPS 证书校验失败（curl 无法建立安全连接）！浏览器将报「你的连接不是专用连接」${NC}"
-    echo -e "${RED}    请检查: 1) 宝塔面板 → 网站 → SSL 证书是否有效且未过期; 2) 证书是否覆盖 noepay.cn; 3) nginx -t${NC}"
-    NGINX_FAIL=1
+    # 证书校验失败：先忽略证书测试连通性，区分「证书错误」与「443 端口不通」
+    if curl -sk -o /dev/null -w "" https://noepay.cn/ >/dev/null 2>&1; then
+        CERT_SUBJECT=$(echo | timeout 5 openssl s_client -connect noepay.cn:443 -servername noepay.cn 2>/dev/null | openssl x509 -noout -subject 2>/dev/null || true)
+        echo -e "${RED}[X] HTTPS 端口连通但证书校验失败（浏览器报「你的连接不是专用连接」）！${NC}"
+        echo -e "${RED}    当前证书: ${CERT_SUBJECT:-未知}${NC}"
+        echo -e "${RED}    原因与修复: 证书未覆盖裸域 noepay.cn（如只签给 www.noepay.cn）。请到宝塔面板 → 网站 → noepay.cn → SSL，重新申请/部署同时覆盖 noepay.cn 与 www.noepay.cn 的证书${NC}"
+        NGINX_FAIL=1
+    else
+        echo -e "${RED}[X] 公网 HTTPS 443 端口不通（连接失败）！请检查阿里云安全组是否放行 443，或 nginx 是否监听 443${NC}"
+        NGINX_FAIL=1
+    fi
 fi
 
 # 5.1) 静态资源检查：从首页 HTML 提取真实引用的 /_next/static 资源并验证可访问。
