@@ -39,8 +39,10 @@ public class EmailServiceImpl implements EmailService {
     // SMTP 默认值：来自环境变量（application.yml 的 spring.mail.* / mail.*）。
     // 管理后台「网站设置 → 邮箱发件」可覆盖（smtp_host / smtp_port / smtp_username /
     // smtp_password / mail_from / mail_from_name / mail_site_url / mail_enabled）。
+    // 注意：以下全部用 String 注入，避免 .env 中 MAIL_* 为空字符串时
+    // Spring 把 "" 转 int/boolean 失败导致整个应用启动崩溃（生产 .env 常见空值）。
     @Value("${mail.enabled:false}")
-    private boolean mailEnabledDefault;
+    private String mailEnabledDefault;
 
     @Value("${mail.site-url:https://noepay.cn}")
     private String siteUrlDefault;
@@ -49,7 +51,7 @@ public class EmailServiceImpl implements EmailService {
     private String smtpHostDefault;
 
     @Value("${spring.mail.port:465}")
-    private int smtpPortDefault;
+    private String smtpPortDefault;
 
     @Value("${spring.mail.username:}")
     private String smtpUsernameDefault;
@@ -71,7 +73,7 @@ public class EmailServiceImpl implements EmailService {
     private boolean cfgEnabled() {
         return siteConfigRepository.findByConfigKey("mail_enabled")
                 .map(c -> "true".equalsIgnoreCase(c.getConfigValue()))
-                .orElse(mailEnabledDefault);
+                .orElse("true".equalsIgnoreCase(mailEnabledDefault));
     }
 
     /**
@@ -80,7 +82,7 @@ public class EmailServiceImpl implements EmailService {
      */
     private JavaMailSender buildMailSender() {
         String host = cfg("smtp_host", smtpHostDefault);
-        String portStr = cfg("smtp_port", String.valueOf(smtpPortDefault));
+        String portStr = cfg("smtp_port", smtpPortDefault);
         int port = 465;
         try {
             port = Integer.parseInt(portStr.trim());

@@ -23,13 +23,14 @@ public class SecurityConfig {
     private final CustomAuthenticationEntryPoint authenticationEntryPoint;
     private final CustomAccessDeniedHandler accessDeniedHandler;
 
+    // String 注入：.env 中 PASSWORD_PLAIN 若为空字符串，Spring 转 boolean 会失败导致启动崩溃
     @Value("${security.password-plain:false}")
-    private boolean passwordPlain;
+    private String passwordPlain;
 
     @SuppressWarnings("deprecation")
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return passwordPlain ? NoOpPasswordEncoder.getInstance() : new BCryptPasswordEncoder();
+        return "true".equalsIgnoreCase(passwordPlain) ? NoOpPasswordEncoder.getInstance() : new BCryptPasswordEncoder();
     }
 
     @Bean
