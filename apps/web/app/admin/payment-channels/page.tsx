@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from "react"
-import { Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle, ChevronDown, Shield, Key, CheckCircle2 } from "lucide-react"
+import { Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle, ChevronDown, Shield, Key, CheckCircle2, Copy } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
 import { toast } from "sonner"
@@ -296,6 +296,16 @@ export default function AdminPaymentChannelsPage() {
   const basename = (path: string) => {
     const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
     return idx >= 0 ? path.slice(idx + 1) : path
+  }
+
+  /** 复制只读值（如回调地址）到剪贴板，便于去微信/支付宝平台绑定 */
+  const copyText = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success(`${label}已复制`)
+    } catch {
+      toast.error("复制失败，请手动选择复制")
+    }
   }
 
   const handleSave = async () => {
@@ -718,23 +728,36 @@ export default function AdminPaymentChannelsPage() {
                       onChange={(e) => handleConfigChange(field.key, e.target.value)}
                     />
                   ) : (
-                    <input
-                      type={field.type === "password" && !showKeys ? "password" : "text"}
-                      readOnly={field.readonly}
-                      className={cn(
-                        "h-9 rounded-md border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
-                        field.readonly ? "cursor-not-allowed border-dashed bg-muted/50 text-muted-foreground" : "border-input"
+                    <div className="flex items-center gap-2">
+                      <input
+                        type={field.type === "password" && !showKeys ? "password" : "text"}
+                        readOnly={field.readonly}
+                        className={cn(
+                          "h-9 flex-1 rounded-md border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
+                          field.readonly ? "cursor-not-allowed border-dashed bg-muted/50 text-muted-foreground" : "border-input"
+                        )}
+                        placeholder={field.placeholder}
+                        value={field.readonlyValue ?? configData[field.key] ?? ""}
+                        onChange={(e) => handleConfigChange(field.key, e.target.value)}
+                      />
+                      {field.readonly && (field.readonlyValue ?? configData[field.key]) && (
+                        <button
+                          type="button"
+                          title="复制"
+                          className="flex h-9 shrink-0 items-center gap-1 rounded-md border border-input px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          onClick={() => copyText(field.readonlyValue ?? configData[field.key] ?? "", field.label)}
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                          复制
+                        </button>
                       )}
-                      placeholder={field.placeholder}
-                      value={field.readonlyValue ?? configData[field.key] ?? ""}
-                      onChange={(e) => handleConfigChange(field.key, e.target.value)}
-                    />
+                    </div>
                   )}
                   {field.readonly && (
                     <span className="text-[11px] text-muted-foreground">
                       {field.readonlyValue
                         ? "支付宝目前仅支持 RSA2 签名，请确保支付宝后台「密钥管理」与应用私钥一致"
-                        : "系统根据站点公网地址自动生成（app.base-url），无需手动填写"}
+                        : "系统根据站点公网地址自动生成，无需手动填写；点击「复制」到微信商户平台（产品中心 → 开发配置）或支付宝开放平台（开发设置）绑定回调"}
                     </span>
                   )}
                 </div>
