@@ -48,16 +48,18 @@ public class AuthServiceImpl implements AuthService {
         if (!captchaUtils.verify(request.getCaptchaId(), request.getCaptcha())) {
             throw new BusinessException(ErrorCode.CAPTCHA_INVALID, "验证码错误或已过期");
         }
+        // 邮箱统一小写，避免大小写不同导致的重复注册（USER@qq.com == user@QQ.com）
+        String email = request.getEmail() == null ? "" : request.getEmail().trim().toLowerCase();
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new BusinessException(ErrorCode.USERNAME_EXISTS, "用户名已存在");
         }
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (userRepository.existsByEmail(email)) {
             throw new BusinessException(ErrorCode.EMAIL_EXISTS, "该邮箱已注册");
         }
 
         User user = new User();
         user.setUsername(request.getUsername());
-        user.setEmail(request.getEmail());
+        user.setEmail(email);
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setRole(UserRole.USER);
         userRepository.save(user);
@@ -74,7 +76,12 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(noRollbackFor = BusinessException.class)
     public AuthResponse login(LoginRequest request, String sessionToken) {
-        User user = userRepository.findByUsernameOrEmail(request.getAccount(), request.getAccount())
+        // 登录账号是邮箱时统一小写（与注册时的邮箱小写规则一致），用户名则原样
+        String account = request.getAccount();
+        if (account != null && account.contains("@")) {
+            account = account.trim().toLowerCase();
+        }
+        User user = userRepository.findByUsernameOrEmail(account, account)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS, "用户名或密码错误"));
 
         if (user.getIsDeleted() == 1) {
