@@ -123,17 +123,14 @@ echo -e "${GREEN}[OK] 前端构建完成${NC}"
 echo -e "${YELLOW}[5] PM2 启动/重启进程...${NC}"
 cd "$PROJECT_DIR"
 if command -v pm2 >/dev/null 2>&1; then
-    if pm2 describe noepay.cn-api >/dev/null 2>&1 || pm2 describe noepay.cn-web >/dev/null 2>&1; then
-        # 已有 PM2 进程：直接重启
-        pm2 startOrRestart ecosystem.config.js --update-env || pm2 restart ecosystem.config.js
-    else
-        # 首次接管：清理旧的 nohup 进程后由 PM2 管理
-        echo -e "${YELLOW}[i] 首次接管，清理旧进程...${NC}"
-        pkill -f 'nova-key-1.0.0-SNAPSHOT.jar' 2>/dev/null || true
-        pkill -f 'next start -p 3001' 2>/dev/null || true
-        sleep 2
-        pm2 start ecosystem.config.js
-    fi
+    # 先清理旧的 nohup/裸进程，避免端口冲突
+    pkill -f 'nova-key-1.0.0-SNAPSHOT.jar' 2>/dev/null || true
+    pkill -f 'next start -p 3001' 2>/dev/null || true
+    # 删除旧 PM2 进程后全新启动（startOrRestart 对 stopped 进程行为不可靠，统一重建最稳）
+    pm2 delete noepay.cn-api >/dev/null 2>&1 || true
+    pm2 delete noepay.cn-web >/dev/null 2>&1 || true
+    sleep 1
+    pm2 start ecosystem.config.js --update-env
     pm2 save
     echo -e "${GREEN}[OK] PM2 已接管进程${NC}"
 else
@@ -153,7 +150,8 @@ for i in $(seq 1 30); do
     fi
     if [ "$WEB_OK" != 1 ]; then
         code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001 || echo "000")
-        [ "$code" != "000" ] && [ "$code" != "502" ] && [ "$code" != "503" ] && WEB_OK=1
+        # 严格校验：首页必须返回 200（404 说明 .next 产物损坏，绝不能误判为正常）
+        [ "$code" = "200" ] && WEB_OK=1
     fi
     [ "$API_OK" = 1 ] && [ "$WEB_OK" = 1 ] && break
     echo -e "${YELLOW}[i] 等待服务启动... (${i}/30)  api=$([ "$API_OK" = 1 ] && echo OK || echo 启动中)  web=$([ "$WEB_OK" = 1 ] && echo OK || echo 启动中)${NC}"
