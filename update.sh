@@ -165,9 +165,11 @@ if [ "$API_OK" != 1 ] || [ "$WEB_OK" != 1 ]; then
     exit 1
 fi
 
-# ═══════ Step 7: Nginx 自愈与公网验证 ═══════
-echo -e "${YELLOW}[7] Nginx 配置自愈与公网验证...${NC}"
+# ═══════ Step 7: Nginx 自愈与公网/SSL 验证 ═══════
+echo -e "${YELLOW}[7] Nginx 配置自愈与公网/SSL 验证...${NC}"
 NGINX_CONF="/www/server/panel/vhost/nginx/noepay.cn.conf"
+NGINX_FAIL=0
+
 if [ -f "$NGINX_CONF" ]; then
     # 备份当前配置（时间戳后缀，不覆盖旧备份）
     cp "$NGINX_CONF" "$NGINX_CONF.bak.$(date +%s)" 2>/dev/null || true
@@ -183,28 +185,150 @@ if [ -f "$NGINX_CONF" ]; then
         echo -e "${RED}[X] Nginx 反代配置缺失！请到宝塔面板检查站点 noepay.cn 的配置文件，需要包含:${NC}"
         echo -e "${RED}    location /     { proxy_pass http://127.0.0.1:3001; }${NC}"
         echo -e "${RED}    location /api/  { proxy_pass http://127.0.0.1:8083; }${NC}"
+        NGINX_FAIL=1
     else
         echo -e "${GREEN}[i] Nginx 反代配置完整${NC}"
     fi
-    # 3) 配置测试通过则重载，失败提示（不破坏现有配置）
+    # 2.1) 修复宝塔默认 js/css 静态缓存 location（会导致 /_next/static 404 → 首页白屏）
+    #      宝塔面板创建站点时会注入 `location ~ .*\.(js|css|gif|jpg|...)$` 正则缓存规则，
+    #      正则 location 优先级高于普通前缀 location，会把 Next.js 的 /_next/static 全部
+    #      拦截成 404。修复方式：注入 `location ^~ /_next/`（^~ 前缀匹配优先于正则 location），
+    #      让静态资源始终反代到 Next.js。不删除任何原规则，注入后 nginx -t 验证，失败自动回滚备份。
+    if ! grep -q 'location ^~ /_next/' "$NGINX_CONF"; then
+        if grep -qE 'location[[:space:]]+~[[:space:]]*\.\*\\\.(js|css|gif|jpg|jpeg|png|bmp|swf|ico)' "$NGINX_CONF"; then
+            echo -e "${YELLOW}[i] 检测到宝塔默认静态缓存 location（会拦截 /_next/static 导致 404 白屏），注入修复规则...${NC}"
+            # 注入到包含 listen 443 ssl 的 server 块（80 块只做跳转，注入无效）；找不到 443 块时回退到第一个 server 块。
+            # 必须用【花括号深度】定位 server 块的结束行：直接匹配行首 } 会把 location 块的 } 当成 server 块结束，
+            # 导致 location 被注入到 location 内部（location 不能嵌套）→ nginx -t 语法错误 → 回滚 → 404 依旧复现。
+            awk 'BEGIN{injected=0; depth=0; in443=0; srv=0}
+                {
+                    if (!injected) {
+                        if (srv==1 && $0 ~ /listen[[:space:]]+443/) in443=1
+                        n_open=gsub(/\{/, "{", $0)
+                        n_close=gsub(/\}/, "}", $0)
+                        depth += n_open - n_close
+                        if ($0 ~ /^[[:space:]]*server[[:space:]]*\{/) { srv=1; in443=0 }
+                        if (srv==1 && depth==0 && in443==1) {
+                            print "    location ^~ /_next/ { proxy_pass http://127.0.0.1:3001; }"
+                            injected=1
+                            srv=0
+                        }
+                    }
+                    print
+                }' "$NGINX_CONF" > "$NGINX_CONF.tmp" && mv "$NGINX_CONF.tmp" "$NGINX_CONF"
+            if grep -q 'location ^~ /_next/' "$NGINX_CONF"; then
+                echo -e "${GREEN}[i] /_next/ 静态资源修复规则已注入（443 server 块）${NC}"
+            else
+                # 未匹配到 443 块（如证书未启用/配置结构不同），回退注入到第一个 server 块
+                awk 'BEGIN{inserted=0} {print} /^[[:space:]]*server[[:space:]]*\{/ && !inserted {inserted=1; print "    location ^~ /_next/ { proxy_pass http://127.0.0.1:3001; }"}' "$NGINX_CONF" > "$NGINX_CONF.tmp" && mv "$NGINX_CONF.tmp" "$NGINX_CONF"
+                echo -e "${YELLOW}[i] 未检测到 443 server 块，已回退注入到第一个 server 块${NC}"
+            fi
+            if nginx -t >/dev/null 2>&1; then
+                echo -e "${GREEN}[i] /_next/ 静态资源修复规则已生效${NC}"
+            else
+                echo -e "${RED}[X] 注入修复规则后 nginx -t 失败，自动回滚最新备份${NC}"
+                mv "$NGINX_CONF" "$NGINX_CONF.tmp.broken"
+                LATEST_BAK=$(ls -t "$NGINX_CONF".bak.* 2>/dev/null | head -1)
+                [ -n "$LATEST_BAK" ] && cp "$LATEST_BAK" "$NGINX_CONF"
+                NGINX_FAIL=1
+            fi
+        fi
+    fi
+    # 3) SSL 证书配置检查（"连接不是专用连接"= 证书无效/过期/域名不匹配，必须前置拦截）
+    SSL_CERT=$(grep -oE 'ssl_certificate[[:space:]]+[^;]+;' "$NGINX_CONF" | head -1 | awk '{print $2}' | tr -d ';')
+    SSL_CERT_KEY=$(grep -oE 'ssl_certificate_key[[:space:]]+[^;]+;' "$NGINX_CONF" | head -1 | awk '{print $2}' | tr -d ';')
+    # 展开可能的变量（如 $server_root）
+    [ -n "$SSL_CERT" ] && SSL_CERT=$(eval echo "$SSL_CERT")
+    [ -n "$SSL_CERT_KEY" ] && SSL_CERT_KEY=$(eval echo "$SSL_CERT_KEY")
+    if [ -n "$SSL_CERT" ] && [ -f "$SSL_CERT" ]; then
+        # 证书过期时间检查（取结束时间与当前时间比较，剩余 <30 天告警、已过期则失败）
+        CERT_END=$(openssl x509 -enddate -noout -in "$SSL_CERT" 2>/dev/null | cut -d= -f2)
+        if [ -n "$CERT_END" ]; then
+            END_EPOCH=$(date -d "$CERT_END" +%s 2>/dev/null)
+            NOW_EPOCH=$(date +%s)
+            DAYS_LEFT=$(( (END_EPOCH - NOW_EPOCH) / 86400 ))
+            if [ "$END_EPOCH" -lt "$NOW_EPOCH" ]; then
+                echo -e "${RED}[X] SSL 证书已过期（${CERT_END}）！请在宝塔面板 → 网站 → SSL 中续签证书，否则浏览器报「连接不是专用连接」${NC}"
+                NGINX_FAIL=1
+            elif [ "$DAYS_LEFT" -lt 30 ]; then
+                echo -e "${YELLOW}[i] SSL 证书剩余 ${DAYS_LEFT} 天（${CERT_END}），请在宝塔面板续签${NC}"
+            else
+                echo -e "${GREEN}[i] SSL 证书有效期正常（剩余 ${DAYS_LEFT} 天）${NC}"
+            fi
+        fi
+        # 证书域名匹配检查（SAN 必须包含 noepay.cn 或 www.noepay.cn）
+        if openssl x509 -noout -ext subjectAltName -in "$SSL_CERT" 2>/dev/null | grep -qiE 'noepay\.cn' ; then
+            echo -e "${GREEN}[i] SSL 证书域名匹配（noepay.cn）${NC}"
+        else
+            echo -e "${RED}[X] SSL 证书域名不匹配！请检查证书是否签发给 noepay.cn（当前证书 SAN 不含该域名）${NC}"
+            NGINX_FAIL=1
+        fi
+    else
+        echo -e "${RED}[X] 未找到 SSL 证书文件（${SSL_CERT:-未配置}）！请到宝塔面板 → 网站 → SSL 中配置/部署证书${NC}"
+        NGINX_FAIL=1
+    fi
+    # 4) 配置测试通过则重载，失败提示（不破坏现有配置）
     if nginx -t >/dev/null 2>&1; then
         /etc/init.d/nginx reload >/dev/null 2>&1 || systemctl reload nginx >/dev/null 2>&1 || true
         echo -e "${GREEN}[i] Nginx 已重载${NC}"
     else
         echo -e "${RED}[X] Nginx 配置语法错误，未重载！请查看: nginx -t${NC}"
+        NGINX_FAIL=1
     fi
 else
-    echo -e "${YELLOW}[i] 未找到 Nginx 站点配置 ${NGINX_CONF}，跳过自愈（请确认 Nginx 站点名是否为 noepay.cn）${NC}"
+    echo -e "${RED}[X] 未找到 Nginx 站点配置 ${NGINX_CONF}（请确认宝塔站点名是否为 noepay.cn）${NC}"
+    NGINX_FAIL=1
 fi
-# 4) 公网验证（从服务器访问域名，200/301/302 视为正常）
+
+# 5) 公网 HTTPS 验证（证书错误时 curl 会失败，需先区分证书问题还是连接问题）
 sleep 2
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://noepay.cn/ || echo "000")
-echo -e "${YELLOW}[i] 公网首页: ${HTTP_CODE}${NC}"
-if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "301" ] && [ "$HTTP_CODE" != "302" ]; then
-    echo -e "${RED}[X] 公网访问异常（HTTP ${HTTP_CODE}），请检查:${NC}"
-    echo -e "${RED}    nginx -t;  pm2 logs noepay.cn-web --lines 30 --nostream${NC}"
+if curl -s -o /dev/null -w "" https://noepay.cn/ >/dev/null 2>&1; then
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://noepay.cn/ || echo "000")
+    echo -e "${YELLOW}[i] 公网首页(https): ${HTTP_CODE}${NC}"
+    if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "301" ] && [ "$HTTP_CODE" != "302" ]; then
+        echo -e "${RED}[X] 公网 HTTPS 返回 HTTP ${HTTP_CODE}，请检查: nginx -t; pm2 logs noepay.cn-web --lines 30 --nostream${NC}"
+        NGINX_FAIL=1
+    else
+        echo -e "${GREEN}[OK] 公网 HTTPS 访问正常${NC}"
+    fi
 else
-    echo -e "${GREEN}[OK] 公网访问正常${NC}"
+    echo -e "${RED}[X] 公网 HTTPS 证书校验失败（curl 无法建立安全连接）！浏览器将报「你的连接不是专用连接」${NC}"
+    echo -e "${RED}    请检查: 1) 宝塔面板 → 网站 → SSL 证书是否有效且未过期; 2) 证书是否覆盖 noepay.cn; 3) nginx -t${NC}"
+    NGINX_FAIL=1
+fi
+
+# 5.1) 静态资源检查：从首页 HTML 提取真实引用的 /_next/static 资源并验证可访问。
+#      注意：直接 curl /_next/static/（目录本身）Next.js 返回 404，会误报失败；
+#      必须拿页面真实引用的资源文件验证。资源 404 → 宝塔静态缓存 location 拦截或构建产物损坏 → 首页白屏。
+STATIC_HTML=$(curl -s https://noepay.cn/ || echo "")
+STATIC_ASSET=$(echo "$STATIC_HTML" | grep -oE '/_next/static/[A-Za-z0-9_./-]+' | head -1)
+if [ -n "$STATIC_ASSET" ]; then
+    ASSET_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://noepay.cn${STATIC_ASSET}" || echo "000")
+    echo -e "${YELLOW}[i] 静态资源(${STATIC_ASSET}): ${ASSET_CODE}${NC}"
+    if [ "$ASSET_CODE" != "200" ] && [ "$ASSET_CODE" != "301" ] && [ "$ASSET_CODE" != "302" ] && [ "$ASSET_CODE" != "304" ]; then
+        echo -e "${RED}[X] 静态资源不可访问（HTTP ${ASSET_CODE}）→ 首页会白屏！${NC}"
+        echo -e "${RED}    原因通常是宝塔面板默认的 js/css 静态缓存 location 拦截（本脚本已尝试自动修复），${NC}"
+        echo -e "${RED}    或前端构建产物损坏。请检查 Nginx 配置与 pnpm build 日志${NC}"
+        NGINX_FAIL=1
+    else
+        echo -e "${GREEN}[OK] 静态资源可访问${NC}"
+    fi
+else
+    echo -e "${RED}[X] 首页 HTML 中未提取到任何 /_next/static 资源引用（页面已白屏或无法访问）${NC}"
+    NGINX_FAIL=1
+fi
+
+# 6) 公网 HTTP 验证（HTTP 应能跳转到 HTTPS；跳转异常同样导致浏览器报错）
+HTTP_CODE_HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://noepay.cn/ || echo "000")
+echo -e "${YELLOW}[i] 公网首页(http): ${HTTP_CODE_HTTP}${NC}"
+if [ "$HTTP_CODE_HTTP" != "301" ] && [ "$HTTP_CODE_HTTP" != "302" ] && [ "$HTTP_CODE_HTTP" != "200" ]; then
+    echo -e "${RED}[X] 公网 HTTP 访问异常（HTTP ${HTTP_CODE_HTTP}），请检查 Nginx 80 端口配置${NC}"
+    NGINX_FAIL=1
+fi
+
+if [ "$NGINX_FAIL" = "1" ]; then
+    echo -e "${RED}[X] 公网/SSL 验证未通过！本次更新将被标记为失败，请按上方提示修复后重新执行 bash update.sh${NC}"
+    exit 1
 fi
 
 cd "$PROJECT_DIR"

@@ -31,6 +31,9 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     List<Order> findByIdIn(List<UUID> ids);
 
+    /** 自动发货兜底：查询所有已支付（PAID）但尚未发货（DELIVERED）的订单 */
+    List<Order> findByStatus(OrderStatus status);
+
     @Query("SELECT o FROM Order o WHERE o.status = com.orionkey.constant.OrderStatus.PENDING AND o.expiresAt < :now")
     List<Order> findExpiredOrders(@Param("now") LocalDateTime now);
 

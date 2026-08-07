@@ -10,10 +10,12 @@ import com.orionkey.service.DeliverService;
 import com.orionkey.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -32,6 +34,7 @@ public class DeliverServiceImpl implements DeliverService {
     private final SiteConfigRepository siteConfigRepository;
     private final UnmatchedTransactionRepository unmatchedTransactionRepository;
     private final EmailService emailService;
+    private final TransactionTemplate transactionTemplate;
 
     @Override
     @SuppressWarnings("unchecked")
@@ -284,5 +287,36 @@ public class DeliverServiceImpl implements DeliverService {
         log.setReason("购物奖励积分");
         log.setOrderId(order.getId());
         pointsLogRepository.save(log);
+    }
+
+    /**
+     * 自动发货兜底任务：定期扫描所有 PAID（已支付）订单并自动发货。
+     * 前端正常流程是支付页/查询页轮询到 PAID 后主动调用 /api/orders/deliver 触发发货；
+     * 但若用户支付成功后关闭页面、网络异常或前端漏调，订单会一直停留在 PAID 不发货。
+     * 此定时任务保证「支付了必然发货」：只要订单已 PAID（回调验签或主动查单确认过），
+     * 即使前端没有触发，也会在数秒内自动分配卡密并标记 DELIVERED。
+     * 防误发货安全边界：仅处理 status=PAID 的订单（PAID 只能由验签通过的回调 / 网关查单 /
+     * TXID 链上验证 / 管理员手动确认产生），PENDING / EXPIRED 订单不会被此任务发货。
+     */
+    @Scheduled(fixedRate = 30_000)
+    public void autoDeliverPaidOrders() {
+        List<Order> paidOrders;
+        try {
+            paidOrders = orderRepository.findByStatus(OrderStatus.PAID);
+        } catch (Exception e) {
+            log.error("Auto-deliver: failed to load PAID orders", e);
+            return;
+        }
+        if (paidOrders.isEmpty()) return;
+        log.info("Auto-deliver: found {} PAID order(s) to deliver", paidOrders.size());
+        for (Order order : paidOrders) {
+            try {
+                // 每个订单独立事务，单笔失败不影响其他订单
+                transactionTemplate.executeWithoutResult(status -> deliverSingleOrder(order.getId()));
+            } catch (Exception e) {
+                // 缺货等发货失败场景：保持 PAID，下轮定时任务重试，避免漏发货
+                log.warn("Auto-deliver failed for order {}: {}", order.getId(), e.getMessage());
+            }
+        }
     }
 }
