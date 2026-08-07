@@ -26,12 +26,12 @@ WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'site_name');
 
 -- 站点标语，显示在首页 Hero 区域
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
-SELECT gen_random_uuid(), 'site_slogan', 'Instant Keys, Anytime', 'site', NOW(), NOW()
+SELECT gen_random_uuid(), 'site_slogan', '即买即发，随时可取', 'site', NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'site_slogan');
 
 -- 站点描述，显示在首页副标题 / SEO
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
-SELECT gen_random_uuid(), 'site_description', 'Automated delivery, available 24/7.', 'site', NOW(), NOW()
+SELECT gen_random_uuid(), 'site_description', '自动发货，7×24 小时全天候在线', 'site', NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'site_description');
 
 -- 页脚（留空则不显示）

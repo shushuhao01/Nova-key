@@ -21,7 +21,7 @@ const zh = {
   "home.stock": "库存",
   "home.sales": "已售",
   "home.startFrom": "起",
-  "home.heroTitle": "Unlock Your AI Potential",
+  "home.heroTitle": "即买即发，随时可取",
   "home.heroSub": "ChatGPT / Claude / Midjourney 等 AI 账号与密钥，自动发货，安全可靠",
   "home.joinTelegram": "加入 Telegram 交流群",
   "home.trustAuto": "自动发货",

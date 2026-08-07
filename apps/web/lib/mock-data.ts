@@ -460,7 +460,7 @@ export const mockPaymentChannels: PaymentChannelItem[] = [
 
 export const mockSiteConfig: SiteConfig = {
   site_name: "Nova key",
-  site_slogan: "Unlock Your AI Potential",
+  site_slogan: "即买即发，随时可取",
   site_description: "ChatGPT / Claude / Midjourney 等 AI 账号与密钥，自动发货，安全可靠",
   announcement: "新用户注册即送 100 积分！",
   announcement_enabled: false,
@@ -478,7 +478,7 @@ export const mockSiteConfig: SiteConfig = {
 
 export const mockSiteConfigKVs: SiteConfigKV[] = [
   { config_key: "site_name", config_value: "Nova key", config_group: "basic" },
-  { config_key: "site_slogan", config_value: "Unlock Your AI Potential", config_group: "basic" },
+  { config_key: "site_slogan", config_value: "即买即发，随时可取", config_group: "basic" },
   { config_key: "site_description", config_value: "ChatGPT / Claude / Midjourney 等 AI 账号与密钥，自动发货，安全可靠", config_group: "basic" },
   { config_key: "announcement_enabled", config_value: "false", config_group: "announcement" },
   { config_key: "announcement", config_value: "新用户注册即送 100 积分！", config_group: "announcement" },

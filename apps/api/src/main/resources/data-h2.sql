@@ -12,9 +12,9 @@ VALUES (RANDOM_UUID(), 'admin', 'admin@novakey.com', 'admin123', 'ADMIN', 0, 0, 
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
 VALUES (RANDOM_UUID(), 'site_name', 'Nova key', 'site', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
-VALUES (RANDOM_UUID(), 'site_slogan', 'Instant Keys, Anytime', 'site', NOW(), NOW());
+VALUES (RANDOM_UUID(), 'site_slogan', '即买即发，随时可取', 'site', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
-VALUES (RANDOM_UUID(), 'site_description', 'Automated delivery, available 24/7.', 'site', NOW(), NOW());
+VALUES (RANDOM_UUID(), 'site_description', '自动发货，7×24 小时全天候在线', 'site', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
 VALUES (RANDOM_UUID(), 'footer_text', '由开源 Orion Key 二开，Nova key 提供服务', 'site', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)

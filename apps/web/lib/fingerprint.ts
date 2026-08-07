@@ -57,11 +57,11 @@ function getCanvasFingerprint(): string {
 
     ctx.fillStyle = "#069"
     ctx.font = "11pt Arial"
-    ctx.fillText("Orion fingerprint", 2, 15)
+    ctx.fillText("Nova key fingerprint", 2, 15)
 
     ctx.fillStyle = "rgba(102, 204, 0, 0.7)"
     ctx.font = "18pt Arial"
-    ctx.fillText("Orion fingerprint", 4, 45)
+    ctx.fillText("Nova key fingerprint", 4, 45)
 
     return "canvas:" + canvas.toDataURL()
   } catch {
