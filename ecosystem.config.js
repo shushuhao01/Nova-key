@@ -8,7 +8,9 @@
 //   全部重启：               pm2 restart ecosystem.config.js
 //   一键更新：               bash update.sh
 //
-// 环境变量统一从项目根目录 .env 读取（PM2 env_file），
+// 环境变量：通过 bash 先 source 项目根目录 .env 再启动。
+// 注意：不用 PM2 的 env_file——实测 PM2 6.0.14 的 env_file 未注入环境变量，
+// 导致后端拿默认 DB_URL 连 "db" 库失败、无限崩溃重启（↺N）。
 // .env 不提交到 Git（见 .gitignore），部署时由 update.sh 自动创建。
 // ════════════════════════════════════════════════════════════════
 
@@ -18,10 +20,11 @@ module.exports = {
     {
       name: "noepay.cn-api",
       cwd: "/www/wwwroot/nova-key/apps/api",
-      script: "java",
-      args:
-        "-Duser.timezone=Asia/Shanghai -jar target/nova-key-1.0.0-SNAPSHOT.jar --server.port=8083",
-      env_file: "/www/wwwroot/nova-key/.env",
+      script: "bash",
+      args: [
+        "-c",
+        "set -a; source /www/wwwroot/nova-key/.env; set +a; exec java -Duser.timezone=Asia/Shanghai -jar target/nova-key-1.0.0-SNAPSHOT.jar --server.port=8083",
+      ],
       autorestart: true, // 崩溃自动重启
       max_memory_restart: "768M", // 内存超限自动重启
       time: true, // 日志带时间戳
@@ -37,12 +40,11 @@ module.exports = {
     {
       name: "noepay.cn-web",
       cwd: "/www/wwwroot/nova-key/apps/web",
-      script: "node",
-      args: "node_modules/next/dist/bin/next start -p 3001",
-      env_file: "/www/wwwroot/nova-key/.env",
-      env: {
-        BACKEND_URL: "http://127.0.0.1:8083",
-      },
+      script: "bash",
+      args: [
+        "-c",
+        "set -a; source /www/wwwroot/nova-key/.env; set +a; exec node node_modules/next/dist/bin/next start -p 3001",
+      ],
       autorestart: true,
       max_memory_restart: "768M",
       time: true,
