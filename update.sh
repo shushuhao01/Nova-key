@@ -46,8 +46,12 @@ fi
 echo ""
 echo "=== 7. 构建前端 ==="
 cd /www/wwwroot/nova-key/apps/web
+echo "清理 Next.js 构建缓存..."
+rm -rf .next
 pnpm build 2>&1 | tail -n 5
 echo "前端构建完成: $(ls -la .next/BUILD_ID | awk '{print $6, $7, $8}')"
+echo "验证 coupon_quantity 字段是否已编译进 JS..."
+grep -rl "coupon_quantity" .next/static/chunks/ 2>/dev/null | head -3 || echo "⚠ 未找到 coupon_quantity，构建可能有问题"
 
 echo ""
 echo "=== 8. 重启前端 ==="
