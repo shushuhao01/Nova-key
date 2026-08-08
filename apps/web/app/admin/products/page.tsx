@@ -779,7 +779,7 @@ export default function AdminProductsPage() {
                     {formData.detail_images.map((url, idx) => (
                       <div key={`${url}-${idx}`} className="group relative overflow-hidden rounded-lg border border-border">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt={`详情图 ${idx + 1}`} className="h-24 w-full object-cover" />
+                        <img src={url} alt={`详情图 ${idx + 1}`} className="aspect-square w-full object-cover" />
                         <button
                           type="button"
                           onClick={() => setFormData(prev => ({ ...prev, detail_images: prev.detail_images.filter((_, i) => i !== idx) }))}

@@ -16,7 +16,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -24,25 +23,39 @@ import java.util.UUID;
 @RequestMapping("/upload")
 public class UploadController {
 
-    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
-            ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"
-    );
-
-    private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
-            "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"
-    );
-
     /**
-     * 文件 Magic Bytes 前缀，用于验证文件真实类型（防止伪造 Content-Type）
+     * 文件真实类型检测（Magic Bytes）。
+     * 不再信任用户扩展名/Content-Type，一律按文件内容识别，防止伪造文件，
+     * 同时识别 iPhone 默认的 HEIC/HEIF 格式并给出友好提示。
      */
-    private static final Map<String, byte[][]> MAGIC_BYTES = Map.of(
-            ".jpg", new byte[][]{{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF}},
-            ".jpeg", new byte[][]{{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF}},
-            ".png", new byte[][]{{(byte) 0x89, 0x50, 0x4E, 0x47}},
-            ".gif", new byte[][]{{0x47, 0x49, 0x46, 0x38}},  // GIF8
-            ".webp", new byte[][]{{0x52, 0x49, 0x46, 0x46}}, // RIFF
-            ".bmp", new byte[][]{{0x42, 0x4D}}                // BM
-    );
+    private static String detectImageType(byte[] h) {
+        if (h.length >= 3 && (h[0] & 0xFF) == 0xFF && (h[1] & 0xFF) == 0xD8 && (h[2] & 0xFF) == 0xFF) {
+            return "jpeg";
+        }
+        if (h.length >= 4 && (h[0] & 0xFF) == 0x89 && h[1] == 0x50 && h[2] == 0x4E && h[3] == 0x47) {
+            return "png";
+        }
+        if (h.length >= 4 && h[0] == 0x47 && h[1] == 0x49 && h[2] == 0x46 && h[3] == 0x38) {
+            return "gif";
+        }
+        if (h.length >= 12 && h[0] == 0x52 && h[1] == 0x49 && h[2] == 0x46 && h[3] == 0x46
+                && h[8] == 0x57 && h[9] == 0x45 && h[10] == 0x42 && h[11] == 0x50) {
+            return "webp";
+        }
+        if (h.length >= 2 && h[0] == 0x42 && h[1] == 0x4D) {
+            return "bmp";
+        }
+        // ISO-BMFF 容器（HEIC/HEIF/AVIF）：第 5-8 字节为 "ftyp"，第 9-12 字节为品牌
+        if (h.length >= 12 && h[4] == 0x66 && h[5] == 0x74 && h[6] == 0x79 && h[7] == 0x70) {
+            String brand = new String(h, 8, 4, StandardCharsets.US_ASCII);
+            if (brand.equals("heic") || brand.equals("heix") || brand.equals("hevc")
+                    || brand.equals("heif") || brand.equals("mif1") || brand.equals("msf1")
+                    || brand.equals("avif") || brand.equals("avis")) {
+                return "heic";
+            }
+        }
+        return "unknown";
+    }
 
     @Value("${upload.path:./uploads}")
     private String uploadPath;
@@ -84,29 +97,31 @@ public class UploadController {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "文件不能为空");
         }
 
-        // Validate content type
+        // Content-Type 仅做粗校验（允许 image/*），最终以文件内容识别为准
         String contentType = file.getContentType();
-        if (contentType == null || !ALLOWED_CONTENT_TYPES.contains(contentType.toLowerCase())) {
+        if (contentType != null && !contentType.toLowerCase().startsWith("image/")) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "不支持的图片格式，仅支持 JPG/PNG/GIF/WebP/BMP");
         }
 
-        String originalFilename = file.getOriginalFilename();
-        String extension = "";
-        if (originalFilename != null && originalFilename.contains(".")) {
-            extension = originalFilename.substring(originalFilename.lastIndexOf(".")).toLowerCase();
+        // 按文件内容识别真实类型（不信任扩展名与 Content-Type，防止伪造文件）
+        byte[] header;
+        try (InputStream is = file.getInputStream()) {
+            header = is.readNBytes(16);
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "读取文件失败");
+        }
+        String realType = detectImageType(header);
+        if ("unknown".equals(realType)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "文件内容不是有效的图片格式，请上传 JPG/PNG/GIF/WebP/BMP 图片");
+        }
+        if ("heic".equals(realType)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "图片为 HEIC/HEIF 格式（iPhone 默认拍摄格式），当前不支持直接上传，"
+                            + "请先将图片转换为 JPG/PNG 后再上传（iPhone 设置 → 相机 → 格式 → 兼容性最佳可改为 JPEG）");
         }
 
-        // Validate file extension
-        if (extension.isEmpty() || !ALLOWED_EXTENSIONS.contains(extension)) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "不支持的文件扩展名，仅支持 jpg/png/gif/webp/bmp");
-        }
-
-        // Validate Magic Bytes (防止伪造 Content-Type 上传恶意文件)
-        if (!verifyMagicBytes(file, extension)) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "文件内容与扩展名不匹配，疑似伪造文件");
-        }
-
-        String filename = UUID.randomUUID() + extension;
+        // 以真实类型扩展名保存，避免内容与扩展名不一致导致展示异常
+        String filename = UUID.randomUUID() + "." + realType;
 
         try {
             Path target = resolvedUploadDir.resolve(filename);
@@ -179,36 +194,5 @@ public class UploadController {
         } catch (UnsupportedOperationException | IOException e) {
             log.warn("Unable to restrict permissions for {}: {}", target, e.getMessage());
         }
-    }
-
-    /**
-     * 校验文件头部 Magic Bytes 是否与声明的扩展名匹配
-     */
-    private boolean verifyMagicBytes(MultipartFile file, String extension) {
-        byte[][] expected = MAGIC_BYTES.get(extension);
-        if (expected == null) return true; // 无规则的扩展名跳过
-
-        try (InputStream is = file.getInputStream()) {
-            byte[] header = new byte[8];
-            int read = is.read(header);
-            if (read < 2) return false;
-
-            for (byte[] magic : expected) {
-                if (read >= magic.length && startsWith(header, magic)) {
-                    return true;
-                }
-            }
-            return false;
-        } catch (IOException e) {
-            log.warn("Failed to read file header for magic bytes check", e);
-            return false;
-        }
-    }
-
-    private static boolean startsWith(byte[] data, byte[] prefix) {
-        for (int i = 0; i < prefix.length; i++) {
-            if (data[i] != prefix[i]) return false;
-        }
-        return true;
     }
 }
