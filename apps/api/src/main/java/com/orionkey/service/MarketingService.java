@@ -51,6 +51,9 @@ public interface MarketingService {
     /** 领取优惠券（登录用户绑定 userId，匿名需传 email）。已领取时幂等返回成功。 */
     Map<String, Object> claimCoupon(String code, UUID userId, String email);
 
+    /** 公开查询优惠券信息（领取页展示：标题/类型/金额/有效期/剩余数量/是否作废） */
+    Map<String, Object> couponInfo(String code);
+
     /** 个人中心优惠券列表（status=ALL/CLAIMED/USED/EXPIRED） */
     PageResult<?> myCoupons(UUID userId, String status, int page, int pageSize);
 

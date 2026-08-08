@@ -454,8 +454,130 @@ export interface CouponClaimResult {
   code: string
   coupon_type: CouponType
   coupon_value: number
+  coupon_title?: string
   valid_from: string | null
   valid_to: string | null
+}
+
+/** 公开查询优惠券信息（领取页展示） */
+export interface CouponInfo {
+  code: string | null
+  title: string
+  coupon_type: CouponType
+  coupon_value: number
+  coupon_min_amount: number
+  coupon_valid_from: string | null
+  coupon_valid_to: string | null
+  coupon_quantity: number
+  coupon_claimed: number
+  coupon_scope: CouponScope | null
+  coupon_product_ids: string | null
+  is_canceled: number
+  is_unique: boolean
+}
+
+/** 后台：优惠券（recordType=COUPON）列表项 */
+export interface MarketingCouponItem {
+  id: string
+  title: string
+  coupon_type: CouponType | null
+  coupon_value: number | null
+  coupon_min_amount: number | null
+  coupon_code: string | null
+  coupon_quantity: number
+  coupon_claimed: number
+  coupon_used: number
+  coupon_valid_from: string | null
+  coupon_valid_to: string | null
+  coupon_scope: CouponScope | null
+  coupon_product_ids: string | null
+  is_canceled: number
+  created_at: string
+  updated_at: string
+}
+
+/** 后台：优惠券创建/编辑请求 */
+export interface CouponPayload {
+  title: string
+  coupon_type: CouponType
+  coupon_value: number
+  coupon_min_amount?: number
+  coupon_code?: string | null
+  coupon_quantity?: number
+  coupon_valid_from?: string | null
+  coupon_valid_to?: string | null
+  coupon_scope?: CouponScope
+  coupon_product_ids?: string | null
+}
+
+/** 后台：营销邮件（recordType=EMAIL）列表项 */
+export interface MarketingEmailItem {
+  id: string
+  title: string
+  subject: string | null
+  content: string | null
+  audience_type: 'ALL_USERS' | 'USER_IDS' | 'EMAILS'
+  target_json: string | null
+  status: 'DRAFT' | 'SCHEDULED' | 'SENT'
+  sent_count: number
+  failed_count: number
+  send_at: string | null
+  is_canceled: number
+  coupon_ref_id: string | null
+  coupon_title: string | null
+  recipient_count: number
+  created_at: string
+  updated_at: string
+}
+
+/** 后台：营销邮件创建/编辑请求 */
+export interface EmailPayload {
+  title: string
+  subject?: string | null
+  content?: string | null
+  audience_type: 'ALL_USERS' | 'USER_IDS' | 'EMAILS'
+  target_json?: string | null
+  send_at?: string | null
+  coupon_ref_id?: string | null
+}
+
+/** 营销邮件收件人（发送用户弹窗） */
+export interface MarketingRecipientItem {
+  email: string
+  username: string | null
+  code: string | null
+  delivered: number
+  error: string | null
+  sent_at: string | null
+}
+
+/** 收件人分页结果 + 送达统计 */
+export interface RecipientsResult {
+  list: MarketingRecipientItem[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+  delivered: number
+  failed: number
+}
+
+/** 个人中心：我的优惠券 */
+export interface MyCouponItem {
+  id: string
+  code: string
+  type: CouponType
+  value: number
+  valid_from: string | null
+  valid_to: string | null
+  claimed_at: string | null
+  used_at: string | null
+  order_id: string | null
+  scope: CouponScope
+  product_ids: string[]
+  status: 'CLAIMED' | 'USED' | 'EXPIRED'
+  campaign_title: string
+  coupon_min_amount: number
 }
 
 // ============================================================

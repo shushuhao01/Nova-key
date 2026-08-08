@@ -516,6 +516,35 @@ public class MarketingServiceImpl implements MarketingService {
     // ═══════════ 前台：优惠券领取 / 我的优惠券 / 核销校验 ═══════════
 
     @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> couponInfo(String code) {
+        if (code == null || code.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "请输入优惠券核销码");
+        }
+        String c = code.trim().toUpperCase();
+        MarketingCampaign campaign = findByCouponCode(c);
+        if (campaign == null || campaign.getCouponType() == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "优惠券不存在或已下架");
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("code", campaign.getCouponCode());
+        m.put("title", campaign.getTitle());
+        m.put("coupon_type", campaign.getCouponType());
+        m.put("coupon_value", campaign.getCouponValue());
+        m.put("coupon_min_amount", campaign.getCouponMinAmount());
+        m.put("coupon_valid_from", campaign.getCouponValidFrom());
+        m.put("coupon_valid_to", campaign.getCouponValidTo());
+        m.put("coupon_quantity", campaign.getCouponQuantity());
+        m.put("coupon_claimed", couponRepository.countByCampaignId(campaign.getId()));
+        m.put("coupon_scope", campaign.getCouponScope());
+        m.put("coupon_product_ids", campaign.getCouponProductIds());
+        m.put("is_canceled", campaign.getIsCanceled());
+        m.put("is_unique", campaign.getCouponCode() == null || campaign.getCouponCode().isBlank()
+                || !c.equals(campaign.getCouponCode()));
+        return m;
+    }
+
+    @Override
     @Transactional
     public Map<String, Object> claimCoupon(String code, UUID userId, String email) {
         if (code == null || code.isBlank()) {

@@ -58,6 +58,7 @@ export default function RegisterPage() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.username.trim() || !form.email.trim() || !form.password.trim() || !form.captcha.trim()) {
+      toast.error(t("auth.fillAllRequired"))
       return
     }
 
@@ -103,38 +104,45 @@ export default function RegisterPage() {
             <div>
               <label htmlFor="reg-username" className="mb-1.5 block text-sm font-medium text-foreground">
                 {t("auth.username")}
+                <span className="ml-0.5 text-red-500" title={t("auth.required")}>*</span>
               </label>
               <input
                 id="reg-username"
                 type="text"
                 value={form.username}
                 onChange={(e) => update("username", e.target.value)}
+                placeholder={t("auth.usernamePlaceholder")}
                 autoComplete="username"
-                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring"
                 required
               />
+              <p className="mt-1 text-xs text-muted-foreground">{t("auth.usernameHint")}</p>
             </div>
 
             {/* Email */}
             <div>
               <label htmlFor="reg-email" className="mb-1.5 block text-sm font-medium text-foreground">
                 {t("auth.email")}
+                <span className="ml-0.5 text-red-500" title={t("auth.required")}>*</span>
               </label>
               <input
                 id="reg-email"
                 type="email"
                 value={form.email}
                 onChange={(e) => update("email", e.target.value)}
+                placeholder={t("auth.emailPlaceholder")}
                 autoComplete="email"
-                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring"
                 required
               />
+              <p className="mt-1 text-xs text-muted-foreground">{t("auth.emailHint")}</p>
             </div>
 
             {/* Password */}
             <div>
               <label htmlFor="reg-password" className="mb-1.5 block text-sm font-medium text-foreground">
                 {t("auth.password")}
+                <span className="ml-0.5 text-red-500" title={t("auth.required")}>*</span>
               </label>
               <div className="relative">
                 <input
@@ -142,8 +150,9 @@ export default function RegisterPage() {
                   type={showPassword ? "text" : "password"}
                   value={form.password}
                   onChange={(e) => update("password", e.target.value)}
+                  placeholder={t("auth.passwordPlaceholder")}
                   autoComplete="new-password"
-                  className="h-10 w-full rounded-lg border border-input bg-background px-3 pr-10 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 pr-10 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring"
                   required
                 />
                 <button
@@ -154,12 +163,14 @@ export default function RegisterPage() {
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+              <p className="mt-1 text-xs text-muted-foreground">{t("auth.passwordHint")}</p>
             </div>
 
             {/* Image Captcha */}
             <div>
               <label htmlFor="reg-captcha" className="mb-1.5 block text-sm font-medium text-foreground">
                 {t("auth.imageCode")}
+                <span className="ml-0.5 text-red-500" title={t("auth.required")}>*</span>
               </label>
               <div className="flex gap-2">
                 <input
@@ -168,8 +179,8 @@ export default function RegisterPage() {
                   value={form.captcha}
                   onChange={(e) => update("captcha", e.target.value.toUpperCase())}
                   maxLength={6}
-                  placeholder="请输入验证码"
-                  className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm uppercase text-foreground tracking-wider focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={t("auth.captchaPlaceholder")}
+                  className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm uppercase text-foreground placeholder:normal-case placeholder:text-muted-foreground/60 tracking-wider focus:outline-none focus:ring-2 focus:ring-ring"
                   required
                 />
                 <div
@@ -190,7 +201,7 @@ export default function RegisterPage() {
                 </div>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                {t("auth.clickToRefresh")}
+                {t("auth.captchaHint")} · {t("auth.clickToRefresh")}
               </p>
             </div>
 

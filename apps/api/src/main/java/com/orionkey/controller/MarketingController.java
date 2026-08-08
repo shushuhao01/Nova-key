@@ -29,6 +29,12 @@ public class MarketingController {
         return ApiResponse.success(marketingService.claimCoupon(code, userId, email));
     }
 
+    /** 公开查询优惠券信息（领取页展示用，无需登录） */
+    @GetMapping("/coupons/info")
+    public ApiResponse<?> couponInfo(@RequestParam String code) {
+        return ApiResponse.success(marketingService.couponInfo(code));
+    }
+
     /** 个人中心：我的优惠券（status=ALL/CLAIMED/USED/EXPIRED） */
     @GetMapping("/coupons/my")
     public ApiResponse<?> myCoupons(

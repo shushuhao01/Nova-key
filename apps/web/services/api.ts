@@ -119,6 +119,18 @@ export function clearSessionToken() {
 }
 
 // ============================================================
+// Upload (admin rich text images)
+// ============================================================
+
+export const uploadApi = {
+  image: (file: File) => {
+    const formData = new FormData()
+    formData.append("file", file)
+    return uploadRequest<{ url: string }>("/upload/image", formData)
+  },
+}
+
+// ============================================================
 // Query builder
 // ============================================================
 
@@ -583,25 +595,53 @@ export const marketingApi = {
     request<import("@/types").CouponClaimResult>("/marketing/coupons/claim", { method: "POST", body: JSON.stringify(data) }),
   validate: (data: { code: string; email?: string; amount: number; product_ids?: string[] }) =>
     request<import("@/types").CouponValidateResult>("/marketing/coupons/validate", { method: "POST", body: JSON.stringify(data) }),
+  info: (code: string) =>
+    request<import("@/types").CouponInfo>(`/marketing/coupons/info?code=${encodeURIComponent(code)}`),
+  myCoupons: (params: { status?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<import("@/types").MyCouponItem>>(`/marketing/coupons/my?${qs}`)
+  },
 }
 
 // ============================================================
-// Admin Marketing
+// Admin Marketing (coupons & email campaigns, separate tabs)
 // ============================================================
 
 export const adminMarketingApi = {
-  getCampaigns: (params: { keyword?: string; status?: string; page?: number; page_size?: number }) => {
+  // ── 优惠券管理 ──
+  getCoupons: (params: { keyword?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
-    return request<PaginatedData<import("@/types").MarketingCampaignItem>>(`/admin/marketing/campaigns?${qs}`)
+    return request<PaginatedData<import("@/types").MarketingCouponItem>>(`/admin/marketing/coupons?${qs}`)
   },
-  create: (data: import("@/types").CampaignPayload) =>
-    request<import("@/types").MarketingCampaignItem>("/admin/marketing/campaigns", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<import("@/types").CampaignPayload>) =>
-    request<import("@/types").MarketingCampaignItem>(`/admin/marketing/campaigns/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    request<null>(`/admin/marketing/campaigns/${id}`, { method: "DELETE" }),
-  send: (id: string) =>
-    request<{ sent: number }>(`/admin/marketing/campaigns/${id}/send`, { method: "POST" }),
+  getCoupon: (id: string) =>
+    request<import("@/types").MarketingCouponItem>(`/admin/marketing/coupons/${id}`),
+  createCoupon: (data: import("@/types").CouponPayload) =>
+    request<import("@/types").MarketingCouponItem>("/admin/marketing/coupons", { method: "POST", body: JSON.stringify(data) }),
+  updateCoupon: (id: string, data: Partial<import("@/types").CouponPayload>) =>
+    request<import("@/types").MarketingCouponItem>(`/admin/marketing/coupons/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  cancelCoupon: (id: string) =>
+    request<null>(`/admin/marketing/coupons/${id}/cancel`, { method: "POST" }),
+  deleteCoupon: (id: string) =>
+    request<null>(`/admin/marketing/coupons/${id}`, { method: "DELETE" }),
+  // ── 营销邮件管理 ──
+  getEmails: (params: { keyword?: string; status?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<import("@/types").MarketingEmailItem>>(`/admin/marketing/emails?${qs}`)
+  },
+  getEmail: (id: string) =>
+    request<import("@/types").MarketingEmailItem>(`/admin/marketing/emails/${id}`),
+  createEmail: (data: import("@/types").EmailPayload) =>
+    request<import("@/types").MarketingEmailItem>("/admin/marketing/emails", { method: "POST", body: JSON.stringify(data) }),
+  updateEmail: (id: string, data: Partial<import("@/types").EmailPayload>) =>
+    request<import("@/types").MarketingEmailItem>(`/admin/marketing/emails/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteEmail: (id: string) =>
+    request<null>(`/admin/marketing/emails/${id}`, { method: "DELETE" }),
+  sendEmail: (id: string) =>
+    request<{ scheduled: boolean; sent?: number; send_at?: string }>(`/admin/marketing/emails/${id}/send`, { method: "POST" }),
+  recipients: (id: string, params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<import("@/types").RecipientsResult>(`/admin/marketing/emails/${id}/recipients?${qs}`)
+  },
 }
 
 // ============================================================
