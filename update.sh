@@ -335,6 +335,25 @@ else
     NGINX_FAIL=1
 fi
 
+# 4.5) 多 A 记录检测：域名解析出多个 IP 时，非本机的节点若证书异常（自签名/过期/不匹配），
+#      DNS 轮询会让浏览器随机连到坏节点 → 随机报「你的连接不是专用连接」/ 时好时坏。
+#      这是"网站久不久出问题"的最常见根因（本机证书正常但公网随机失败）。
+LOCAL_IP=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null || echo "")
+if [ -n "$LOCAL_IP" ]; then
+    for _ip in $(dig +short noepay.cn A 2>/dev/null | sort -u); do
+        [ "$_ip" = "$LOCAL_IP" ] && continue
+        _verify=$(echo | timeout 5 openssl s_client -connect "$_ip":443 -servername noepay.cn 2>/dev/null | grep 'Verify return code' | head -1)
+        case "$_verify" in
+            *"0 (ok)"*)
+                echo -e "${GREEN}[i] 额外 A 记录 $_ip 证书正常${NC}" ;;
+            *)
+                echo -e "${RED}[X] 额外 A 记录 $_ip 证书异常（${_verify:-无法连接}）！DNS 轮询会随机让浏览器报「连接不是专用连接」${NC}"
+                echo -e "${RED}    修复: 到域名 DNS 服务商删除 $_ip 这条 A 记录，只保留本机 IP $LOCAL_IP${NC}"
+                NGINX_FAIL=1 ;;
+        esac
+    done
+fi
+
 # 5) 公网 HTTPS 验证（证书错误时 curl 会失败，需先区分证书问题还是连接问题）
 #    重试 3 次排除瞬态（nginx reload 后短暂不可用 / 网络抖动导致误报）
 sleep 2
