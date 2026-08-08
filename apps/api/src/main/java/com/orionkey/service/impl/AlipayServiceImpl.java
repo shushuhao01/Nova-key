@@ -219,6 +219,7 @@ public class AlipayServiceImpl implements AlipayService {
                         } else if ("isv.invalid-signature".equals(subCode)) {
                             sb.append("。签名校验失败：")
                                     .append(checkPrivateKeyBits(config.privateKey()))
+                                    .append(privateKeyFingerprintHint(config.privateKey()))
                                     .append("请核对 AppID 对应的「应用私钥」是否匹配（在开放平台重新生成并上传应用公钥后，使用其配套的私钥），并确认应用「加签方式」为「公钥」（若为「公钥证书」则需使用证书模式，当前系统不支持）");
                         } else if ("isv.invalid-parameter".equals(subCode)) {
                             sb.append("。请求参数无效：请检查 AppID/私钥/公钥粘贴时是否带有多余空格、换行等非法字符");
@@ -279,6 +280,35 @@ public class AlipayServiceImpl implements AlipayService {
         boolean passed = items.stream().allMatch(i -> i.status());
         String summary = passed ? "支付宝配置验证通过" : "部分配置项未通过验证，请根据上方 ❌ 项修正";
         return new PaymentTestResult(passed, items, summary);
+    }
+
+    /**
+     * 私钥自检：用私钥推导出对应的「应用公钥」，计算其 X.509 DER 的 SHA-1 指纹。
+     * 用户在支付宝开放平台「接口加签方式」页面复制『应用公钥』后，可在本地用
+     * openssl 计算指纹与本指纹比对：
+     *   openssl pkey -pubin -in app_public_key.pem -outform der | openssl dgst -sha1
+     * 指纹一致说明私钥与当前 AppID 配套（问题在 AppID 或加签模式）；
+     * 指纹不一致说明私钥是从其他应用/项目复制来的，与当前 AppID 不配套。
+     */
+    private static String privateKeyFingerprintHint(String privateKey) {
+        try {
+            java.security.PrivateKey key = PaymentCryptoUtils.parsePrivateKey(privateKey);
+            if (key instanceof java.security.interfaces.RSAPrivateCrtKey crtKey) {
+                java.security.PublicKey pub = java.security.KeyFactory.getInstance("RSA").generatePublic(
+                        new java.security.spec.RSAPublicKeySpec(crtKey.getModulus(), crtKey.getPublicExponent()));
+                byte[] digest = java.security.MessageDigest.getInstance("SHA-1").digest(pub.getEncoded());
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < digest.length; i++) {
+                    if (i > 0) sb.append(':');
+                    sb.append(String.format("%02X", digest[i]));
+                }
+                return "本配置私钥对应的『应用公钥』指纹：SHA1: " + sb
+                        + "。请到开放平台复制『应用公钥』后本地比对（openssl pkey -pubin -in 公钥.pem -outform der | openssl dgst -sha1），指纹一致则私钥正确（问题在 AppID 或加签方式），不一致则私钥与当前 AppID 不配套；";
+            }
+        } catch (Exception ignored) {
+            // 私钥无法解析时走「商家私钥解析失败」提示，这里忽略
+        }
+        return "";
     }
 
     private static boolean isNotBlank(String s) {
