@@ -45,6 +45,53 @@ INSERT INTO site_configs (id, config_key, config_value, config_group, created_at
 SELECT gen_random_uuid(), 'github_url', 'https://github.com/shushuhao01/Nova-key', 'site', NOW(), NOW()
     WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'github_url');
 
+-- 版权信息（留空则不显示）
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'copyright', '', 'site', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'copyright');
+
+-- ICP 备案号（留空则不显示）
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'icp_number', '', 'site', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'icp_number');
+
+-- 公安备案号（留空则不显示）
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'police_number', '', 'site', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'police_number');
+
+-- ────────────────────────────────────────
+-- 2.2 联系方式配置 (config_group = 'contact')
+-- 首页底部「联系我们」弹窗展示：地址 / 电话 / 邮箱 / Telegram / 微信客服链接 / 微信二维码
+-- ────────────────────────────────────────
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'contact_email', '', 'contact', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'contact_email');
+
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'contact_telegram', '', 'contact', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'contact_telegram');
+
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'contact_telegram_group', '', 'contact', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'contact_telegram_group');
+
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'contact_phone', '', 'contact', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'contact_phone');
+
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'contact_address', '', 'contact', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'contact_address');
+
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'wechat_kefu_link', '', 'contact', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'wechat_kefu_link');
+
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'wechat_qrcode', '', 'contact', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'wechat_qrcode');
+
 -- 积分功能总开关 (true/false)
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
 SELECT gen_random_uuid(), 'points_enabled', 'false', 'site', NOW(), NOW()

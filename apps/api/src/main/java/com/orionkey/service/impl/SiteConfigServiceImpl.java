@@ -26,9 +26,15 @@ public class SiteConfigServiceImpl implements SiteConfigService {
     private static final List<String> PUBLIC_KEYS = List.of(
             "site_name", "site_slogan", "site_description", "logo_url", "favicon_url",
             "announcement_enabled", "announcement", "popup_enabled", "popup_content",
-            "contact_email", "contact_telegram", "contact_telegram_group", "points_enabled", "points_rate",
-            "maintenance_enabled", "maintenance_message", "footer_text", "github_url", "custom_css"
+            "contact_email", "contact_telegram", "contact_telegram_group", "contact_phone", "contact_address",
+            "wechat_kefu_link", "wechat_qrcode",
+            "points_enabled", "points_rate",
+            "maintenance_enabled", "maintenance_message", "footer_text", "github_url", "custom_css",
+            "copyright", "icp_number", "police_number"
     );
+
+    /** 系统版本号：仅在管理后台「网站设置 → 基本信息」只读展示 */
+    private static final String SYSTEM_VERSION = "1.0.0";
 
     /** F16: 管理员允许编辑的配置键白名单 — 防止写入系统内部键或注入任意配置 */
     private static final Set<String> EDITABLE_KEYS = Set.of(
@@ -37,7 +43,10 @@ public class SiteConfigServiceImpl implements SiteConfigService {
             // 公告 / 弹窗
             "announcement_enabled", "announcement", "popup_enabled", "popup_content",
             // 联系方式
-            "contact_email", "contact_telegram", "contact_telegram_group",
+            "contact_email", "contact_telegram", "contact_telegram_group", "contact_phone", "contact_address",
+            "wechat_kefu_link", "wechat_qrcode",
+            // 版权 / 备案
+            "copyright", "icp_number", "police_number",
             // 积分
             "points_enabled", "points_rate",
             // 维护模式
@@ -96,7 +105,7 @@ public class SiteConfigServiceImpl implements SiteConfigService {
 
     @Override
     public List<?> getAllConfigs() {
-        return siteConfigRepository.findAll().stream()
+        List<Map<String, Object>> list = new ArrayList<>(siteConfigRepository.findAll().stream()
                 .map(c -> {
                     Map<String, Object> map = new LinkedHashMap<>();
                     map.put("config_key", c.getConfigKey());
@@ -108,7 +117,15 @@ public class SiteConfigServiceImpl implements SiteConfigService {
                     map.put("config_value", value);
                     map.put("config_group", c.getConfigGroup());
                     return map;
-                }).toList();
+                }).toList());
+        // 系统版本号：只读展示，非数据库配置项，追加在末尾
+        Map<String, Object> version = new LinkedHashMap<>();
+        version.put("config_key", "system_version");
+        version.put("config_value", SYSTEM_VERSION);
+        version.put("config_group", "site");
+        version.put("readonly", true);
+        list.add(version);
+        return list;
     }
 
     @Override

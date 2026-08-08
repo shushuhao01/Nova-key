@@ -20,6 +20,27 @@ VALUES (RANDOM_UUID(), 'footer_text', '由开源 Orion Key 二开，Nova key 提
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
 VALUES (RANDOM_UUID(), 'github_url', 'https://github.com/shushuhao01/Nova-key', 'site', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+VALUES (RANDOM_UUID(), 'copyright', '', 'site', NOW(), NOW());
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+VALUES (RANDOM_UUID(), 'icp_number', '', 'site', NOW(), NOW());
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+VALUES (RANDOM_UUID(), 'police_number', '', 'site', NOW(), NOW());
+-- 联系方式（首页底部「联系我们」弹窗展示）
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+VALUES (RANDOM_UUID(), 'contact_email', 'support@novakey.com', 'contact', NOW(), NOW());
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+VALUES (RANDOM_UUID(), 'contact_telegram', '@novakey', 'contact', NOW(), NOW());
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+VALUES (RANDOM_UUID(), 'contact_telegram_group', 'https://t.me/+P3w53nfrAhpkMjFh', 'contact', NOW(), NOW());
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+VALUES (RANDOM_UUID(), 'contact_phone', '', 'contact', NOW(), NOW());
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+VALUES (RANDOM_UUID(), 'contact_address', '', 'contact', NOW(), NOW());
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+VALUES (RANDOM_UUID(), 'wechat_kefu_link', '', 'contact', NOW(), NOW());
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+VALUES (RANDOM_UUID(), 'wechat_qrcode', '', 'contact', NOW(), NOW());
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
 VALUES (RANDOM_UUID(), 'points_enabled', 'false', 'site', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
 VALUES (RANDOM_UUID(), 'points_rate', '1', 'site', NOW(), NOW());

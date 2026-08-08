@@ -497,11 +497,18 @@ export const mockSiteConfig: SiteConfig = {
   contact_email: "support@novakey.com",
   contact_telegram: "@novakey",
   contact_telegram_group: "https://t.me/+P3w53nfrAhpkMjFh",
+  contact_phone: "400-888-8888",
+  contact_address: "广东省深圳市南山区科技园",
+  wechat_kefu_link: "",
+  wechat_qrcode: "",
   maintenance_enabled: false,
   points_enabled: true,
   points_rate: 100,
   footer_text: "Nova key - 自动发卡平台（基于开源 Orion Key 二开）",
   github_url: "https://github.com/shushuhao01/Nova-key",
+  copyright: "© 2026 Nova key 版权所有",
+  icp_number: "粤ICP备00000000号",
+  police_number: "粤公网安备44030000000000号",
 }
 
 export const mockSiteConfigKVs: SiteConfigKV[] = [
@@ -515,6 +522,10 @@ export const mockSiteConfigKVs: SiteConfigKV[] = [
   { config_key: "contact_email", config_value: "support@novakey.com", config_group: "contact" },
   { config_key: "contact_telegram", config_value: "@novakey", config_group: "contact" },
   { config_key: "contact_telegram_group", config_value: "https://t.me/+P3w53nfrAhpkMjFh", config_group: "contact" },
+  { config_key: "contact_phone", config_value: "400-888-8888", config_group: "contact" },
+  { config_key: "contact_address", config_value: "广东省深圳市南山区科技园", config_group: "contact" },
+  { config_key: "wechat_kefu_link", config_value: "", config_group: "contact" },
+  { config_key: "wechat_qrcode", config_value: "", config_group: "contact" },
   { config_key: "maintenance_enabled", config_value: "false", config_group: "maintenance" },
   { config_key: "mail_enabled", config_value: "false", config_group: "email" },
   { config_key: "smtp_host", config_value: "smtp.qq.com", config_group: "email" },
@@ -528,6 +539,10 @@ export const mockSiteConfigKVs: SiteConfigKV[] = [
   { config_key: "points_rate", config_value: "100", config_group: "points" },
   { config_key: "footer_text", config_value: "Nova key - 自动发卡平台（基于开源 Orion Key 二开）", config_group: "basic" },
   { config_key: "github_url", config_value: "https://github.com/shushuhao01/Nova-key", config_group: "basic" },
+  { config_key: "copyright", config_value: "© 2026 Nova key 版权所有", config_group: "basic" },
+  { config_key: "icp_number", config_value: "粤ICP备00000000号", config_group: "basic" },
+  { config_key: "police_number", config_value: "粤公网安备44030000000000号", config_group: "basic" },
+  { config_key: "system_version", config_value: "1.0.0", config_group: "basic", readonly: true },
 ]
 
 // ============================================================

@@ -350,12 +350,19 @@ export interface SiteConfig {
   contact_email?: string
   contact_telegram?: string
   contact_telegram_group?: string
+  contact_phone?: string
+  contact_address?: string
+  wechat_kefu_link?: string
+  wechat_qrcode?: string
   points_enabled: boolean
   points_rate: number
   maintenance_enabled: boolean
   maintenance_message?: string
   footer_text?: string
   github_url?: string
+  copyright?: string
+  icp_number?: string
+  police_number?: string
   custom_css?: string
 }
 
@@ -363,6 +370,7 @@ export interface SiteConfigKV {
   config_key: string
   config_value: string
   config_group?: string
+  readonly?: boolean
 }
 
 // ============================================================

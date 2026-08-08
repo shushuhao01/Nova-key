@@ -32,6 +32,7 @@ export default function AdminSiteConfigPage() {
   const [saving, setSaving] = useState(false)
   const [logoUploading, setLogoUploading] = useState(false)
   const [popupUploading, setPopupUploading] = useState(false)
+  const [wechatUploading, setWechatUploading] = useState(false)
   const [testEmailTo, setTestEmailTo] = useState("")
   const [testSending, setTestSending] = useState(false)
   const popupTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -100,9 +101,9 @@ export default function AdminSiteConfigPage() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      // SMTP 密码：留空或 __SET__ 表示不修改，剔除后不提交（后端也跳过空值）
+      // SMTP 密码：留空或 __SET__ 表示不修改，剔除后不提交（后端也跳过空值）；system_version 为只读展示，不提交
       const configs = Object.entries(configMap)
-        .filter(([key, value]) => !(key === "smtp_password" && (value === "" || value === "__SET__")))
+        .filter(([key, value]) => key !== "system_version" && !(key === "smtp_password" && (value === "" || value === "__SET__")))
         .map(([config_key, config_value]) => ({
           config_key,
           config_value,
@@ -142,7 +143,7 @@ export default function AdminSiteConfigPage() {
     setTestSending(true)
     try {
       const configs = Object.entries(configMap)
-        .filter(([key, value]) => !(key === "smtp_password" && (value === "" || value === "__SET__")))
+        .filter(([key, value]) => key !== "system_version" && !(key === "smtp_password" && (value === "" || value === "__SET__")))
         .map(([config_key, config_value]) => ({ config_key, config_value }))
       await withMockFallback(
         () => adminConfigApi.update({ configs }),
@@ -372,6 +373,46 @@ export default function AdminSiteConfigPage() {
               />
               <p className="text-xs text-muted-foreground">{t("admin.githubUrlHint")}</p>
             </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">{t("admin.copyright")}</label>
+              <input
+                type="text"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="© 2026 Nova key 版权所有"
+                value={getValue("copyright")}
+                onChange={(e) => setValue("copyright", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("admin.copyrightHint")}</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">{t("admin.icpNumber")}</label>
+              <input
+                type="text"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="粤ICP备XXXXXXXX号"
+                value={getValue("icp_number")}
+                onChange={(e) => setValue("icp_number", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("admin.icpNumberHint")}</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">{t("admin.policeNumber")}</label>
+              <input
+                type="text"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="粤公网安备440XXXXXXXXXXXX号"
+                value={getValue("police_number")}
+                onChange={(e) => setValue("police_number", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("admin.policeNumberHint")}</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">{t("admin.systemVersion")}</label>
+              <div className="flex h-10 items-center rounded-lg border border-input bg-muted/40 px-3 text-sm text-foreground">
+                {getValue("system_version") || "1.0.0"}
+              </div>
+              <p className="text-xs text-muted-foreground">{t("admin.systemVersionHint")}</p>
+            </div>
             <button
               type="button"
               className="flex w-fit items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
@@ -577,6 +618,78 @@ export default function AdminSiteConfigPage() {
                 onChange={(e) => setValue("contact_telegram_group", e.target.value)}
               />
               <p className="text-xs text-muted-foreground">{t("admin.contactTelegramGroupHint")}</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">{t("admin.contactPhone")}</label>
+              <input
+                type="text"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="400-888-8888"
+                value={getValue("contact_phone")}
+                onChange={(e) => setValue("contact_phone", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">显示在首页底部「联系我们」弹窗中，留空则不显示</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">{t("admin.contactAddress")}</label>
+              <input
+                type="text"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="广东省深圳市南山区科技园"
+                value={getValue("contact_address")}
+                onChange={(e) => setValue("contact_address", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">显示在首页底部「联系我们」弹窗中，留空则不显示</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">{t("admin.wechatKefuLink")}</label>
+              <input
+                type="text"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="https://work.weixin.qq.com/kfid/... 或 https://wx.qq.com/..."
+                value={getValue("wechat_kefu_link")}
+                onChange={(e) => setValue("wechat_kefu_link", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("admin.wechatKefuLinkHint")}</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">{t("admin.wechatQrcode")}</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="https://..."
+                  value={getValue("wechat_qrcode")}
+                  onChange={(e) => setValue("wechat_qrcode", e.target.value)}
+                />
+                <label className={cn("flex h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-accent transition-colors", wechatUploading && "pointer-events-none opacity-50")}>
+                  {wechatUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  上传
+                  <input
+                    type="file"
+                    accept={ALLOWED_IMAGE_ACCEPT}
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      const err = validateImageFile(file)
+                      if (err) { toast.error(err); e.target.value = ""; return }
+                      setWechatUploading(true)
+                      try {
+                        const result = await adminProductApi.uploadImage(file)
+                        setValue("wechat_qrcode", result.url)
+                        toast.success("上传成功")
+                      } catch (err: unknown) {
+                        toast.error(err instanceof Error ? err.message : "上传失败")
+                      } finally {
+                        setWechatUploading(false)
+                        e.target.value = ""
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground">{t("admin.wechatQrcodeHint")}</p>
             </div>
             <button
               type="button"
