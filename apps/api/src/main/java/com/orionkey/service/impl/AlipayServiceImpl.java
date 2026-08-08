@@ -153,10 +153,14 @@ public class AlipayServiceImpl implements AlipayService {
         String signType = isNotBlank(config.signType()) ? config.signType() : "RSA2";
         items.add(new PaymentTestResult.TestItem("签名类型", true, "签名类型: " + signType));
 
-        // 5. 连接测试：AppID + 商家私钥齐全时，用一笔不存在的订单号调用查询接口，
-        //    验证 签名 与 响应验签（支付宝公钥）是否有效
+        // 5. 连接测试：AppID + 商家私钥齐全时，用一笔不存在的订单号调用查询接口。
+        //    判定标准与 CRM 一致：支付宝网关是否接受商家私钥签名（返回业务响应即签名通过），
+        //    不依赖支付宝公钥；公钥正确性由第 6 项「响应验签」单独校验。
         boolean connOk = false;
         String connMsg;
+        // 供第 6 项「响应验签」复用：网关返回的业务响应 + 响应签名
+        Map<String, Object> apiRespForVerify = null;
+        String respSign = null;
         if (!hasAppId || !hasPrivateKey) {
             connMsg = "配置不完整（缺少AppID或商家私钥），无法进行真实连接测试";
         } else {
@@ -169,32 +173,37 @@ public class AlipayServiceImpl implements AlipayService {
                 String respBody = postForm(config.gatewayUrl(), params);
                 Map<String, Object> resp = objectMapper.readValue(respBody, new TypeReference<>() {
                 });
-                Map<String, Object> apiResp = readApiResponse(resp, "alipay_trade_query_response");
 
-                // 先验证响应签名：能验签通过说明支付宝公钥正确
-                if (resp.get("sign") instanceof String respSign && !respSign.isBlank()) {
-                    Map<String, String> verifyParams = new LinkedHashMap<>();
-                    for (Map.Entry<String, Object> entry : apiResp.entrySet()) {
-                        verifyParams.put(entry.getKey(), String.valueOf(entry.getValue()));
+                // 网关返回 error_response：请求未被接受（通常是签名错误）
+                Object errObj = resp.get("error_response");
+                if (errObj instanceof Map<?, ?> em) {
+                    Map<String, Object> errorResp = (Map<String, Object>) em;
+                    String subCode = errorResp.get("sub_code") != null
+                            ? errorResp.get("sub_code").toString() : null;
+                    String errMsg = errorResp.get("sub_msg") != null
+                            ? errorResp.get("sub_msg").toString()
+                            : (errorResp.get("msg") != null ? errorResp.get("msg").toString() : "");
+                    if ("isv.invalid-signature".equals(subCode)) {
+                        connMsg = "支付宝网关返回签名错误（isv.invalid-signature）：请核对 支付应用Appid 与 支付宝商家私钥 是否匹配、私钥是否完整（含 -----BEGIN PRIVATE KEY----- 头）";
+                    } else {
+                        connMsg = "支付宝网关返回错误：" + (subCode != null ? subCode + " " : "") + errMsg;
                     }
-                    if (!verifySign(config.alipayPublicKey(), verifyParams, respSign)) {
-                        throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
-                                "支付宝响应验签失败：支付宝公钥可能不正确，请在支付宝开放平台「密钥管理」中核对公钥（应填支付宝公钥，而非应用公钥）");
-                    }
-                }
-
-                String code = apiResp.get("code") != null ? apiResp.get("code").toString() : null;
-                String subMsg = apiResp.get("sub_msg") != null ? apiResp.get("sub_msg").toString() : null;
-                // code=10000 成功；code=40004(ACQ.TRADE_NOT_EXIST) 表示签名验证通过、仅订单不存在（测试单号必然不存在）
-                if ("10000".equals(code) || "40004".equals(code)) {
-                    connOk = true;
-                    connMsg = "支付宝网关连接成功，AppID 与商家私钥、支付宝公钥配置正确，签名验证通过";
                 } else {
-                    connMsg = "支付宝接口返回错误：code=" + code + "（msg=" + apiResp.get("msg")
-                            + (subMsg != null ? "，sub_msg=" + subMsg : "") + "）";
+                    // 网关接受了签名并返回业务响应（订单不存在也返回正常响应）
+                    Map<String, Object> apiResp = readApiResponse(resp, "alipay_trade_query_response");
+                    String code = apiResp.get("code") != null ? apiResp.get("code").toString() : null;
+                    // code=10000 成功；code=40004(ACQ.TRADE_NOT_EXIST) 表示签名验证通过、仅订单不存在（测试单号必然不存在）
+                    if ("10000".equals(code) || "40004".equals(code)) {
+                        connOk = true;
+                        connMsg = "支付宝网关连接成功，AppID 与商家私钥签名验证通过";
+                        apiRespForVerify = apiResp;
+                        if (resp.get("sign") instanceof String s) {
+                            respSign = s;
+                        }
+                    } else {
+                        connMsg = "支付宝接口返回错误：code=" + code + "（msg=" + apiResp.get("msg") + "）";
+                    }
                 }
-            } catch (BusinessException e) {
-                connMsg = e.getMessage();
             } catch (IllegalArgumentException e) {
                 connMsg = "商家私钥解析失败：" + e.getMessage()
                         + "。请检查私钥内容是否正确完整（含 -----BEGIN ...----- 头）";
@@ -206,6 +215,44 @@ public class AlipayServiceImpl implements AlipayService {
             }
         }
         items.add(new PaymentTestResult.TestItem("连接测试", connOk, connMsg));
+
+        // 6. 响应验签（支付宝公钥）：用填写的公钥验证支付宝响应的 sign，
+        //    判断填入的是否真的是「支付宝公钥」（而非「应用公钥」）。
+        //    该项不影响连接测试结果，但影响支付回调验签是否成功（回调验签失败将无法发货）。
+        boolean respVerifyOk = false;
+        String respVerifyMsg;
+        if (!connOk) {
+            respVerifyMsg = "未执行（连接测试未通过）";
+        } else if (respSign == null || respSign.isBlank()) {
+            respVerifyMsg = "响应缺少 sign 字段，跳过响应验签（下单/回调时仍会验签）";
+        } else {
+            try {
+                Map<String, String> verifyParams = new LinkedHashMap<>();
+                for (Map.Entry<String, Object> entry : apiRespForVerify.entrySet()) {
+                    verifyParams.put(entry.getKey(), String.valueOf(entry.getValue()));
+                }
+                String content = buildSignContent(verifyParams);
+                java.security.PublicKey publicKey;
+                try {
+                    publicKey = PaymentCryptoUtils.parsePublicKey(config.alipayPublicKey());
+                } catch (Exception e) {
+                    publicKey = null;
+                    respVerifyMsg = "支付宝公钥格式无法解析：" + e.getMessage()
+                            + "。请重新从支付宝开放平台「密钥管理」复制完整的『支付宝公钥』（含 -----BEGIN PUBLIC KEY----- 头）并保存后重试";
+                }
+                if (publicKey != null) {
+                    if (PaymentCryptoUtils.verify(publicKey, content, respSign)) {
+                        respVerifyOk = true;
+                        respVerifyMsg = "响应验签通过，支付宝公钥正确，支付回调可正常验签发货";
+                    } else {
+                        respVerifyMsg = "支付宝响应验签失败：当前填写的公钥无法验证支付宝的签名。请在支付宝开放平台「密钥管理」中复制『支付宝公钥』（注意不是『应用公钥』——应用公钥是您私钥配套的公钥，无法验证支付宝的签名）填入本字段";
+                    }
+                }
+            } catch (Exception e) {
+                respVerifyMsg = "响应验签异常：" + e.getMessage();
+            }
+        }
+        items.add(new PaymentTestResult.TestItem("响应验签", respVerifyOk, respVerifyMsg));
 
         boolean passed = items.stream().allMatch(i -> i.status());
         String summary = passed ? "支付宝配置验证通过" : "部分配置项未通过验证，请根据上方 ❌ 项修正";
