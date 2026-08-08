@@ -49,9 +49,11 @@ public class MarketingCampaign extends BaseEntity {
     private String status = "DRAFT";
 
     /** 已发送数量 */
+    @Column(columnDefinition = "integer not null default 0")
     private int sentCount = 0;
 
     /** 发送失败数量（尝试发送但失败） */
+    @Column(columnDefinition = "integer not null default 0")
     private int failedCount = 0;
 
     /** 记录类型：COUPON 纯优惠券 / EMAIL 营销邮件（旧数据 null 视为 EMAIL） */
@@ -64,6 +66,7 @@ public class MarketingCampaign extends BaseEntity {
     private LocalDateTime sendAt;
 
     /** 作废标记：1=已作废（优惠券不可再领取/使用） */
+    @Column(columnDefinition = "integer not null default 0")
     private int isCanceled = 0;
 
     // ── 优惠券配置（活动可携带一个核销码） ──
@@ -83,6 +86,7 @@ public class MarketingCampaign extends BaseEntity {
     private String couponCode;
 
     /** 可领取总数量 */
+    @Column(columnDefinition = "integer not null default 0")
     private int couponQuantity = 0;
 
     /** 优惠券生效开始时间 */
