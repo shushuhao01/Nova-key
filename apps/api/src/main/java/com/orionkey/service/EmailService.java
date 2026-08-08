@@ -18,4 +18,10 @@ public interface EmailService {
      * @param content 邮件正文（支持简单 HTML）
      */
     void sendNoticeEmail(String to, String subject, String content);
+
+    /**
+     * 发送营销邮件（自定义 HTML 排版，营销活动推广用，复用后台 SMTP 配置）。
+     * 失败抛异常，由调用方记录日志。
+     */
+    void sendMarketingEmail(String to, String subject, String html);
 }

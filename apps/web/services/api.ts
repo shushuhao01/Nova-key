@@ -547,6 +547,63 @@ export const adminUserApi = {
 }
 
 // ============================================================
+// Marketing (public coupon claim/validate)
+// ============================================================
+
+export const marketingApi = {
+  claim: (data: { code: string; email?: string }) =>
+    request<import("@/types").CouponClaimResult>("/marketing/coupons/claim", { method: "POST", body: JSON.stringify(data) }),
+  validate: (data: { code: string; email?: string; amount: number }) =>
+    request<import("@/types").CouponValidateResult>("/marketing/coupons/validate", { method: "POST", body: JSON.stringify(data) }),
+}
+
+// ============================================================
+// Admin Marketing
+// ============================================================
+
+export const adminMarketingApi = {
+  getCampaigns: (params: { keyword?: string; status?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<import("@/types").MarketingCampaignItem>>(`/admin/marketing/campaigns?${qs}`)
+  },
+  create: (data: import("@/types").CampaignPayload) =>
+    request<import("@/types").MarketingCampaignItem>("/admin/marketing/campaigns", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<import("@/types").CampaignPayload>) =>
+    request<import("@/types").MarketingCampaignItem>(`/admin/marketing/campaigns/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  delete: (id: string) =>
+    request<null>(`/admin/marketing/campaigns/${id}`, { method: "DELETE" }),
+  send: (id: string) =>
+    request<{ sent: number }>(`/admin/marketing/campaigns/${id}/send`, { method: "POST" }),
+}
+
+// ============================================================
+// Admin Customers
+// ============================================================
+
+export const adminCustomerApi = {
+  overview: () =>
+    request<import("@/types").CustomerOverview>("/admin/customers/overview"),
+  getRegistered: (params: { keyword?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<import("@/types").RegisteredCustomerItem>>(`/admin/customers/registered?${qs}`)
+  },
+  getAnonymous: (params: { keyword?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<import("@/types").AnonymousCustomerItem>>(`/admin/customers/anonymous?${qs}`)
+  },
+  registeredDetail: (id: string, params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<import("@/types").RegisteredCustomerDetail>(`/admin/customers/registered/${id}?${qs}`)
+  },
+  anonymousDetail: (email: string, params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<import("@/types").AnonymousCustomerDetail>(`/admin/customers/anonymous/detail?${qs}&email=${encodeURIComponent(email)}`)
+  },
+  toggleRegistered: (id: string, isDeleted: 0 | 1) =>
+    request<null>(`/admin/customers/registered/${id}/toggle`, { method: "POST", body: JSON.stringify({ is_deleted: isDeleted }) }),
+}
+
+// ============================================================
 // Admin Payment
 // ============================================================
 

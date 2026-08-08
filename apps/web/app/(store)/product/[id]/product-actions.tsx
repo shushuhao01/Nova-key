@@ -2,10 +2,10 @@
 
 import { useState, useMemo, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Zap, Minus, Plus, ShoppingCart, Package, TrendingUp } from "lucide-react"
+import { Zap, Minus, Plus, ShoppingCart, Package, TrendingUp, Ticket, CheckCircle2, XCircle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale, useAuth, useCart } from "@/lib/context"
-import { orderApi, withMockFallback, getApiErrorMessage, setTurnstileHeaders } from "@/services/api"
+import { orderApi, marketingApi, withMockFallback, getApiErrorMessage, setTurnstileHeaders } from "@/services/api"
 import { mockCreateOrder } from "@/lib/mock-data"
 import { Turnstile, useTurnstile } from "@/components/shared/turnstile"
 import { cn, validateEmail, generateIdempotencyKey, getCurrencySymbol, detectPaymentDevice, isMobileDevice } from "@/lib/utils"
@@ -38,11 +38,55 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
   const [submitting, setSubmitting] = useState(false)
   const { turnstileToken, setTurnstileToken, handleTurnstileReset } = useTurnstile()
 
+  // 优惠券（选填）
+  const [couponCode, setCouponCode] = useState("")
+  const [couponStatus, setCouponStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle")
+  const [couponDiscount, setCouponDiscount] = useState(0)
+  const [couponMessage, setCouponMessage] = useState("")
+
   const currentPrice = selectedSpec ? selectedSpec.price : product.base_price
   const totalPrice = currentPrice * quantity
+  const couponPayable = Math.max(0, totalPrice - couponDiscount)
   const currentStock = selectedSpec?.stock_available ?? product.stock_available ?? 0
   const isOutOfStock = currentStock === 0
   const deliveryType = product.delivery_type === "MANUAL" ? "manual" : "auto"
+
+  const resetCoupon = () => {
+    setCouponCode("")
+    setCouponStatus("idle")
+    setCouponDiscount(0)
+    setCouponMessage("")
+  }
+
+  const handleApplyCoupon = async () => {
+    const code = couponCode.trim()
+    if (!code) {
+      setCouponStatus("idle")
+      setCouponDiscount(0)
+      setCouponMessage("")
+      return
+    }
+    setCouponStatus("checking")
+    try {
+      const result = await withMockFallback(
+        () => marketingApi.validate({ code, email: email.trim() || undefined, amount: totalPrice }),
+        () => ({ valid: true, discount: Math.min(5, totalPrice), coupon_type: "AMOUNT" as const, coupon_value: 5 })
+      )
+      if (result.valid && (result.discount ?? 0) > 0) {
+        setCouponStatus("valid")
+        setCouponDiscount(result.discount ?? 0)
+        setCouponMessage(result.message || t("product.couponValid"))
+      } else {
+        setCouponStatus("invalid")
+        setCouponDiscount(0)
+        setCouponMessage(result.message || t("product.couponInvalid"))
+      }
+    } catch (err: unknown) {
+      setCouponStatus("invalid")
+      setCouponDiscount(0)
+      setCouponMessage(getApiErrorMessage(err, t) || t("product.couponInvalid"))
+    }
+  }
 
   const handleEmailChange = (value: string) => {
     setEmail(value)
@@ -88,6 +132,7 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
           payment_method: selectedPayment,
           idempotency_key: generateIdempotencyKey(),
           device,
+          coupon_code: couponStatus === "valid" ? couponCode.trim() : undefined,
         }),
         () => mockCreateOrder(email, selectedPayment)
       )
@@ -214,6 +259,7 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
                   onClick={() => {
                     setSelectedSpec(spec)
                     setQuantity(1)
+                    resetCoupon()
                   }}
                   className={cn(
                     "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
@@ -245,7 +291,10 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
           </label>
           <div className="inline-flex items-center rounded-md border border-border">
             <button
-              onClick={() => setQuantity(Math.max(1, quantity - 1))}
+              onClick={() => {
+                setQuantity(Math.max(1, quantity - 1))
+                resetCoupon()
+              }}
               className="inline-flex h-9 w-9 items-center justify-center text-muted-foreground transition-colors hover:bg-accent"
               disabled={quantity <= 1}
             >
@@ -259,11 +308,15 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
               onChange={(e) => {
                 const v = parseInt(e.target.value) || 1
                 setQuantity(Math.min(v, currentStock || 1))
+                resetCoupon()
               }}
               className="h-9 w-16 border-x border-border bg-background text-center text-sm text-foreground [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
             <button
-              onClick={() => setQuantity(Math.min(quantity + 1, currentStock || 1))}
+              onClick={() => {
+                setQuantity(Math.min(quantity + 1, currentStock || 1))
+                resetCoupon()
+              }}
               className="inline-flex h-9 w-9 items-center justify-center text-muted-foreground transition-colors hover:bg-accent"
               disabled={quantity >= currentStock}
             >
@@ -310,15 +363,84 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
           />
         </div>
 
-        {/* Total */}
-        <div className="flex items-baseline justify-between border-t border-border pt-4">
-          <span className="text-sm text-muted-foreground">{t("product.totalPrice")}</span>
-          <div className="flex items-baseline gap-0.5">
-            <span className="text-lg font-bold text-primary">{getCurrencySymbol(product.currency)}</span>
-            <span className="text-2xl font-bold text-primary">
-              {totalPrice.toFixed(2)}
-            </span>
+        {/* Coupon (optional) */}
+        <div>
+          <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-foreground">
+            <Ticket className="h-4 w-4 text-primary" />
+            {t("product.coupon")}
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder={t("product.couponPlaceholder")}
+              value={couponCode}
+              onChange={(e) => {
+                setCouponCode(e.target.value)
+                setCouponStatus("idle")
+                setCouponDiscount(0)
+                setCouponMessage("")
+              }}
+              className={cn(
+                "h-10 flex-1 rounded-lg border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
+                couponStatus === "valid" ? "border-emerald-500" : couponStatus === "invalid" ? "border-destructive" : "border-input"
+              )}
+            />
+            <button
+              type="button"
+              onClick={handleApplyCoupon}
+              disabled={couponStatus === "checking" || !couponCode.trim()}
+              className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-primary bg-primary/10 px-4 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-50"
+            >
+              {couponStatus === "checking" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+              {couponStatus === "checking" ? t("product.couponChecking") : t("product.couponApply")}
+            </button>
           </div>
+          {couponStatus === "valid" && (
+            <p className="mt-1.5 flex items-center gap-1 text-xs text-emerald-600">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {couponMessage}（{t("product.couponDiscount")} {getCurrencySymbol(product.currency)}{couponDiscount.toFixed(2)}）
+            </p>
+          )}
+          {couponStatus === "invalid" && (
+            <p className="mt-1.5 flex items-center gap-1 text-xs text-destructive">
+              <XCircle className="h-3.5 w-3.5" />
+              {couponMessage || t("product.couponInvalid")}
+            </p>
+          )}
+        </div>
+
+        {/* Total */}
+        <div className="space-y-1.5 border-t border-border pt-4">
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm text-muted-foreground">{t("product.totalPrice")}</span>
+            <div className="flex items-baseline gap-0.5">
+              <span className="text-lg font-bold text-primary">{getCurrencySymbol(product.currency)}</span>
+              <span className="text-2xl font-bold text-primary">
+                {totalPrice.toFixed(2)}
+              </span>
+            </div>
+          </div>
+          {couponDiscount > 0 && (
+            <>
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm text-muted-foreground">{t("product.couponDiscount")}</span>
+                <span className="text-sm font-semibold text-destructive">-{getCurrencySymbol(product.currency)}{couponDiscount.toFixed(2)}</span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm font-medium text-foreground">{t("product.couponPayable")}</span>
+                <div className="flex items-baseline gap-0.5">
+                  <span className="text-lg font-bold text-primary">{getCurrencySymbol(product.currency)}</span>
+                  <span className="text-2xl font-bold text-primary">
+                    {couponPayable.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <Turnstile onSuccess={setTurnstileToken} onError={handleTurnstileReset} className="mb-3" />

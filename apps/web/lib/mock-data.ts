@@ -28,6 +28,10 @@ import type {
   SiteConfigKV,
   CreateOrderResult,
   PaymentCreateResult,
+  MarketingCampaignItem,
+  RegisteredCustomerItem,
+  AnonymousCustomerItem,
+  CustomerOverview,
 } from "@/types"
 
 // ============================================================
@@ -740,5 +744,153 @@ export function mockOperationLogList(params?: { page?: number; page_size?: numbe
   return {
     list: mockOperationLogs.slice((page - 1) * pageSize, page * pageSize),
     pagination: { page, page_size: pageSize, total: mockOperationLogs.length },
+  }
+}
+
+// ============================================================
+// Marketing campaigns & customers (mock fallback)
+// ============================================================
+
+const mockCampaigns: MarketingCampaignItem[] = [
+  {
+    id: "11111111-1111-1111-1111-111111111111",
+    title: "新客立减 5 元",
+    subject: "【Nova key】新用户专享 5 元立减券",
+    content: "<h2>欢迎光临 {site_name}</h2><p>点击下方按钮领取 5 元立减券：</p><p><a href=\"{claim_url}\">立即领取</a></p>",
+    audience_type: "ALL_USERS",
+    target_json: null,
+    status: "DRAFT",
+    sent_count: 0,
+    coupon_type: "AMOUNT",
+    coupon_value: 5,
+    coupon_min_amount: 10,
+    coupon_code: "NEWBIE5",
+    coupon_quantity: 100,
+    coupon_claimed: 12,
+    coupon_valid_from: null,
+    coupon_valid_to: null,
+    created_at: new Date(Date.now() - 86400000).toISOString(),
+    updated_at: new Date(Date.now() - 86400000).toISOString(),
+  },
+  {
+    id: "22222222-2222-2222-2222-222222222222",
+    title: "老客户回馈 8 折券",
+    subject: "【Nova key】老客户专享 8 折优惠",
+    content: "<h2>感谢长期支持</h2><p>领取 8 折优惠券，全场通用：</p><p><a href=\"{claim_url}\">立即领取</a></p>",
+    audience_type: "EMAILS",
+    target_json: '["customer@example.com"]',
+    status: "SENT",
+    sent_count: 3,
+    coupon_type: "PERCENT",
+    coupon_value: 20,
+    coupon_min_amount: 0,
+    coupon_code: "VIP8ZHE",
+    coupon_quantity: 0,
+    coupon_claimed: 5,
+    coupon_valid_from: null,
+    coupon_valid_to: null,
+    created_at: new Date(Date.now() - 172800000).toISOString(),
+    updated_at: new Date(Date.now() - 172800000).toISOString(),
+  },
+]
+
+export function mockCampaignList(params?: { keyword?: string; page?: number; page_size?: number }): PaginatedData<MarketingCampaignItem> {
+  let filtered = [...mockCampaigns]
+  if (params?.keyword) {
+    const kw = params.keyword.toLowerCase()
+    filtered = filtered.filter(c => c.title.toLowerCase().includes(kw))
+  }
+  const page = params?.page ?? 1
+  const pageSize = params?.page_size ?? 10
+  return {
+    list: filtered.slice((page - 1) * pageSize, page * pageSize),
+    pagination: { page, page_size: pageSize, total: filtered.length },
+  }
+}
+
+const mockRegisteredCustomers: RegisteredCustomerItem[] = [
+  {
+    id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    username: "alice",
+    email: "alice@example.com",
+    points: 120,
+    is_banned: false,
+    created_at: new Date(Date.now() - 86400000 * 30).toISOString(),
+    order_count: 5,
+    paid_count: 4,
+    total_spent: 128,
+  },
+  {
+    id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    username: "bob",
+    email: "bob@example.com",
+    points: 30,
+    is_banned: true,
+    created_at: new Date(Date.now() - 86400000 * 15).toISOString(),
+    order_count: 2,
+    paid_count: 1,
+    total_spent: 28,
+  },
+]
+
+const mockAnonymousCustomers: AnonymousCustomerItem[] = [
+  {
+    email: "guest1@example.com",
+    order_count: 2,
+    paid_count: 2,
+    total_spent: 56,
+    first_order_at: new Date(Date.now() - 86400000 * 10).toISOString(),
+    last_order_at: new Date(Date.now() - 86400000).toISOString(),
+  },
+  {
+    email: "guest2@example.com",
+    order_count: 1,
+    paid_count: 1,
+    total_spent: 12,
+    first_order_at: new Date(Date.now() - 86400000 * 3).toISOString(),
+    last_order_at: new Date(Date.now() - 86400000 * 3).toISOString(),
+  },
+]
+
+export function mockCustomerOverview(): CustomerOverview {
+  return {
+    total_registered: mockRegisteredCustomers.length,
+    total_anonymous: mockAnonymousCustomers.length,
+    total_customers: mockRegisteredCustomers.length + mockAnonymousCustomers.length,
+    new_registered: 1,
+    new_anonymous: 1,
+    new_customers: 2,
+    deal_registered: 2,
+    deal_anonymous: 2,
+    deal_customers: 4,
+    no_deal_customers: 0,
+  }
+}
+
+export function mockRegisteredCustomerList(params?: { keyword?: string; page?: number; page_size?: number }): PaginatedData<RegisteredCustomerItem> {
+  let filtered = [...mockRegisteredCustomers]
+  if (params?.keyword) {
+    const kw = params.keyword.toLowerCase()
+    filtered = filtered.filter(u => u.username.toLowerCase().includes(kw) || u.email.toLowerCase().includes(kw))
+  }
+  const page = params?.page ?? 1
+  const pageSize = params?.page_size ?? 10
+  return {
+    list: filtered.slice((page - 1) * pageSize, page * pageSize),
+    pagination: { page, page_size: pageSize, total: filtered.length },
+  }
+}
+
+export function mockAnonymousCustomerList(params?: { keyword?: string; page?: number; page_size?: number }): PaginatedData<AnonymousCustomerItem> {
+  let filtered = [...mockAnonymousCustomers]
+  if (params?.keyword) {
+    const kw = params.keyword.toLowerCase()
+    filtered = filtered.filter(u => u.email.toLowerCase().includes(kw))
+  }
+  const page = params?.page ?? 1
+  const pageSize = params?.page_size ?? 10
+  return {
+    list: filtered.slice((page - 1) * pageSize, page * pageSize),
+    pagination: { page, page_size: pageSize, total: filtered.length },
   }
 }

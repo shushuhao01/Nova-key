@@ -4,10 +4,12 @@ import com.orionkey.entity.CardKey;
 import com.orionkey.entity.Order;
 import com.orionkey.entity.OrderItem;
 import com.orionkey.entity.SiteConfig;
+import com.orionkey.entity.User;
 import com.orionkey.repository.CardKeyRepository;
 import com.orionkey.repository.OrderItemRepository;
 import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.SiteConfigRepository;
+import com.orionkey.repository.UserRepository;
 import com.orionkey.service.EmailService;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
@@ -35,6 +37,7 @@ public class EmailServiceImpl implements EmailService {
     private final OrderItemRepository orderItemRepository;
     private final CardKeyRepository cardKeyRepository;
     private final SiteConfigRepository siteConfigRepository;
+    private final UserRepository userRepository;
 
     // SMTP 默认值：来自环境变量（application.yml 的 spring.mail.* / mail.*）。
     // 管理后台「网站设置 → 邮箱发件」可覆盖（smtp_host / smtp_port / smtp_username /
@@ -71,9 +74,10 @@ public class EmailServiceImpl implements EmailService {
     }
 
     private boolean cfgEnabled() {
+        // 后台未显式设置 mail_enabled 时默认开启（与前端「启用邮件自动发货通知」开关默认 ON 保持一致）
         return siteConfigRepository.findByConfigKey("mail_enabled")
                 .map(c -> "true".equalsIgnoreCase(c.getConfigValue()))
-                .orElse("true".equalsIgnoreCase(mailEnabledDefault));
+                .orElse(true);
     }
 
     /**
@@ -150,6 +154,17 @@ public class EmailServiceImpl implements EmailService {
                 return;
             }
 
+            // 收件人：注册用户 → 注册邮箱 + 查询邮箱；匿名用户 → 查询邮箱（去重）
+            Set<String> recipients = new LinkedHashSet<>();
+            recipients.add(order.getEmail().trim());
+            if (order.getUserId() != null) {
+                userRepository.findById(order.getUserId()).ifPresent(u -> {
+                    if (u.getEmail() != null && !u.getEmail().isBlank()) {
+                        recipients.add(u.getEmail().trim());
+                    }
+                });
+            }
+
             List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
             List<CardKey> keys = cardKeyRepository.findByOrderId(orderId);
             Map<UUID, OrderItem> itemMap = items.stream()
@@ -164,12 +179,12 @@ public class EmailServiceImpl implements EmailService {
             MimeMessage message = sender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             applyFrom(helper);
-            helper.setTo(order.getEmail());
+            helper.setTo(recipients.toArray(new String[0]));
             helper.setSubject("【" + siteName() + "】订单发货通知 - " + orderId.toString().substring(0, 8));
             helper.setText(html, true);
 
             sender.send(message);
-            log.info("Delivery email sent for order {} to {}", orderId, order.getEmail());
+            log.info("Delivery email sent for order {} to {}", orderId, recipients);
         } catch (Exception e) {
             // 发货邮件失败不影响发货状态，只记录日志（用户仍可在订单查询页看到卡密）
             log.error("Failed to send delivery email for order {}: {}", orderId, e.getMessage(), e);
@@ -217,6 +232,28 @@ public class EmailServiceImpl implements EmailService {
         } catch (Exception e) {
             log.error("Failed to send notice email to {}: {}", to, e.getMessage());
             throw new RuntimeException("通知邮件发送失败：" + e.getMessage(), e);
+        }
+    }
+
+    /** 发送营销邮件：直接透传自定义 HTML 排版（营销活动推广用） */
+    @Override
+    public void sendMarketingEmail(String to, String subject, String html) {
+        if (to == null || to.isBlank()) {
+            throw new IllegalArgumentException("营销收件邮箱为空");
+        }
+        JavaMailSender sender = buildMailSender();
+        MimeMessage message = sender.createMimeMessage();
+        try {
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            applyFrom(helper);
+            helper.setTo(to);
+            helper.setSubject(subject);
+            helper.setText(html, true);
+            sender.send(message);
+            log.info("Marketing email sent to {}", to);
+        } catch (Exception e) {
+            log.error("Failed to send marketing email to {}: {}", to, e.getMessage());
+            throw new RuntimeException("营销邮件发送失败：" + e.getMessage(), e);
         }
     }
 

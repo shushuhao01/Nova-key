@@ -45,6 +45,13 @@ public class Order extends BaseEntity {
     @Column(precision = 10, scale = 2)
     private BigDecimal pointsDiscount = BigDecimal.ZERO;
 
+    /** 使用的优惠券核销码（选填） */
+    private String couponCode;
+
+    /** 优惠券抵扣金额 */
+    @Column(precision = 10, scale = 2)
+    private BigDecimal couponDiscount = BigDecimal.ZERO;
+
     private LocalDateTime expiresAt;
 
     private LocalDateTime paidAt;

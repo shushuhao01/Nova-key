@@ -7,6 +7,7 @@ import com.orionkey.constant.OrderType;
 import com.orionkey.entity.*;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.*;
+import com.orionkey.service.MarketingService;
 import com.orionkey.service.NotificationService;
 import com.orionkey.service.OrderService;
 import com.orionkey.service.PaymentService;
@@ -37,6 +38,7 @@ public class OrderServiceImpl implements OrderService {
     private final PaymentChannelRepository paymentChannelRepository;
     private final PaymentService paymentService;
     private final NotificationService notificationService;
+    private final MarketingService marketingService;
 
     @Override
     @Transactional
@@ -112,6 +114,16 @@ public class OrderServiceImpl implements OrderService {
         order.setClientIp(clientIp);
         order.setSessionToken(sessionToken);
         orderRepository.save(order);
+
+        // 优惠券抵扣（选填）：校验核销码 → 计算抵扣 → 绑定订单并重算应付金额
+        String couponCode = (String) req.get("coupon_code");
+        if (couponCode != null && !couponCode.isBlank()) {
+            BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, userId, email, totalAmount, order.getId());
+            order.setCouponCode(couponCode.trim().toUpperCase());
+            order.setCouponDiscount(couponDiscount);
+            order.setActualAmount(totalAmount.subtract(couponDiscount).max(BigDecimal.ZERO));
+            orderRepository.save(order);
+        }
 
         String specName = null;
         if (specId != null) {
@@ -249,6 +261,16 @@ public class OrderServiceImpl implements OrderService {
         order.setTotalAmount(totalAmount);
         order.setActualAmount(totalAmount);
         orderRepository.save(order);
+
+        // 优惠券抵扣（选填）：校验核销码 → 计算抵扣 → 绑定订单并重算应付金额
+        String couponCode = (String) req.get("coupon_code");
+        if (couponCode != null && !couponCode.isBlank()) {
+            BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, userId, email, totalAmount, order.getId());
+            order.setCouponCode(couponCode.trim().toUpperCase());
+            order.setCouponDiscount(couponDiscount);
+            order.setActualAmount(totalAmount.subtract(couponDiscount).max(BigDecimal.ZERO));
+            orderRepository.save(order);
+        }
 
         // Clear cart after order creation to prevent duplicate orders from same cart items
         for (CartItem ci : cartItems) {
@@ -422,6 +444,8 @@ public class OrderServiceImpl implements OrderService {
         map.put("email", o.getEmail());
         map.put("points_deducted", o.getPointsDeducted());
         map.put("points_discount", o.getPointsDiscount());
+        map.put("coupon_code", o.getCouponCode());
+        map.put("coupon_discount", o.getCouponDiscount());
         map.put("expires_at", o.getExpiresAt());
         map.put("paid_at", o.getPaidAt());
         map.put("delivered_at", o.getDeliveredAt());

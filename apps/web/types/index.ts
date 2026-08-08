@@ -374,6 +374,8 @@ export interface CreateOrderRequest {
   use_points?: boolean
   idempotency_key: string
   device?: string
+  /** 优惠券核销码（选填） */
+  coupon_code?: string
 }
 
 export interface CreateCartOrderRequest {
@@ -382,6 +384,148 @@ export interface CreateCartOrderRequest {
   use_points?: boolean
   idempotency_key: string
   device?: string
+  /** 优惠券核销码（选填） */
+  coupon_code?: string
+}
+
+// ============================================================
+// Marketing & Coupon
+// ============================================================
+
+export type CouponType = 'AMOUNT' | 'PERCENT'
+
+/** 营销活动（后台管理） */
+export interface MarketingCampaignItem {
+  id: string
+  title: string
+  subject: string
+  content: string
+  audience_type: 'ALL_USERS' | 'USER_IDS' | 'EMAILS'
+  target_json: string | null
+  status: 'DRAFT' | 'SENT'
+  sent_count: number
+  coupon_type: CouponType | null
+  coupon_value: number | null
+  coupon_min_amount: number | null
+  coupon_code: string | null
+  coupon_quantity: number
+  coupon_claimed: number
+  coupon_valid_from: string | null
+  coupon_valid_to: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CampaignPayload {
+  title: string
+  subject?: string
+  content?: string
+  audience_type: string
+  target_json?: string | null
+  coupon_type?: CouponType | null
+  coupon_value?: number | null
+  coupon_min_amount?: number | null
+  coupon_code?: string | null
+  coupon_quantity?: number
+  coupon_valid_from?: string | null
+  coupon_valid_to?: string | null
+}
+
+/** 优惠券校验结果（下单页确认核销） */
+export interface CouponValidateResult {
+  valid: boolean
+  discount?: number
+  coupon_type?: CouponType
+  coupon_value?: number
+  message?: string
+}
+
+/** 优惠券领取结果 */
+export interface CouponClaimResult {
+  code: string
+  coupon_type: CouponType
+  coupon_value: number
+  valid_from: string | null
+  valid_to: string | null
+}
+
+// ============================================================
+// Admin Customers
+// ============================================================
+
+export interface CustomerOverview {
+  total_registered: number
+  total_anonymous: number
+  total_customers: number
+  new_registered: number
+  new_anonymous: number
+  new_customers: number
+  deal_registered: number
+  deal_anonymous: number
+  deal_customers: number
+  no_deal_customers: number
+}
+
+/** 注册客户列表项 */
+export interface RegisteredCustomerItem {
+  id: string
+  username: string
+  email: string
+  points: number
+  is_banned: boolean
+  created_at: string
+  order_count: number
+  paid_count: number
+  total_spent: number
+}
+
+/** 匿名客户列表项 */
+export interface AnonymousCustomerItem {
+  email: string
+  order_count: number
+  paid_count: number
+  total_spent: number
+  first_order_at: string | null
+  last_order_at: string | null
+}
+
+/** 客户订单摘要 */
+export interface CustomerOrderItem {
+  id: string
+  email: string
+  status: string
+  payment_method: string | null
+  total_amount: number
+  actual_amount: number
+  coupon_code: string | null
+  coupon_discount: number
+  created_at: string
+  paid_at: string | null
+  delivered_at: string | null
+  items: {
+    product_title: string
+    spec_name: string | null
+    quantity: number
+    unit_price: number
+    subtotal: number
+  }[]
+}
+
+/** 注册客户详情 */
+export interface RegisteredCustomerDetail extends RegisteredCustomerItem {
+  registered_at: string
+  orders: PaginatedData<CustomerOrderItem>
+}
+
+/** 匿名客户详情 */
+export interface AnonymousCustomerDetail {
+  email: string
+  order_count: number
+  paid_count: number
+  total_spent: number
+  first_order_at: string | null
+  last_order_at: string | null
+  orders: PaginatedData<CustomerOrderItem>
 }
 
 // ============================================================

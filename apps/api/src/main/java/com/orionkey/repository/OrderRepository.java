@@ -25,6 +25,48 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     Page<Order> findByUserIdOrderByCreatedAtDesc(UUID userId, Pageable pageable);
 
+    List<Order> findByEmailOrderByCreatedAtDesc(String email);
+
+    long countByUserId(UUID userId);
+
+    // ── 客户管理（注册用户 / 匿名邮箱统计） ──
+
+    /** 注册用户成交订单数（已支付） */
+    @Query("SELECT COUNT(o) FROM Order o WHERE o.userId = :userId AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED)")
+    long countPaidByUserId(@Param("userId") UUID userId);
+
+    /** 注册用户累计消费金额（已支付） */
+    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE o.userId = :userId AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED)")
+    BigDecimal sumPaidByUserId(@Param("userId") UUID userId);
+
+    /** 成交注册客户数 */
+    @Query("SELECT COUNT(DISTINCT o.userId) FROM Order o WHERE o.userId IS NOT NULL AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED)")
+    long countPaidRegisteredCustomers();
+
+    /** 成交匿名客户数（按邮箱去重） */
+    @Query("SELECT COUNT(DISTINCT o.email) FROM Order o WHERE o.userId IS NULL AND o.email IS NOT NULL AND o.email <> '' AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED)")
+    long countPaidAnonymousCustomers();
+
+    /** 匿名客户总数（orders.user_id IS NULL 的邮箱去重） */
+    @Query(value = "SELECT COUNT(DISTINCT email) FROM orders WHERE user_id IS NULL AND email IS NOT NULL AND email <> ''", nativeQuery = true)
+    long countAnonymousEmails();
+
+    /** 本月新增匿名客户（首单发生在本月及以后） */
+    @Query(value = "SELECT COUNT(*) FROM (SELECT email FROM orders WHERE user_id IS NULL AND email IS NOT NULL AND email <> '' GROUP BY email HAVING MIN(created_at) >= :since) t", nativeQuery = true)
+    long countNewAnonymousEmails(@Param("since") LocalDateTime since);
+
+    /** 匿名客户邮箱分页列表（按最近一次下单倒序） */
+    @Query(value = "SELECT email FROM orders WHERE user_id IS NULL AND email IS NOT NULL AND email <> '' GROUP BY email ORDER BY MAX(created_at) DESC",
+            countQuery = "SELECT COUNT(DISTINCT email) FROM orders WHERE user_id IS NULL AND email IS NOT NULL AND email <> ''",
+            nativeQuery = true)
+    Page<String> findAnonymousEmails(Pageable pageable);
+
+    /** 匿名客户邮箱分页列表（关键词过滤） */
+    @Query(value = "SELECT email FROM orders WHERE user_id IS NULL AND email IS NOT NULL AND email <> '' AND email LIKE :kw GROUP BY email ORDER BY MAX(created_at) DESC",
+            countQuery = "SELECT COUNT(DISTINCT email) FROM orders WHERE user_id IS NULL AND email IS NOT NULL AND email <> '' AND email LIKE :kw",
+            nativeQuery = true)
+    Page<String> findAnonymousEmailsByKeyword(@Param("kw") String kw, Pageable pageable);
+
     Page<Order> findByUserIdAndStatusOrderByCreatedAtDesc(UUID userId, OrderStatus status, Pageable pageable);
 
     List<Order> findByEmailInOrderByCreatedAtDesc(List<String> emails);
