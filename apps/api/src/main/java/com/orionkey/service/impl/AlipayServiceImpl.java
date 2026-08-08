@@ -201,7 +201,26 @@ public class AlipayServiceImpl implements AlipayService {
                             respSign = s;
                         }
                     } else {
-                        connMsg = "支付宝接口返回错误：code=" + code + "（msg=" + apiResp.get("msg") + "）";
+                        // 业务响应携带 code=40002（Invalid Arguments）时，真正原因在 sub_code：
+                        // isv.invalid-app-id（AppID 无效）、isv.invalid-signature（私钥/签名不匹配）、
+                        // isv.invalid-parameter（参数非法）等。完整展示并给出针对性指引。
+                        String subCode = apiResp.get("sub_code") != null ? apiResp.get("sub_code").toString() : null;
+                        String subMsg = apiResp.get("sub_msg") != null ? apiResp.get("sub_msg").toString() : null;
+                        StringBuilder sb = new StringBuilder("支付宝接口返回错误：code=")
+                                .append(code).append("（msg=").append(apiResp.get("msg")).append("）");
+                        if (subCode != null || subMsg != null) {
+                            sb.append("；详情：")
+                                    .append(subCode != null ? subCode : "")
+                                    .append(" ").append(subMsg != null ? subMsg : "");
+                        }
+                        if ("isv.invalid-app-id".equals(subCode)) {
+                            sb.append("。AppID 无效：请确认填入的是支付宝开放平台「正式环境」支付应用的 AppID（open.alipay.com 应用详情页），且应用已上线；勿使用沙箱环境的 AppID（网关固定为正式网关 openapi.alipay.com）");
+                        } else if ("isv.invalid-signature".equals(subCode)) {
+                            sb.append("。签名校验失败：请核对 AppID 对应的「应用私钥」是否匹配（在开放平台重新生成并上传应用公钥后，使用其配套的私钥），并检查私钥是否完整（含 -----BEGIN PRIVATE KEY----- 头）");
+                        } else if ("isv.invalid-parameter".equals(subCode)) {
+                            sb.append("。请求参数无效：请检查 AppID/私钥/公钥粘贴时是否带有多余空格、换行等非法字符");
+                        }
+                        connMsg = sb.toString();
                     }
                 }
             } catch (IllegalArgumentException e) {
@@ -307,7 +326,11 @@ public class AlipayServiceImpl implements AlipayService {
         // 避免服务器 JVM 时区非 Asia/Shanghai 时签名时间戳偏差被支付宝拒绝
         params.put("timestamp", LocalDateTime.now(ZoneId.of("Asia/Shanghai")).format(TIMESTAMP_FORMAT));
         params.put("version", "1.0");
-        if (config.notifyUrl() != null && !config.notifyUrl().isBlank()) {
+        // notify_url 仅当面付/手机网站支付等需要异步通知的接口才传；
+        // alipay.trade.query（含连接测试）接口未定义 notify_url 参数，
+        // 携带该参数可能被支付宝判定参数无效（40002 Invalid Arguments）
+        if (!"alipay.trade.query".equals(method)
+                && config.notifyUrl() != null && !config.notifyUrl().isBlank()) {
             params.put("notify_url", config.notifyUrl());
         }
         params.put("biz_content", bizContent);
