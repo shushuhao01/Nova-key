@@ -51,60 +51,55 @@ export function StoreFooter() {
 
   return (
     <footer className="border-t border-border bg-muted/40">
-      <div className="mx-auto flex max-w-7xl flex-col items-center gap-2 px-4 py-4 lg:px-6">
-        {/* 主行：页脚文案 / 联系我们 / GitHub */}
-        <div className="flex items-center justify-center gap-4">
-          {config?.footer_text && (
-            <p className="text-sm text-muted-foreground">{config.footer_text}</p>
-          )}
-          {hasContact && (
-            <button
-              type="button"
-              onClick={() => setContactOpen(true)}
-              className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-            >
-              <Headset className="h-3.5 w-3.5 text-muted-foreground" />
-              {t("footer.contactUs")}
-            </button>
-          )}
-          {config?.github_url && (
-            <a
-              href={config.github_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground transition-colors hover:text-foreground"
-              title="GitHub"
-            >
-              <GithubIcon className="h-5 w-5" />
-            </a>
-          )}
-        </div>
-
-        {/* 版权 / 备案行：不填则不显示 */}
-        {(config?.copyright || config?.icp_number || config?.police_number) && (
-          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {config?.copyright && <span>{config.copyright}</span>}
-            {config?.icp_number && (
-              <a
-                href="https://beian.miit.gov.cn"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="transition-colors hover:text-foreground"
-              >
-                {t("footer.icp")}：{config.icp_number}
-              </a>
-            )}
-            {config?.police_number && (
-              <a
-                href={`https://beian.mps.gov.cn/#/query/webSearch?code=${encodeURIComponent(config.police_number)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="transition-colors hover:text-foreground"
-              >
-                {t("footer.police")}：{config.police_number}
-              </a>
-            )}
-          </div>
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-4 py-4 lg:px-6">
+        {/* 页脚文案 */}
+        {config?.footer_text && (
+          <p className="text-sm text-muted-foreground">{config.footer_text}</p>
+        )}
+        {/* 联系我们 */}
+        {hasContact && (
+          <button
+            type="button"
+            onClick={() => setContactOpen(true)}
+            className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            <Headset className="h-3.5 w-3.5 text-muted-foreground" />
+            {t("footer.contactUs")}
+          </button>
+        )}
+        {/* GitHub */}
+        {config?.github_url && (
+          <a
+            href={config.github_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground transition-colors hover:text-foreground"
+            title="GitHub"
+          >
+            <GithubIcon className="h-5 w-5" />
+          </a>
+        )}
+        {/* 版权 / 备案：不填则不显示 */}
+        {config?.copyright && <span className="text-xs text-muted-foreground">{config.copyright}</span>}
+        {config?.icp_number && (
+          <a
+            href="https://beian.miit.gov.cn"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {t("footer.icp")}：{config.icp_number}
+          </a>
+        )}
+        {config?.police_number && (
+          <a
+            href={`https://beian.mps.gov.cn/#/query/webSearch?code=${encodeURIComponent(config.police_number)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {t("footer.police")}：{config.police_number}
+          </a>
         )}
       </div>
 
