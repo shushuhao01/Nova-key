@@ -282,6 +282,45 @@ public class PaymentServiceImpl implements PaymentService {
         return new AlipayConfig(appId, privateKey, alipayPublicKey, "https://openapi.alipay.com/gateway.do", notifyUrl, signType);
     }
 
+    /**
+     * 宽松版微信配置构建（仅供"测试连接"使用）：
+     * 缺失字段返回空串而非抛异常，让 testConnection 能逐项检测并输出 ✅/❌ 清单。
+     */
+    public WxpayConfig buildWxpayConfigForTest(PaymentChannel channel) {
+        Map<String, String> cfg = parseConfigData(channel.getConfigData());
+        String appid = cfg.getOrDefault("appid", "");
+        String mchid = cfg.getOrDefault("mchid", "");
+        String apiV3Key = cfg.getOrDefault("api_v3_key", "");
+        String serialNo = cfg.getOrDefault("serial_no", "");
+        String privateKey = resolveWxpayPrivateKeyLenient(cfg, channel.getChannelCode());
+        String notifyUrl = trimTrailingSlash(appBaseUrl) + WXPAY_WEBHOOK_PATH;
+        return new WxpayConfig(appid, mchid, apiV3Key, serialNo, privateKey, notifyUrl, "https://api.mch.weixin.qq.com");
+    }
+
+    /**
+     * 宽松版支付宝配置构建（仅供"测试连接"使用）：
+     * 缺失字段返回空串而非抛异常，让 testConnection 能逐项检测并输出 ✅/❌ 清单。
+     */
+    public AlipayConfig buildAlipayConfigForTest(PaymentChannel channel) {
+        Map<String, String> cfg = parseConfigData(channel.getConfigData());
+        String appId = cfg.getOrDefault("appid", "");
+        String privateKey = cfg.getOrDefault("private_key", "");
+        String alipayPublicKey = cfg.getOrDefault("alipay_public_key", "");
+        String notifyUrl = trimTrailingSlash(appBaseUrl) + ALIPAY_WEBHOOK_PATH;
+        String signType = cfg.getOrDefault("sign_type", "RSA2");
+        return new AlipayConfig(appId, privateKey, alipayPublicKey, "https://openapi.alipay.com/gateway.do", notifyUrl, signType);
+    }
+
+    /** 宽松私钥解析：缺失/读取失败返回空串（由 testConnection 输出具体 ❌ 项） */
+    private String resolveWxpayPrivateKeyLenient(Map<String, String> cfg, String channelCode) {
+        try {
+            return resolveWxpayPrivateKey(cfg, channelCode);
+        } catch (BusinessException e) {
+            log.warn("Wxpay test private key resolve failed: {}", e.getMessage());
+            return "";
+        }
+    }
+
     /** 去掉 base-url 结尾多余的斜杠，避免拼接出双斜杠 */
     private static String trimTrailingSlash(String url) {
         if (url == null || url.isBlank()) return url;

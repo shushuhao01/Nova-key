@@ -3,6 +3,7 @@ package com.orionkey.service.impl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orionkey.constant.ErrorCode;
+import com.orionkey.dto.PaymentTestResult;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.service.WxpayService;
 import com.orionkey.utils.PaymentCryptoUtils;
@@ -190,42 +191,86 @@ public class WxpayServiceImpl implements WxpayService {
     }
 
     @Override
-    public String testConnection(WxpayConfig config) {
-        // 1. 提前验证商户私钥可解析（最常见的配置错误：私钥为空 / 格式不对 / PEM 头缺失）
-        try {
-            PaymentCryptoUtils.parsePrivateKey(config.privateKey());
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
-                    "商户私钥解析失败：" + e.getMessage()
-                            + "。请检查 apiclient_key.pem 内容是否正确完整（含 -----BEGIN ...----- 头）");
+    public PaymentTestResult testConnection(WxpayConfig config) {
+        // 逐项检测清单，单项失败不抛异常，通过 items.status 体现（前端渲染 ✅/❌）
+        List<PaymentTestResult.TestItem> items = new java.util.ArrayList<>();
+
+        // 1. AppID
+        boolean hasAppId = isNotBlank(config.appid());
+        items.add(new PaymentTestResult.TestItem("AppID", hasAppId,
+                hasAppId ? "AppID已配置: " + config.appid() : "未配置AppID"));
+
+        // 2. 商户号
+        boolean hasMchId = isNotBlank(config.mchid());
+        items.add(new PaymentTestResult.TestItem("商户号", hasMchId,
+                hasMchId ? "商户号已配置: " + config.mchid() : "未配置商户号"));
+
+        // 3. API密钥（APIv3 密钥，回调解密与下单都要用）
+        boolean hasApiKey = isNotBlank(config.apiV3Key());
+        items.add(new PaymentTestResult.TestItem("API密钥", hasApiKey,
+                hasApiKey ? "API密钥已配置" : "未配置API密钥（APIv3）"));
+
+        // 4. 证书（证书序列号 + 商户私钥必须成对；商家支付证书 apiclient_cert.pem 为可选留存）
+        boolean hasSerial = isNotBlank(config.serialNo());
+        boolean hasPrivateKey = isNotBlank(config.privateKey());
+        boolean certOk = hasSerial && hasPrivateKey;
+        String certMsg;
+        if (certOk) {
+            certMsg = "证书信息已配置（序列号 " + config.serialNo() + " + 商户私钥）";
+        } else {
+            StringBuilder sb = new StringBuilder("证书信息不完整：");
+            if (!hasSerial) sb.append("缺少证书序列号(serial_no)；");
+            if (!hasPrivateKey) sb.append("缺少商户私钥(apiclient_key.pem 内容或路径)；");
+            certMsg = sb.toString();
         }
-        // 2. 调用微信支付 APIv3 获取平台证书，验证 商户号+证书序列号+私钥签名 是否有效
-        String canonicalPath = "/v3/certificates";
-        String gateway = trimSlash(config.gatewayUrl());
-        try {
-            ResponseEntity<String> response = restTemplate.exchange(
-                    gateway + canonicalPath, HttpMethod.GET,
-                    new HttpEntity<>(apiV3Headers(config, "GET", canonicalPath, "")),
-                    String.class);
-            Map<String, Object> resp = objectMapper.readValue(response.getBody(), new TypeReference<>() {
-            });
-            int count = resp.get("data") instanceof List<?> list ? list.size() : 0;
-            return "连接成功：微信支付平台证书获取正常（共 " + count + " 张），商户号与证书序列号签名验证通过";
-        } catch (HttpClientErrorException e) {
-            String detail = extractWxErrorDetail(e);
-            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
-                    "微信支付认证失败（HTTP " + e.getStatusCode().value() + "）：" + detail
-                            + "。请核对商户号(mchid)、证书序列号(serial_no)、商户私钥是否一致，且商户平台已配置 APIv3 密钥");
-        } catch (HttpServerErrorException e) {
-            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
-                    "微信支付服务异常（HTTP " + e.getStatusCode().value() + "）：" + e.getResponseBodyAsString());
-        } catch (RestClientException e) {
-            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
-                    "无法连接微信支付服务器：" + e.getMessage()
-                            + "。请检查服务器网络能否访问 api.mch.weixin.qq.com");
-        } catch (Exception e) {
-            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE, "微信支付连接测试异常：" + e.getMessage());
+        items.add(new PaymentTestResult.TestItem("证书", certOk, certMsg));
+
+        // 5. 连接测试：证书序列号+私钥齐全且商户号、API密钥齐全时，真实调用 /v3/certificates 验证签名
+        boolean connOk = false;
+        String connMsg;
+        if (!hasMchId || !hasApiKey || !certOk) {
+            connMsg = "配置不完整（商户号/API密钥/证书缺一不可），无法进行真实连接测试";
+        } else {
+            try {
+                // 提前验证商户私钥可解析（最常见的配置错误：私钥为空 / 格式不对 / PEM 头缺失）
+                PaymentCryptoUtils.parsePrivateKey(config.privateKey());
+                // 调用微信支付 APIv3 获取平台证书，验证 商户号+证书序列号+私钥签名 是否有效
+                String canonicalPath = "/v3/certificates";
+                String gateway = trimSlash(config.gatewayUrl());
+                ResponseEntity<String> response = restTemplate.exchange(
+                        gateway + canonicalPath, HttpMethod.GET,
+                        new HttpEntity<>(apiV3Headers(config, "GET", canonicalPath, "")),
+                        String.class);
+                Map<String, Object> resp = objectMapper.readValue(response.getBody(), new TypeReference<>() {
+                });
+                int count = resp.get("data") instanceof List<?> list ? list.size() : 0;
+                connOk = true;
+                connMsg = "微信支付V3接口连接成功，平台证书获取正常（共 " + count + " 张）";
+            } catch (HttpClientErrorException e) {
+                String detail = extractWxErrorDetail(e);
+                connMsg = "微信支付认证失败（HTTP " + e.getStatusCode().value() + "）：" + detail
+                        + "。请核对商户号(mchid)、证书序列号(serial_no)、商户私钥是否一致，且商户平台已配置 APIv3 密钥";
+            } catch (HttpServerErrorException e) {
+                connMsg = "微信支付服务异常（HTTP " + e.getStatusCode().value() + "）：" + e.getResponseBodyAsString();
+            } catch (RestClientException e) {
+                connMsg = "无法连接微信支付服务器：" + e.getMessage()
+                        + "。请检查服务器网络能否访问 api.mch.weixin.qq.com";
+            } catch (IllegalArgumentException e) {
+                connMsg = "商户私钥解析失败：" + e.getMessage()
+                        + "。请检查 apiclient_key.pem 内容是否正确完整（含 -----BEGIN ...----- 头）";
+            } catch (Exception e) {
+                connMsg = "微信支付连接测试异常：" + e.getMessage();
+            }
         }
+        items.add(new PaymentTestResult.TestItem("连接测试", connOk, connMsg));
+
+        boolean passed = items.stream().allMatch(i -> i.status());
+        String summary = passed ? "微信支付配置验证通过" : "部分配置项未通过验证，请根据上方 ❌ 项修正";
+        return new PaymentTestResult(passed, items, summary);
+    }
+
+    private static boolean isNotBlank(String s) {
+        return s != null && !s.isBlank();
     }
 
     /** 从微信 APIv3 错误响应体中提取 message 字段（如签名错误的具体原因） */

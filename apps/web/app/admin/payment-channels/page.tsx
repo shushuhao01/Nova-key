@@ -1,14 +1,14 @@
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from "react"
-import { Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle, ChevronDown, Shield, Key, CheckCircle2, Copy, Activity, Loader2, Eye } from "lucide-react"
+import { Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle, ChevronDown, Shield, Key, CheckCircle2, XCircle, Copy, Activity, Loader2, Eye } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
 import { toast } from "sonner"
 import { adminPaymentApi, withMockFallback } from "@/services/api"
 import { mockPaymentChannels } from "@/lib/mock-data"
 import { Modal } from "@/components/ui/modal"
-import type { PaymentChannelItem, PaymentChannelConfig, ProviderType } from "@/types"
+import type { PaymentChannelItem, PaymentChannelConfig, ProviderType, PaymentTestResult } from "@/types"
 
 // ============================================================
 // Provider & Channel definitions
@@ -65,9 +65,9 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     description: "直接对接支付宝开放平台，需要企业资质",
     channels: [{ code: "alipay", name: "支付宝" }],
     configFields: [
-      { key: "appid", label: "应用 AppID", placeholder: "支付宝开放平台应用 AppID" },
-      { key: "private_key", label: "应用私钥", placeholder: "粘贴应用私钥（RSA2，可含 -----BEGIN PRIVATE KEY----- 头）", type: "textarea", sensitive: true },
-      { key: "alipay_public_key", label: "支付宝公钥", placeholder: "粘贴支付宝平台提供的公钥", type: "textarea", sensitive: true },
+      { key: "appid", label: "支付应用Appid", placeholder: "支付宝开放平台「开发设置」中的应用Appid" },
+      { key: "private_key", label: "支付宝商家私钥", placeholder: "粘贴商家私钥（应用私钥，RSA2，可含 -----BEGIN PRIVATE KEY----- 头）", type: "textarea", sensitive: true },
+      { key: "alipay_public_key", label: "支付宝公钥", placeholder: "粘贴支付宝平台提供的公钥（在开放平台「密钥管理」中获取）", type: "textarea", sensitive: true },
       { key: "sign_type", label: "签名类型", placeholder: "RSA2", readonly: true, readonlyValue: "RSA2" },
       { key: "notify_url", label: "支付回调地址", placeholder: "系统自动生成", readonly: true, copyable: true, hint: "支付成功后支付宝会回调此地址，请确保服务器可访问；请在支付宝开放平台「开发设置」中绑定该回调地址" },
     ],
@@ -162,6 +162,8 @@ export default function AdminPaymentChannelsPage() {
   const [uploadingKey, setUploadingKey] = useState<string | null>(null)
   /** 正在测试连接的渠道 id */
   const [testingId, setTestingId] = useState<string | null>(null)
+  /** 测试连接的结构化结果（含逐项 ✅/❌ 清单），非空时弹窗展示 */
+  const [testResult, setTestResult] = useState<PaymentTestResult | null>(null)
   /** 正在拉取明文的敏感字段 key */
   const [revealingField, setRevealingField] = useState<string | null>(null)
   const providerBtnRef = useRef<HTMLButtonElement>(null)
@@ -428,16 +430,13 @@ export default function AdminPaymentChannelsPage() {
     }
   }
 
-  /** 测试支付渠道连接：调用后端真实请求支付平台验证配置，失败时展示详细原因 */
+  /** 测试支付渠道连接：调用后端真实请求支付平台验证配置，弹窗展示逐项 ✅/❌ 清单 */
   const handleTestChannel = async (id: string) => {
     setTestingId(id)
+    setTestResult(null)
     try {
       const res = await adminPaymentApi.testChannel(id)
-      if (res.success) {
-        toast.success(res.message)
-      } else {
-        toast.error(res.message)
-      }
+      setTestResult(res)
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "连接测试失败")
     } finally {
@@ -949,6 +948,74 @@ export default function AdminPaymentChannelsPage() {
               onClick={() => showDeleteConfirm && handleDelete(showDeleteConfirm)}
             >
               {t("admin.delete")}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Test Connection Result Modal（逐项 ✅/❌ 清单，仿 CRM 支付配置测试连接） */}
+      <Modal open={testResult !== null} onClose={() => setTestResult(null)} className="max-w-lg">
+        <div className="flex flex-col gap-4 p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              {testResult?.success ? (
+                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              ) : (
+                <XCircle className="h-5 w-5 text-destructive" />
+              )}
+              <h3 className="text-base font-semibold text-foreground">支付渠道连接测试</h3>
+            </div>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setTestResult(null)}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            {testResult?.items?.map((item) => (
+              <div
+                key={item.name}
+                className={cn(
+                  "flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm",
+                  item.status
+                    ? "border-emerald-200 bg-emerald-50/60 text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/20 dark:text-emerald-300"
+                    : "border-destructive/30 bg-destructive/5 text-destructive dark:text-red-300"
+                )}
+              >
+                <span className="mt-0.5 shrink-0">
+                  {item.status ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-destructive" />
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <span className="font-medium">{item.name}：</span>
+                  <span className="break-all">{item.message}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className={cn(
+            "rounded-lg px-3 py-2 text-sm",
+            testResult?.success
+              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300"
+              : "bg-destructive/10 text-destructive dark:text-red-300"
+          )}>
+            {testResult?.message}
+          </p>
+
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              className="rounded-lg border border-input bg-transparent px-4 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors"
+              onClick={() => setTestResult(null)}
+            >
+              {t("common.close")}
             </button>
           </div>
         </div>

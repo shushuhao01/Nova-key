@@ -1,5 +1,7 @@
 package com.orionkey.service;
 
+import com.orionkey.dto.PaymentTestResult;
+
 import java.math.BigDecimal;
 import java.util.Map;
 
@@ -45,12 +47,14 @@ public interface AlipayService {
 
     /**
      * 测试商户配置与支付宝开放平台的连通性：使用一笔不存在的订单号调用
-     * alipay.trade.query，验证 AppID、应用私钥签名与支付宝公钥验签是否有效。
+     * alipay.trade.query，验证 AppID、商家私钥签名与支付宝公钥验签是否有效。
+     * <p>
+     * 逐项返回检测清单（AppID / 商家私钥 / 支付宝公钥 / 签名类型 / 连接测试），
+     * 单项失败不会抛异常，而是通过 items.status 体现，便于前端展示 ✅/❌。
      *
-     * @return 成功消息
-     * @throws com.orionkey.exception.BusinessException 失败时抛出，message 为详细原因
+     * @return 结构化测试结果
      */
-    String testConnection(AlipayConfig config);
+    PaymentTestResult testConnection(AlipayConfig config);
 
     /**
      * 验证支付宝异步通知签名（RSA2）。

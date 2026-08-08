@@ -16,8 +16,12 @@ public interface AdminPaymentChannelService {
 
     /**
      * 测试支付渠道配置与支付平台（微信/支付宝/易支付/USDT）的连通性。
+     * <p>
+     * 原生微信/支付宝逐项输出检测清单，与 CRM 项目支付配置的测试连接一致：
+     * 微信：AppID / 商户号 / API密钥 / 证书 / 连接测试；
+     * 支付宝：AppID / 商家私钥 / 支付宝公钥 / 签名类型 / 连接测试。
      *
-     * @return { success: boolean, message: 详细原因或成功提示 }
+     * @return { success: boolean, message: 汇总提示, items: [{name, status, message}] 逐项清单 }
      */
     Map<String, Object> testChannel(UUID id);
 

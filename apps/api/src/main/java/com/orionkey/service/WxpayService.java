@@ -1,5 +1,7 @@
 package com.orionkey.service;
 
+import com.orionkey.dto.PaymentTestResult;
+
 import java.math.BigDecimal;
 import java.util.Map;
 
@@ -57,11 +59,13 @@ public interface WxpayService {
     /**
      * 测试商户配置与微信支付平台的连通性（调用 GET /v3/certificates 验证
      * 商户号/证书序列号/商户私钥签名是否有效）。
+     * <p>
+     * 逐项返回检测清单（AppID / 商户号 / API密钥 / 证书 / 连接测试），
+     * 单项失败不会抛异常，而是通过 items.status 体现，便于前端展示 ✅/❌。
      *
-     * @return 成功消息
-     * @throws com.orionkey.exception.BusinessException 失败时抛出，message 为详细原因
+     * @return 结构化测试结果
      */
-    String testConnection(WxpayConfig config);
+    PaymentTestResult testConnection(WxpayConfig config);
 
     /**
      * 验证微信回调签名（平台证书）并解密资源内容。

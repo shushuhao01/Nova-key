@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orionkey.constant.ErrorCode;
+import com.orionkey.dto.PaymentTestResult;
 import com.orionkey.entity.PaymentChannel;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.PaymentChannelRepository;
@@ -94,19 +95,22 @@ public class AdminPaymentChannelServiceImpl implements AdminPaymentChannelServic
         PaymentChannel channel = paymentChannelRepository.findById(id)
                 .filter(c -> c.getIsDeleted() == 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "支付渠道不存在"));
-        try {
-            String message = switch (channel.getProviderType()) {
-                case "native_wxpay" -> wxpayService.testConnection(paymentService.buildWxpayConfig(channel));
-                case "native_alipay" -> alipayService.testConnection(paymentService.buildAlipayConfig(channel));
-                case "epay" -> testEpayConnectivity(channel);
-                case "usdt" -> testBepusdtConnectivity(channel);
-                default -> throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
-                        "暂不支持测试该渠道类型：" + channel.getProviderType());
-            };
-            return Map.of("success", true, "message", message);
-        } catch (BusinessException e) {
-            return Map.of("success", false, "message", e.getMessage());
-        }
+        PaymentTestResult result = switch (channel.getProviderType()) {
+            // 原生渠道用宽松构建：配置缺失时逐项输出 ❌ 清单，而不是直接抛异常
+            case "native_wxpay" -> wxpayService.testConnection(paymentService.buildWxpayConfigForTest(channel));
+            case "native_alipay" -> alipayService.testConnection(paymentService.buildAlipayConfigForTest(channel));
+            case "epay" -> testEpayConnectivity(channel);
+            case "usdt" -> testBepusdtConnectivity(channel);
+            default -> new PaymentTestResult(false, List.of(
+                    new PaymentTestResult.TestItem("渠道类型", false,
+                            "暂不支持测试该渠道类型：" + channel.getProviderType())),
+                    "暂不支持测试该渠道类型：" + channel.getProviderType());
+        };
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("success", result.passed());
+        map.put("message", result.message());
+        map.put("items", result.items());
+        return map;
     }
 
     @Override
@@ -127,32 +131,77 @@ public class AdminPaymentChannelServiceImpl implements AdminPaymentChannelServic
         return result;
     }
 
-    /** 易支付渠道测试：校验配置完整性 + 探测网关可达性 */
-    private String testEpayConnectivity(PaymentChannel channel) {
+    /** 易支付渠道测试：逐项校验配置完整性 + 探测网关可达性 */
+    private PaymentTestResult testEpayConnectivity(PaymentChannel channel) {
         Map<String, Object> cfg = deserializeConfigData(channel.getConfigData());
         String pid = strValue(cfg, "pid");
         String key = strValue(cfg, "key");
         String apiUrl = strValue(cfg, "api_url");
-        if (pid.isBlank() || key.isBlank() || apiUrl.isBlank()) {
-            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
-                    "易支付配置不完整：请填写 商户ID(pid)、商户密钥(key)、API地址(api_url)");
+
+        boolean pidOk = !pid.isBlank();
+        boolean keyOk = !key.isBlank();
+        boolean apiOk = !apiUrl.isBlank();
+        List<PaymentTestResult.TestItem> items = new ArrayList<>();
+        items.add(new PaymentTestResult.TestItem("商户ID (PID)", pidOk,
+                pidOk ? "商户ID已配置: " + pid : "未配置商户ID (pid)"));
+        items.add(new PaymentTestResult.TestItem("商户密钥 (Key)", keyOk,
+                keyOk ? "商户密钥已配置" : "未配置商户密钥 (key)"));
+        items.add(new PaymentTestResult.TestItem("API 地址", apiOk,
+                apiOk ? "API地址已配置: " + apiUrl : "未配置API地址 (api_url)"));
+
+        boolean connOk = false;
+        String connMsg;
+        if (!pidOk || !keyOk || !apiOk) {
+            connMsg = "配置不完整（商户ID/密钥/API地址缺一不可），无法进行真实连接测试";
+        } else {
+            try {
+                probeGateway(apiUrl, "易支付");
+                connOk = true;
+                connMsg = "连接成功：易支付网关可访问，商户配置完整（PID=" + pid
+                        + "）。建议用一笔 0.01 元订单实际验证收款回调";
+            } catch (BusinessException e) {
+                connMsg = e.getMessage();
+            }
         }
-        probeGateway(apiUrl, "易支付");
-        return "连接成功：易支付网关可访问，商户配置完整（PID=" + pid
-                + "）。建议用一笔 0.01 元订单实际验证收款回调";
+        items.add(new PaymentTestResult.TestItem("连接测试", connOk, connMsg));
+
+        boolean passed = items.stream().allMatch(PaymentTestResult.TestItem::status);
+        String summary = passed ? "易支付配置验证通过" : "部分配置项未通过验证，请根据上方 ❌ 项修正";
+        return new PaymentTestResult(passed, items, summary);
     }
 
-    /** USDT（BEpusdt）渠道测试：校验配置完整性 + 探测服务可达性 */
-    private String testBepusdtConnectivity(PaymentChannel channel) {
+    /** USDT（BEpusdt）渠道测试：逐项校验配置完整性 + 探测服务可达性 */
+    private PaymentTestResult testBepusdtConnectivity(PaymentChannel channel) {
         Map<String, Object> cfg = deserializeConfigData(channel.getConfigData());
         String apiUrl = strValue(cfg, "api_url");
         String apiToken = strValue(cfg, "api_token");
-        if (apiUrl.isBlank() || apiToken.isBlank()) {
-            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE,
-                    "USDT 配置不完整：请填写 BEpusdt 服务地址(api_url)、API Token(api_token)");
+
+        boolean apiOk = !apiUrl.isBlank();
+        boolean tokenOk = !apiToken.isBlank();
+        List<PaymentTestResult.TestItem> items = new ArrayList<>();
+        items.add(new PaymentTestResult.TestItem("服务地址 (api_url)", apiOk,
+                apiOk ? "服务地址已配置: " + apiUrl : "未配置 BEpusdt 服务地址 (api_url)"));
+        items.add(new PaymentTestResult.TestItem("API Token", tokenOk,
+                tokenOk ? "API Token 已配置" : "未配置 API Token (api_token)"));
+
+        boolean connOk = false;
+        String connMsg;
+        if (!apiOk || !tokenOk) {
+            connMsg = "配置不完整（服务地址/API Token缺一不可），无法进行真实连接测试";
+        } else {
+            try {
+                probeGateway(apiUrl, "BEpusdt");
+                connOk = true;
+                connMsg = "连接成功：BEpusdt 服务可访问，API Token 已配置";
+            } catch (BusinessException e) {
+                connMsg = e.getMessage();
+            }
         }
-        probeGateway(apiUrl, "BEpusdt");
-        return "连接成功：BEpusdt 服务可访问，API Token 已配置";
+        items.add(new PaymentTestResult.TestItem("连接测试", connOk, connMsg));
+
+        boolean passed = items.stream().allMatch(PaymentTestResult.TestItem::status);
+        String summary = passed ? "USDT 配置验证通过" : "部分配置项未通过验证，请根据上方 ❌ 项修正";
+        return new PaymentTestResult(passed, items, summary);
     }
 
     /** 探测支付网关/服务地址可达性：4xx/5xx 也视为可达（网关在线），网络异常才报错 */

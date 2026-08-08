@@ -264,6 +264,20 @@ export interface PaymentChannelItem {
   created_at: string
 }
 
+/** 测试连接的单项检测结果（如 AppID、商户号、连接测试等） */
+export interface PaymentTestItem {
+  name: string
+  status: boolean
+  message: string
+}
+
+/** 测试连接的逐项清单，与 CRM 项目支付配置的测试连接输出一致 */
+export interface PaymentTestResult {
+  success: boolean
+  message: string
+  items?: PaymentTestItem[]
+}
+
 // ============================================================
 // Site Config
 // ============================================================
