@@ -29,6 +29,19 @@ public class MarketingController {
         return ApiResponse.success(marketingService.claimCoupon(code, userId, email));
     }
 
+    /** 个人中心：我的优惠券（status=ALL/CLAIMED/USED/EXPIRED） */
+    @GetMapping("/coupons/my")
+    public ApiResponse<?> myCoupons(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "10") int pageSize) {
+        UUID userId = RequestContext.getUserId();
+        if (userId == null) {
+            return ApiResponse.success(com.orionkey.common.PageResult.of(List.of(), page, pageSize, 0));
+        }
+        return ApiResponse.success(marketingService.myCoupons(userId, status, page, pageSize));
+    }
+
     /** 下单页校验优惠券：计算对指定金额的抵扣（amount 传商品总价，product_ids 传订单商品列表） */
     @PostMapping("/coupons/validate")
     public ApiResponse<?> validateCoupon(@RequestBody Map<String, Object> body) {

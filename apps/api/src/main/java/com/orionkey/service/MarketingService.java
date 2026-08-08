@@ -9,25 +9,50 @@ import java.util.UUID;
 
 public interface MarketingService {
 
-    // ── 管理后台：营销活动 CRUD ──
+    // ═══════════ 优惠券管理（recordType=COUPON） ═══════════
 
-    PageResult<?> listCampaigns(String keyword, String status, int page, int pageSize);
+    PageResult<?> listCoupons(String keyword, int page, int pageSize);
 
-    Map<String, Object> getCampaign(UUID id);
+    Map<String, Object> getCoupon(UUID id);
 
-    Map<String, Object> createCampaign(Map<String, Object> body);
+    Map<String, Object> createCoupon(Map<String, Object> body);
 
-    Map<String, Object> updateCampaign(UUID id, Map<String, Object> body);
+    Map<String, Object> updateCoupon(UUID id, Map<String, Object> body);
 
-    void deleteCampaign(UUID id);
+    /** 作废优惠券（不可再领取/使用；已领取的不受影响） */
+    void cancelCoupon(UUID id);
 
-    /** 发送营销邮件（受众 = 全部/指定用户/指定邮箱），发送完成标记 SENT */
-    Map<String, Object> sendCampaign(UUID id);
+    void deleteCoupon(UUID id);
 
-    // ── 前台：优惠券领取 / 校验 ──
+    // ═══════════ 营销邮件（recordType=EMAIL） ═══════════
 
-    /** 领取优惠券（登录用户绑定 userId，匿名需传 email） */
+    PageResult<?> listEmailCampaigns(String keyword, String status, int page, int pageSize);
+
+    Map<String, Object> getEmailCampaign(UUID id);
+
+    Map<String, Object> createEmailCampaign(Map<String, Object> body);
+
+    Map<String, Object> updateEmailCampaign(UUID id, Map<String, Object> body);
+
+    void deleteEmailCampaign(UUID id);
+
+    /**
+     * 发送营销邮件：send_at 晚于当前时间 → 定时（SCHEDULED），到点由定时任务发送；
+     * 否则立即发送（SENT）。关联优惠券时校验发行数量 ≥ 收件人数（不足报"分配不足"），
+     * 并按收件人逐封替换占位符（{username}/{site_url}/{claim_url}/{coupon_code}）。
+     */
+    Map<String, Object> sendEmailCampaign(UUID id);
+
+    /** 营销邮件收件人分页列表（发送用户超链接弹窗用，默认 10 条/页，含送达统计） */
+    Map<String, Object> campaignRecipients(UUID id, int page, int pageSize);
+
+    // ═══════════ 前台：优惠券领取 / 我的优惠券 / 核销校验 ═══════════
+
+    /** 领取优惠券（登录用户绑定 userId，匿名需传 email）。已领取时幂等返回成功。 */
     Map<String, Object> claimCoupon(String code, UUID userId, String email);
+
+    /** 个人中心优惠券列表（status=ALL/CLAIMED/USED/EXPIRED） */
+    PageResult<?> myCoupons(UUID userId, String status, int page, int pageSize);
 
     /**
      * 校验优惠券并计算对指定金额的抵扣（下单页预览用）。

@@ -17,11 +17,19 @@ public interface UserCouponRepository extends JpaRepository<UserCoupon, UUID> {
 
     Optional<UserCoupon> findFirstByCodeAndEmailAndStatusOrderByCreatedAtDesc(String code, String email, String status);
 
+    /** 按核销码查找任意领取记录（自动生成的唯一码通过它反查活动） */
+    Optional<UserCoupon> findFirstByCodeOrderByCreatedAtDesc(String code);
+
     long countByCampaignId(UUID campaignId);
 
     long countByCampaignIdAndStatus(UUID campaignId, String status);
 
     List<UserCoupon> findByUserIdOrderByCreatedAtDesc(UUID userId);
+
+    /** 个人中心优惠券分页：按状态过滤（CLAIMED/USED/ALL） */
+    org.springframework.data.domain.Page<UserCoupon> findByUserIdOrderByCreatedAtDesc(UUID userId, org.springframework.data.domain.Pageable pageable);
+
+    org.springframework.data.domain.Page<UserCoupon> findByUserIdAndStatusOrderByCreatedAtDesc(UUID userId, String status, org.springframework.data.domain.Pageable pageable);
 
     boolean existsByCodeAndUserId(String code, UUID userId);
 

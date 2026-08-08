@@ -10,6 +10,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * 营销活动（自定义营销邮件 + 优惠券推广）。
@@ -43,12 +44,27 @@ public class MarketingCampaign extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String targetJson;
 
-    /** 状态：DRAFT 草稿 / SENT 已发送 */
+    /** 状态：DRAFT 草稿 / SENT 已发送 / SCHEDULED 定时中 */
     @Column(nullable = false)
     private String status = "DRAFT";
 
     /** 已发送数量 */
     private int sentCount = 0;
+
+    /** 发送失败数量（尝试发送但失败） */
+    private int failedCount = 0;
+
+    /** 记录类型：COUPON 纯优惠券 / EMAIL 营销邮件（旧数据 null 视为 EMAIL） */
+    private String recordType = "EMAIL";
+
+    /** 营销邮件关联的优惠券记录 ID（recordType=EMAIL 时可选，发送时取该优惠券的领取链接/核销码） */
+    private UUID couponRefId;
+
+    /** 定时发送时间（recordType=EMAIL：sendAt 晚于当前时间时保存为 SCHEDULED，到点自动发送） */
+    private LocalDateTime sendAt;
+
+    /** 作废标记：1=已作废（优惠券不可再领取/使用） */
+    private int isCanceled = 0;
 
     // ── 优惠券配置（活动可携带一个核销码） ──
 
