@@ -47,10 +47,11 @@ public class AdminOrderServiceImpl implements AdminOrderService {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的筛选参数: " + e.getMessage());
         }
         Page<Order> orderPage;
+        String pm = paymentMethod != null && !paymentMethod.isBlank() ? paymentMethod.trim() : "";
         if (keyword != null && !keyword.isBlank()) {
-            orderPage = orderRepository.findAdminOrdersByKeyword(os, ot, paymentMethod, isRiskFlagged, "%" + keyword + "%", pageable);
+            orderPage = orderRepository.findAdminOrdersByKeyword(os, ot, pm, isRiskFlagged, "%" + keyword + "%", pageable);
         } else {
-            orderPage = orderRepository.findAdminOrders(os, ot, paymentMethod, isRiskFlagged, pageable);
+            orderPage = orderRepository.findAdminOrders(os, ot, pm, isRiskFlagged, pageable);
         }
 
         var list = orderPage.getContent().stream().map(this::toAdminOrder).toList();

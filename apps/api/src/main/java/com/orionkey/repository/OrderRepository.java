@@ -122,7 +122,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     @Query("SELECT o FROM Order o WHERE " +
             "(:status IS NULL OR o.status = :status) " +
             "AND (:orderType IS NULL OR o.orderType = :orderType) " +
-            "AND (:paymentMethod IS NULL OR o.paymentMethod = :paymentMethod) " +
+            "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o.paymentMethod = :paymentMethod) " +
             "AND (:isRiskFlagged IS NULL OR o.riskFlagged = :isRiskFlagged) " +
             "ORDER BY o.createdAt DESC")
     Page<Order> findAdminOrders(@Param("status") OrderStatus status,
@@ -135,7 +135,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     @Query("SELECT DISTINCT o FROM Order o LEFT JOIN OrderItem oi ON oi.orderId = o.id WHERE " +
             "(:status IS NULL OR o.status = :status) " +
             "AND (:orderType IS NULL OR o.orderType = :orderType) " +
-            "AND (:paymentMethod IS NULL OR o.paymentMethod = :paymentMethod) " +
+            "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o.paymentMethod = :paymentMethod) " +
             "AND (:isRiskFlagged IS NULL OR o.riskFlagged = :isRiskFlagged) " +
             "AND (str(o.id) LIKE :keywordPattern OR o.email LIKE :keywordPattern OR oi.productTitle LIKE :keywordPattern) " +
             "ORDER BY o.createdAt DESC")
