@@ -27,7 +27,8 @@ module.exports = {
       ],
       autorestart: true, // 崩溃自动重启
       // 内存超限自动重启。上限必须高于 JVM 堆(-Xmx1280m)+堆外开销，否则内存一涨就重启，
-      // 表现为"网站久不久崩一下"。服务器 7G 内存，给后端 2G 余量，前端 1.5G。
+      // 表现为"网站久不久崩一下"。服务器 7G 内存，给后端 2G 余量，前端 1536M。
+      // 注意: PM2 的 max_memory_restart 只接受整数 (如 2G/1536M)，不接受小数 (1.5G 会校验失败)。
       max_memory_restart: "2G",
       time: true, // 日志带时间戳
       out_file: "/www/wwwroot/nova-key/logs/api.out.log",
@@ -48,7 +49,7 @@ module.exports = {
         "set -a; source /www/wwwroot/nova-key/.env; set +a; exec node node_modules/next/dist/bin/next start -p 3001",
       ],
       autorestart: true,
-      max_memory_restart: "1.5G",
+      max_memory_restart: "1536M",
       time: true,
       out_file: "/www/wwwroot/nova-key/logs/web.out.log",
       error_file: "/www/wwwroot/nova-key/logs/web.err.log",
