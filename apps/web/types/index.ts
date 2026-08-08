@@ -291,6 +291,8 @@ export interface NotificationChannelItem {
   enabled: boolean
   sort_order: number
   webhook_url?: string
+  /** 钉钉加签密钥（安全设置选「加签」时必填） */
+  secret?: string
   email_to?: string
 }
 

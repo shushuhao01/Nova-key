@@ -21,10 +21,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
  * 消息通知服务实现。
@@ -288,6 +292,10 @@ public class NotificationServiceImpl implements NotificationService {
         if (body.get("webhook_url") instanceof String url) {
             cfg.put("webhook_url", url.trim());
         }
+        // 钉钉加签密钥：安全设置选择「加签」时必填（企微/邮箱渠道会忽略该字段）
+        if (body.get("secret") instanceof String secret) {
+            cfg.put("secret", secret.trim());
+        }
         if (body.get("email_to") instanceof String to) {
             cfg.put("email_to", to.trim());
         }
@@ -403,6 +411,11 @@ public class NotificationServiceImpl implements NotificationService {
                     log.debug("DingTalk webhook_url not configured");
                     return;
                 }
+                // 加签模式：需把 timestamp + sign 拼到 webhook 地址上，否则钉钉返回签名不匹配
+                String secret = str(cfg.get("secret"));
+                if (!secret.isBlank()) {
+                    url = dingTalkSignedUrl(url, secret);
+                }
                 postWebhook(url, Map.of(
                         "msgtype", "markdown",
                         "markdown", Map.of("title", title, "text", "### " + title + "\n\n" + content)));
@@ -436,6 +449,27 @@ public class NotificationServiceImpl implements NotificationService {
                 .body(body)
                 .retrieve()
                 .toBodilessEntity();
+    }
+
+    /**
+     * 钉钉加签：timestamp + "\n" + secret 做 HmacSHA256，结果 Base64 后 URL 编码，
+     * 追加到 webhook 地址（官方文档 https://open.dingtalk.com/document/orgapp/custom-robot-access）：
+     * <pre>webhook?access_token=xxx&amp;timestamp=xxx&amp;sign=xxx</pre>
+     */
+    private String dingTalkSignedUrl(String webhookUrl, String secret) {
+        try {
+            long timestamp = System.currentTimeMillis();
+            String stringToSign = timestamp + "\n" + secret;
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            byte[] signData = mac.doFinal(stringToSign.getBytes(StandardCharsets.UTF_8));
+            String sign = URLEncoder.encode(Base64.getEncoder().encodeToString(signData), StandardCharsets.UTF_8);
+            String sep = webhookUrl.contains("?") ? "&" : "?";
+            return webhookUrl + sep + "timestamp=" + timestamp + "&sign=" + sign;
+        } catch (Exception e) {
+            log.warn("DingTalk sign compute failed, send without sign: {}", e.getMessage());
+            return webhookUrl;
+        }
     }
 
     /** 渲染模板：{key} → 值 */

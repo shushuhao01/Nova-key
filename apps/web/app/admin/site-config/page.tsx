@@ -193,7 +193,10 @@ export default function AdminSiteConfigPage() {
           enabled: ch.enabled,
           ...(ch.channel_type === "EMAIL"
             ? { email_to: ch.email_to ?? "" }
-            : { webhook_url: ch.webhook_url ?? "" }),
+            : {
+                webhook_url: ch.webhook_url ?? "",
+                ...(ch.channel_type === "DINGTALK" ? { secret: ch.secret ?? "" } : {}),
+              }),
         })
       }
       for (const t of notifyTemplates) {
@@ -872,9 +875,25 @@ export default function AdminSiteConfigPage() {
                         />
                         <p className="text-xs text-muted-foreground">
                           {ch.channel_type === "DINGTALK"
-                            ? "钉钉群 → 群机器人 → 自定义（加签/关键字），复制 Webhook 地址"
+                            ? "钉钉群 → 群机器人 → 添加机器人，复制 Webhook 地址"
                             : "企业微信群 → 群机器人 → 添加机器人，复制 Webhook 地址"}
                         </p>
+                        {ch.channel_type === "DINGTALK" && (
+                          <>
+                            <label className="mt-2 text-xs font-medium text-muted-foreground">加签密钥（Secret）</label>
+                            <input
+                              type="password"
+                              autoComplete="new-password"
+                              placeholder="钉钉机器人安全设置选择「加签」时，填写 SEC 密钥"
+                              className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                              value={ch.secret ?? ""}
+                              onChange={(e) => updateChannel(ch.channel_type, { secret: e.target.value })}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              安全设置选「加签」则必须填写密钥，发送时会自动计算签名；选「自定义关键词」或「IP 白名单」可留空
+                            </p>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
