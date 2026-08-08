@@ -152,6 +152,26 @@ else
     exit 1
 fi
 
+# Step 5.1: 清理 Nginx 页面缓存（宝塔默认 proxy_cache 会缓存页面 HTML 一年，
+#           更新代码后用户仍命中旧缓存 → 页面/按钮"时有时无"。必须每次构建后清空。）
+echo -e "${YELLOW}[5.1] 清理 Nginx 页面缓存...${NC}"
+if [ -d /www/server/nginx/proxy_cache_dir ]; then
+    rm -rf /www/server/nginx/proxy_cache_dir/* 2>/dev/null || true
+    echo -e "${GREEN}[i] 已清空 /www/server/nginx/proxy_cache_dir${NC}"
+else
+    echo -e "${YELLOW}[i] 未发现 proxy_cache_dir，跳过${NC}"
+fi
+# 强制关闭本站点的 proxy_cache（http 层全局开启，location 未显式关闭就继承）
+# 在站点配置首个 server 块内注入 proxy_cache off，防止页面被共享缓存
+NGINX_CONF_FOR_CACHE="/www/server/panel/vhost/nginx/noepay.cn.conf"
+if [ -f "$NGINX_CONF_FOR_CACHE" ] && ! grep -q 'proxy_cache off' "$NGINX_CONF_FOR_CACHE"; then
+    sed -i '0,/listen[[:space:]]*443/s//proxy_cache off;\n    listen 443/' "$NGINX_CONF_FOR_CACHE" 2>/dev/null || true
+    if grep -q 'proxy_cache off' "$NGINX_CONF_FOR_CACHE" && nginx -t >/dev/null 2>&1; then
+        /etc/init.d/nginx reload >/dev/null 2>&1 || systemctl reload nginx >/dev/null 2>&1 || true
+        echo -e "${GREEN}[i] 已在站点配置注入 proxy_cache off（页面不再被缓存）${NC}"
+    fi
+fi
+
 # ═══════ Step 6: 等待服务就绪并验证 ═══════
 echo -e "${YELLOW}[6] 等待服务就绪并验证...${NC}"
 # Spring Boot 启动 + Next.js 冷启动需要时间，轮询等待（最长 90 秒），
