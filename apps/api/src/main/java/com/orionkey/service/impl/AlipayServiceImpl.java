@@ -216,7 +216,9 @@ public class AlipayServiceImpl implements AlipayService {
                         if ("isv.invalid-app-id".equals(subCode)) {
                             sb.append("。AppID 无效：请确认填入的是支付宝开放平台「正式环境」支付应用的 AppID（open.alipay.com 应用详情页），且应用已上线；勿使用沙箱环境的 AppID（网关固定为正式网关 openapi.alipay.com）");
                         } else if ("isv.invalid-signature".equals(subCode)) {
-                            sb.append("。签名校验失败：请核对 AppID 对应的「应用私钥」是否匹配（在开放平台重新生成并上传应用公钥后，使用其配套的私钥），并检查私钥是否完整（含 -----BEGIN PRIVATE KEY----- 头）");
+                            sb.append("。签名校验失败：")
+                                    .append(checkPrivateKeyBits(config.privateKey()))
+                                    .append("请核对 AppID 对应的「应用私钥」是否匹配（在开放平台重新生成并上传应用公钥后，使用其配套的私钥），并确认应用「加签方式」为「公钥」（若为「公钥证书」则需使用证书模式，当前系统不支持）");
                         } else if ("isv.invalid-parameter".equals(subCode)) {
                             sb.append("。请求参数无效：请检查 AppID/私钥/公钥粘贴时是否带有多余空格、换行等非法字符");
                         }
@@ -280,6 +282,25 @@ public class AlipayServiceImpl implements AlipayService {
 
     private static boolean isNotBlank(String s) {
         return s != null && !s.isBlank();
+    }
+
+    /**
+     * RSA2（SHA256withRSA）要求密钥至少 2048 位。
+     * 签名校验失败时本地检测私钥位数，若不足则给出明确提示。
+     */
+    private static String checkPrivateKeyBits(String privateKey) {
+        try {
+            java.security.PrivateKey key = PaymentCryptoUtils.parsePrivateKey(privateKey);
+            if (key instanceof java.security.interfaces.RSAPrivateKey rsaKey) {
+                int bits = rsaKey.getModulus().bitLength();
+                if (bits < 2048) {
+                    return "当前私钥仅 " + bits + " 位，RSA2 要求至少 2048 位，请用支付宝官方密钥工具重新生成 2048 位密钥对；";
+                }
+            }
+        } catch (Exception ignored) {
+            // 私钥无法解析时走「商家私钥解析失败」提示，这里忽略
+        }
+        return "";
     }
 
     @Override
