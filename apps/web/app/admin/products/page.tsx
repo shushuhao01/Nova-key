@@ -254,7 +254,7 @@ export default function AdminProductsPage() {
         title: formData.title,
         description: formData.description || undefined,
         detail_md: formData.detail_md || undefined,
-        detail_images: formData.detail_images.length > 0 ? formData.detail_images : undefined,
+        detail_images: formData.detail_images,
         category_id: formData.category_id,
         base_price: basePrice,
         currency: formData.currency,
@@ -777,7 +777,7 @@ export default function AdminProductsPage() {
                 {formData.detail_images.length > 0 && (
                   <div className="grid grid-cols-3 gap-2">
                     {formData.detail_images.map((url, idx) => (
-                      <div key={url} className="group relative overflow-hidden rounded-lg border border-border">
+                      <div key={`${url}-${idx}`} className="group relative overflow-hidden rounded-lg border border-border">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={url} alt={`详情图 ${idx + 1}`} className="h-24 w-full object-cover" />
                         <button
