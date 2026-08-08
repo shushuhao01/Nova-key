@@ -70,12 +70,12 @@ echo ""
 echo "=== 10. 验证营销接口 ==="
 TOKEN=$(curl -s -X POST http://127.0.0.1:8083/api/auth/login \
     -H "Content-Type: application/json" \
-    -d '{"username":"admin","password":"admin123"}' | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+    -d '{"account":"admin","password":"admin123"}' | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
 if [ -z "$TOKEN" ]; then
     echo "⚠ 登录失败，尝试看返回内容："
     curl -s -X POST http://127.0.0.1:8083/api/auth/login \
         -H "Content-Type: application/json" \
-        -d '{"username":"admin","password":"admin123"}'
+        -d '{"account":"admin","password":"admin123"}'
 else
     echo "✓ 登录成功"
     echo "营销优惠券列表接口测试："

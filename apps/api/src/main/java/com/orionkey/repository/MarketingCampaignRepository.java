@@ -22,13 +22,13 @@ public interface MarketingCampaignRepository extends JpaRepository<MarketingCamp
 
     /** 营销邮件记录（recordType=EMAIL 或旧数据 null），支持标题/状态过滤 */
     @Query("SELECT c FROM MarketingCampaign c WHERE (c.recordType IS NULL OR c.recordType <> 'COUPON') "
-            + "AND (:keyword IS NULL OR LOWER(c.title) LIKE LOWER(CONCAT('%', :keyword, '%'))) "
+            + "AND (:keyword IS NULL OR :keyword = '' OR LOWER(c.title) LIKE LOWER(CONCAT('%', :keyword, '%'))) "
             + "AND (:status IS NULL OR :status = '' OR c.status = :status)")
     Page<MarketingCampaign> findEmailCampaigns(@Param("keyword") String keyword, @Param("status") String status, Pageable pageable);
 
     /** 纯优惠券记录（recordType=COUPON） */
     @Query("SELECT c FROM MarketingCampaign c WHERE c.recordType = 'COUPON' "
-            + "AND (:keyword IS NULL OR LOWER(c.title) LIKE LOWER(CONCAT('%', :keyword, '%')))")
+            + "AND (:keyword IS NULL OR :keyword = '' OR LOWER(c.title) LIKE LOWER(CONCAT('%', :keyword, '%')))")
     Page<MarketingCampaign> findCoupons(@Param("keyword") String keyword, Pageable pageable);
 
     /** 到点待发的定时邮件 */

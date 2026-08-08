@@ -56,9 +56,8 @@ public class MarketingServiceImpl implements MarketingService {
     public PageResult<?> listCoupons(String keyword, int page, int pageSize) {
         Pageable pageable = PageRequest.of(Math.max(page - 1, 0), Math.min(Math.max(pageSize, 1), 100),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<MarketingCampaign> p = keyword != null && !keyword.isBlank()
-                ? campaignRepository.findCoupons(keyword.trim(), pageable)
-                : campaignRepository.findCoupons(null, pageable);
+        String kw = keyword != null && !keyword.isBlank() ? keyword.trim() : "";
+        Page<MarketingCampaign> p = campaignRepository.findCoupons(kw, pageable);
         List<Map<String, Object>> list = p.getContent().stream().map(this::toCouponMap).toList();
         return PageResult.of(p, list);
     }
@@ -179,8 +178,8 @@ public class MarketingServiceImpl implements MarketingService {
     public PageResult<?> listEmailCampaigns(String keyword, String status, int page, int pageSize) {
         Pageable pageable = PageRequest.of(Math.max(page - 1, 0), Math.min(Math.max(pageSize, 1), 100),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
-        String kw = keyword != null && !keyword.isBlank() ? keyword.trim() : null;
-        String st = status != null && !status.isBlank() ? status : null;
+        String kw = keyword != null && !keyword.isBlank() ? keyword.trim() : "";
+        String st = status != null && !status.isBlank() ? status : "";
         Page<MarketingCampaign> p = campaignRepository.findEmailCampaigns(kw, st, pageable);
         List<Map<String, Object>> list = p.getContent().stream().map(this::toEmailMap).toList();
         return PageResult.of(p, list);
