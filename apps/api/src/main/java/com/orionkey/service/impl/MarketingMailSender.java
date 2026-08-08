@@ -75,6 +75,12 @@ public class MarketingMailSender {
     private String renderForRecipient(MarketingCampaign c, MarketingServiceImpl.Recipient r, MarketingCampaign coupon,
                                       String code, String siteUrl, String siteName) {
         String html = c.getContent() == null ? "" : c.getContent();
+        // 富文本中上传的图片为相对路径（/api/uploads/xxx.png），邮件客户端无法解析 → 补全为绝对 URL
+        String uploadBase = siteUrl + "/api/uploads/";
+        html = html.replace("src=\"/api/uploads/", "src=\"" + uploadBase)
+                .replace("src='/api/uploads/", "src='" + uploadBase)
+                .replace("href=\"/api/uploads/", "href=\"" + uploadBase)
+                .replace("href='/api/uploads/", "href='" + uploadBase);
         String username = (r.username() != null && !r.username().isBlank()) ? r.username() : "";
         String claimUrl = (coupon != null && code != null) ? siteUrl + "/coupons/claim?code=" + code : siteUrl;
         html = html.replace("{username}", username)

@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useMemo, useRef } from "react"
+import { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { Zap, Minus, Plus, ShoppingCart, Package, TrendingUp, Ticket, CheckCircle2, XCircle, Loader2 } from "lucide-react"
+import { Zap, Minus, Plus, ShoppingCart, Package, TrendingUp, Ticket, CheckCircle2, XCircle, Loader2, ChevronDown } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale, useAuth, useCart } from "@/lib/context"
 import { orderApi, marketingApi, withMockFallback, getApiErrorMessage, setTurnstileHeaders } from "@/services/api"
@@ -10,7 +10,7 @@ import { mockCreateOrder } from "@/lib/mock-data"
 import { Turnstile, useTurnstile } from "@/components/shared/turnstile"
 import { cn, validateEmail, generateIdempotencyKey, getCurrencySymbol, detectPaymentDevice, isMobileDevice } from "@/lib/utils"
 import { PaymentSelector } from "@/components/shared/payment-selector"
-import type { ProductDetail, ProductSpec, PaymentChannelItem } from "@/types"
+import type { ProductDetail, ProductSpec, PaymentChannelItem, MyCouponItem } from "@/types"
 
 interface ProductActionsProps {
   product: ProductDetail
@@ -43,6 +43,9 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
   const [couponStatus, setCouponStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle")
   const [couponDiscount, setCouponDiscount] = useState(0)
   const [couponMessage, setCouponMessage] = useState("")
+  // 我的可用优惠券（登录后商品详情页下拉选择，无需手动复制核销码）
+  const [myCoupons, setMyCoupons] = useState<MyCouponItem[]>([])
+  const [couponsLoading, setCouponsLoading] = useState(false)
 
   const currentPrice = selectedSpec ? selectedSpec.price : product.base_price
   const totalPrice = currentPrice * quantity
@@ -51,15 +54,40 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
   const isOutOfStock = currentStock === 0
   const deliveryType = product.delivery_type === "MANUAL" ? "manual" : "auto"
 
-  const resetCoupon = () => {
-    setCouponCode("")
-    setCouponStatus("idle")
-    setCouponDiscount(0)
-    setCouponMessage("")
+  // 登录后加载我的可用优惠券（CLAIMED 未核销）
+  useEffect(() => {
+    let cancelled = false
+    if (!isLoggedIn) {
+      setMyCoupons([])
+      return
+    }
+    setCouponsLoading(true)
+    marketingApi.myCoupons({ status: "CLAIMED", page_size: 50 })
+      .then(res => { if (!cancelled) setMyCoupons(res.list ?? []) })
+      .catch(() => { if (!cancelled) setMyCoupons([]) })
+      .finally(() => { if (!cancelled) setCouponsLoading(false) })
+    return () => { cancelled = true }
+  }, [isLoggedIn])
+
+  // 过滤符合当前商品/订单条件的可用券：未过期、满减门槛、适用范围
+  const usableCoupons = useMemo(() => {
+    const now = Date.now()
+    return myCoupons.filter(c => {
+      if (c.valid_to && new Date(c.valid_to).getTime() < now) return false
+      if (c.coupon_min_amount > 0 && totalPrice < c.coupon_min_amount) return false
+      if (c.scope === "SPECIFIC" && !c.product_ids.includes(product.id)) return false
+      return true
+    })
+  }, [myCoupons, totalPrice, product.id])
+
+  const couponLabel = (c: MyCouponItem) => {
+    const disc = c.type === "AMOUNT" ? `${getCurrencySymbol(product.currency)}${c.value}` : `减免 ${c.value}%`
+    const min = c.coupon_min_amount > 0 ? `（满${getCurrencySymbol(product.currency)}${c.coupon_min_amount}）` : ""
+    return `${c.campaign_title || "优惠券"} · ${disc}${min} · ${c.code}`
   }
 
-  const handleApplyCoupon = async () => {
-    const code = couponCode.trim()
+  const applyCouponCode = useCallback(async (codeToApply: string) => {
+    const code = codeToApply.trim()
     if (!code) {
       setCouponStatus("idle")
       setCouponDiscount(0)
@@ -86,6 +114,15 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
       setCouponDiscount(0)
       setCouponMessage(getApiErrorMessage(err, t) || t("product.couponInvalid"))
     }
+  }, [email, totalPrice, product.id, t])
+
+  const handleApplyCoupon = () => applyCouponCode(couponCode)
+
+  const resetCoupon = () => {
+    setCouponCode("")
+    setCouponStatus("idle")
+    setCouponDiscount(0)
+    setCouponMessage("")
   }
 
   const handleEmailChange = (value: string) => {
@@ -399,6 +436,34 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
               {couponStatus === "checking" ? t("product.couponChecking") : t("product.couponApply")}
             </button>
           </div>
+          {/* 我的可用优惠券（登录后可选，无需手动复制核销码） */}
+          {isLoggedIn && usableCoupons.length > 0 && (
+            <div className="mt-2">
+              <select
+                value=""
+                onChange={(e) => {
+                  const code = e.target.value
+                  if (!code) return
+                  setCouponCode(code)
+                  setCouponStatus("idle")
+                  applyCouponCode(code)
+                }}
+                className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="" disabled>{t("product.myCouponSelect")}</option>
+                {usableCoupons.map(c => (
+                  <option key={c.id} value={c.code}>{couponLabel(c)}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">{t("product.myCouponHint")}</p>
+            </div>
+          )}
+          {couponsLoading && isLoggedIn && (
+            <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t("product.myCouponLoading")}
+            </p>
+          )}
           {couponStatus === "valid" && (
             <p className="mt-1.5 flex items-center gap-1 text-xs text-emerald-600">
               <CheckCircle2 className="h-3.5 w-3.5" />
