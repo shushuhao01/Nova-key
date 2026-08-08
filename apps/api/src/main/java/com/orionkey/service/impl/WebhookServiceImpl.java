@@ -16,6 +16,7 @@ import com.orionkey.service.EpayService;
 import com.orionkey.service.AlipayService;
 import com.orionkey.service.AlipayService.AlipayConfig;
 import com.orionkey.service.AlipayService.AlipayOrderQueryResult;
+import com.orionkey.service.NotificationService;
 import com.orionkey.service.TxidVerifyService;
 import com.orionkey.service.WebhookService;
 import com.orionkey.service.WxpayService;
@@ -51,6 +52,7 @@ public class WebhookServiceImpl implements WebhookService {
     private final ObjectMapper objectMapper;
     private final PaymentServiceImpl paymentService;
     private final TxidVerifyService txidVerifyService;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional
@@ -177,6 +179,7 @@ public class WebhookServiceImpl implements WebhookService {
             order.setStatus(OrderStatus.PAID);
             order.setPaidAt(LocalDateTime.now());
             orderRepository.save(order);
+            sendPaidNotice(order);
             event.setProcessResult("SUCCESS");
             log.info("Epay callback: order {} marked as PAID", orderId);
         } else {
@@ -320,6 +323,7 @@ public class WebhookServiceImpl implements WebhookService {
             order.setPaidAt(LocalDateTime.now());
             order.setUsdtTxId(blockTxId);
             orderRepository.save(order);
+            sendPaidNotice(order);
             saveWebhookEvent(eventId, "usdt", order.getId(), signParams.toString(), "SUCCESS");
             log.info("BEpusdt callback: order {} marked as PAID, txid={}", orderId, blockTxId);
         } else {
@@ -429,6 +433,7 @@ public class WebhookServiceImpl implements WebhookService {
                 order.setStatus(OrderStatus.PAID);
                 order.setPaidAt(LocalDateTime.now());
                 orderRepository.save(order);
+                sendPaidNotice(order);
                 saveWebhookEvent(eventId, "wxpay", orderId, rawBody, "SUCCESS");
                 log.info("Wxpay callback: order {} marked as PAID", orderId);
             } else {
@@ -554,6 +559,7 @@ public class WebhookServiceImpl implements WebhookService {
             order.setStatus(OrderStatus.PAID);
             order.setPaidAt(LocalDateTime.now());
             orderRepository.save(order);
+            sendPaidNotice(order);
             saveWebhookEvent(eventId, "alipay", orderId, params.toString(), "SUCCESS");
             log.info("Alipay callback: order {} marked as PAID", orderId);
         } else {
@@ -562,6 +568,30 @@ public class WebhookServiceImpl implements WebhookService {
             log.info("Alipay callback: order {} already {}", orderId, order.getStatus());
         }
         return "success";
+    }
+
+    /** 管理员通知：订单支付成功 */
+    private void sendPaidNotice(Order order) {
+        try {
+            BigDecimal amount = order.getActualAmount() != null ? order.getActualAmount() : order.getTotalAmount();
+            notificationService.sendTemplate("ORDER_PAID", Map.of(
+                    "order_no", order.getId().toString().substring(0, 8),
+                    "amount", amount != null ? amount.toPlainString() : "0",
+                    "payment_method", paymentMethodLabel(order.getPaymentMethod())));
+        } catch (Exception e) {
+            log.warn("Order paid notification failed: {}", e.getMessage());
+        }
+    }
+
+    private static String paymentMethodLabel(String method) {
+        if (method == null || method.isBlank()) return "";
+        return switch (method) {
+            case "native_wxpay" -> "微信支付";
+            case "native_alipay" -> "支付宝";
+            case "epay" -> "易支付";
+            case "balance" -> "余额支付";
+            default -> method.startsWith("usdt_") ? "USDT 链上转账" : method;
+        };
     }
 
     private void saveWebhookEvent(String eventId, String channelCode, UUID orderId,

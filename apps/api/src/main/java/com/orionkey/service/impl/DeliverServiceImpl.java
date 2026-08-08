@@ -8,6 +8,7 @@ import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.*;
 import com.orionkey.service.DeliverService;
 import com.orionkey.service.EmailService;
+import com.orionkey.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -17,6 +18,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -34,7 +36,27 @@ public class DeliverServiceImpl implements DeliverService {
     private final SiteConfigRepository siteConfigRepository;
     private final UnmatchedTransactionRepository unmatchedTransactionRepository;
     private final EmailService emailService;
+    private final NotificationService notificationService;
     private final TransactionTemplate transactionTemplate;
+
+    /** 管理员通知：订单发货完成（事务提交后调用） */
+    private void sendDeliveredNotice(Order order) {
+        try {
+            List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+            int totalQty = items.stream().mapToInt(OrderItem::getQuantity).sum();
+            String product = items.stream()
+                    .map(OrderItem::getProductTitle)
+                    .distinct()
+                    .reduce((a, b) -> a + "、" + b)
+                    .orElse("-");
+            notificationService.sendTemplate("ORDER_DELIVERED", Map.of(
+                    "order_no", order.getId().toString().substring(0, 8),
+                    "product", product,
+                    "quantity", totalQty));
+        } catch (Exception e) {
+            log.warn("Delivered notification failed: {}", e.getMessage());
+        }
+    }
 
     @Override
     @SuppressWarnings("unchecked")
@@ -177,6 +199,7 @@ public class DeliverServiceImpl implements DeliverService {
                         @Override
                         public void afterCommit() {
                             emailService.sendDeliveryEmail(orderId);
+                            sendDeliveredNotice(order);
                         }
                     });
 

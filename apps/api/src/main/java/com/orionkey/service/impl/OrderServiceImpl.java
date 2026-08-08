@@ -7,6 +7,7 @@ import com.orionkey.constant.OrderType;
 import com.orionkey.entity.*;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.*;
+import com.orionkey.service.NotificationService;
 import com.orionkey.service.OrderService;
 import com.orionkey.service.PaymentService;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,7 @@ public class OrderServiceImpl implements OrderService {
     private final SiteConfigRepository siteConfigRepository;
     private final PaymentChannelRepository paymentChannelRepository;
     private final PaymentService paymentService;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional
@@ -128,6 +130,7 @@ public class OrderServiceImpl implements OrderService {
         item.setSubtotal(totalAmount);
         orderItemRepository.save(item);
 
+        sendOrderCreatedNotice(order);
         return buildOrderResult(order, device);
     }
 
@@ -252,6 +255,7 @@ public class OrderServiceImpl implements OrderService {
             cartItemRepository.delete(ci);
         }
 
+        sendOrderCreatedNotice(order);
         return buildOrderResult(order, device);
     }
 
@@ -360,6 +364,38 @@ public class OrderServiceImpl implements OrderService {
                 throw new BusinessException(ErrorCode.UNPAID_ORDER_EXISTS, "该邮箱有未支付的订单，请先完成支付或等待过期");
             }
         }
+    }
+
+    /** 管理员通知：新订单提交 */
+    private void sendOrderCreatedNotice(Order order) {
+        try {
+            List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+            String product = items.stream()
+                    .map(i -> i.getProductTitle() + "x" + i.getQuantity())
+                    .reduce((a, b) -> a + "、" + b)
+                    .orElse("-");
+            int totalQty = items.stream().mapToInt(OrderItem::getQuantity).sum();
+            BigDecimal amount = order.getActualAmount() != null ? order.getActualAmount() : order.getTotalAmount();
+            notificationService.sendTemplate("ORDER_CREATED", Map.of(
+                    "order_no", order.getId().toString().substring(0, 8),
+                    "product", product,
+                    "quantity", totalQty,
+                    "amount", amount != null ? amount.toPlainString() : "0",
+                    "payment_method", paymentMethodLabel(order.getPaymentMethod())));
+        } catch (Exception e) {
+            log.warn("Order created notification failed: {}", e.getMessage());
+        }
+    }
+
+    private static String paymentMethodLabel(String method) {
+        if (method == null || method.isBlank()) return "";
+        return switch (method) {
+            case "native_wxpay" -> "微信支付";
+            case "native_alipay" -> "支付宝";
+            case "epay" -> "易支付";
+            case "balance" -> "余额支付";
+            default -> method.startsWith("usdt_") ? "USDT 链上转账" : method;
+        };
     }
 
     private Map<String, Object> buildOrderResult(Order order, String device) {

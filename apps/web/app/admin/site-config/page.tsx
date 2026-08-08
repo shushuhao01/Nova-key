@@ -1,13 +1,13 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send } from "lucide-react"
+import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send, Bell, Webhook, CheckCircle2, XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
-import { adminConfigApi, adminProductApi, withMockFallback } from "@/services/api"
+import { adminConfigApi, adminProductApi, adminNotificationApi, withMockFallback } from "@/services/api"
 import { mockSiteConfigKVs } from "@/lib/mock-data"
 import { useLocale } from "@/lib/context"
-import type { SiteConfigKV } from "@/types"
+import type { SiteConfigKV, NotificationTemplateItem, NotificationChannelItem, NotificationTestResult } from "@/types"
 
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp", "image/svg+xml"]
 const ALLOWED_IMAGE_ACCEPT = ".jpg,.jpeg,.png,.gif,.webp,.bmp,.svg"
@@ -22,7 +22,7 @@ function validateImageFile(file: File): string | null {
   return null
 }
 
-type TabKey = "basic" | "announcement" | "points" | "contact" | "email" | "maintenance"
+type TabKey = "basic" | "announcement" | "points" | "contact" | "email" | "maintenance" | "notify"
 
 export default function AdminSiteConfigPage() {
   const { t } = useLocale()
@@ -35,6 +35,37 @@ export default function AdminSiteConfigPage() {
   const [testEmailTo, setTestEmailTo] = useState("")
   const [testSending, setTestSending] = useState(false)
   const popupTextareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // 消息通知（notify tab）独立数据
+  const [notifyChannels, setNotifyChannels] = useState<NotificationChannelItem[]>([])
+  const [notifyTemplates, setNotifyTemplates] = useState<NotificationTemplateItem[]>([])
+  const [notifyLoading, setNotifyLoading] = useState(false)
+  const [notifySaved, setNotifySaved] = useState(false)
+  const [notifyTestResult, setNotifyTestResult] = useState<NotificationTestResult | null>(null)
+  const [notifyTesting, setNotifyTesting] = useState(false)
+
+  const loadNotifyData = useCallback(async () => {
+    setNotifyLoading(true)
+    try {
+      const [channels, templates] = await Promise.all([
+        adminNotificationApi.getChannels(),
+        adminNotificationApi.getTemplates(),
+      ])
+      setNotifyChannels(channels)
+      setNotifyTemplates(templates)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "通知配置加载失败")
+    } finally {
+      setNotifyLoading(false)
+    }
+  }, [])
+
+  // 首次切换到「消息通知」tab 时加载数据
+  useEffect(() => {
+    if (tab === "notify" && notifyChannels.length === 0 && notifyTemplates.length === 0) {
+      loadNotifyData()
+    }
+  }, [tab, notifyChannels.length, notifyTemplates.length, loadNotifyData])
 
   const fetchConfig = useCallback(async () => {
     setLoading(true)
@@ -129,6 +160,76 @@ export default function AdminSiteConfigPage() {
     }
   }
 
+  // ─── 消息通知（notify tab）操作 ───
+
+  const updateChannel = (type: string, patch: Partial<NotificationChannelItem>) => {
+    setNotifyChannels(prev => prev.map(c => (c.channel_type === type ? { ...c, ...patch } : c)))
+  }
+  const toggleChannelEnabled = (type: string) => {
+    const ch = notifyChannels.find(c => c.channel_type === type)
+    if (ch) updateChannel(type, { enabled: !ch.enabled })
+  }
+  const updateTemplate = (id: string, patch: Partial<NotificationTemplateItem>) => {
+    setNotifyTemplates(prev => prev.map(t => (t.id === id ? { ...t, ...patch } : t)))
+  }
+  const toggleTemplateEnabled = (id: string) => {
+    const t = notifyTemplates.find(x => x.id === id)
+    if (t) updateTemplate(id, { enabled: !t.enabled })
+  }
+  const toggleTemplateChannel = (id: string, chType: string) => {
+    const t = notifyTemplates.find(x => x.id === id)
+    if (!t) return
+    const cur = (t.channels || "").split(",").map(s => s.trim()).filter(Boolean)
+    const next = cur.includes(chType) ? cur.filter(c => c !== chType) : [...cur, chType]
+    updateTemplate(id, { channels: next.join(",") })
+  }
+
+  const handleSaveNotify = async () => {
+    setNotifySaved(true)
+    try {
+      for (const ch of notifyChannels) {
+        await adminNotificationApi.saveChannel(ch.channel_type, {
+          name: ch.name,
+          enabled: ch.enabled,
+          ...(ch.channel_type === "EMAIL"
+            ? { email_to: ch.email_to ?? "" }
+            : { webhook_url: ch.webhook_url ?? "" }),
+        })
+      }
+      for (const t of notifyTemplates) {
+        await adminNotificationApi.updateTemplate(t.id, {
+          enabled: t.enabled,
+          channels: t.channels,
+          title: t.title,
+          content: t.content,
+        })
+      }
+      toast.success("通知配置已保存")
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "保存失败")
+    } finally {
+      setNotifySaved(false)
+    }
+  }
+
+  const handleTestNotify = async (code: string) => {
+    setNotifyTesting(true)
+    setNotifyTestResult(null)
+    try {
+      const result = await adminNotificationApi.testSend(code)
+      setNotifyTestResult(result)
+      if (result.passed) {
+        toast.success("通知测试发送通过")
+      } else {
+        toast.error("部分渠道发送失败，请根据 ❌ 项检查配置")
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "测试发送失败")
+    } finally {
+      setNotifyTesting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col gap-6">
@@ -158,6 +259,7 @@ export default function AdminSiteConfigPage() {
           { key: "contact" as const, label: t("admin.contactTab") },
           { key: "email" as const, label: t("admin.emailSettings") },
           { key: "maintenance" as const, label: t("admin.maintenanceTab") },
+          { key: "notify" as const, label: "消息通知" },
         ]).map((tabItem) => (
           <button
             key={tabItem.key}
@@ -701,6 +803,214 @@ export default function AdminSiteConfigPage() {
               <Save className="h-4 w-4" />
               {saving ? t("admin.saving") : t("admin.saveSettings")}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 消息通知 */}
+      {tab === "notify" && (
+        <div className="flex flex-col gap-6">
+          {/* ① 渠道配置 */}
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Webhook className="h-5 w-5 text-primary" />
+              <h2 className="text-base font-semibold text-foreground">通知渠道配置</h2>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+              配置第三方通知渠道与管理员通知邮箱。渠道启用后，模板中勾选了该渠道才会向外发送；渠道未启用则一律不发送。
+            </p>
+            {notifyLoading ? (
+              <div className="mt-4 flex h-24 items-center justify-center">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="mt-4 flex flex-col gap-4">
+                {notifyChannels.map((ch) => (
+                  <div key={ch.channel_type} className="rounded-lg border border-border p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-foreground">{ch.name}</span>
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{ch.channel_type}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className={cn(
+                          "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                          ch.enabled ? "bg-primary" : "bg-muted"
+                        )}
+                        onClick={() => toggleChannelEnabled(ch.channel_type)}
+                      >
+                        <span className={cn(
+                          "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                          ch.enabled && "translate-x-5"
+                        )} />
+                      </button>
+                    </div>
+                    {ch.channel_type === "EMAIL" ? (
+                      <div className="mt-3 flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">通知接收邮箱（多个用英文逗号分隔）</label>
+                        <input
+                          type="text"
+                          placeholder="admin@example.com,ops@example.com"
+                          className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          value={ch.email_to ?? ""}
+                          onChange={(e) => updateChannel(ch.channel_type, { email_to: e.target.value })}
+                        />
+                        <p className="text-xs text-muted-foreground">邮件将复用「邮箱设置」tab 中的 SMTP 发件配置</p>
+                      </div>
+                    ) : (
+                      <div className="mt-3 flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">机器人 Webhook 地址</label>
+                        <input
+                          type="text"
+                          placeholder={ch.channel_type === "DINGTALK"
+                            ? "https://oapi.dingtalk.com/robot/send?access_token=..."
+                            : "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."}
+                          className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          value={ch.webhook_url ?? ""}
+                          onChange={(e) => updateChannel(ch.channel_type, { webhook_url: e.target.value })}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          {ch.channel_type === "DINGTALK"
+                            ? "钉钉群 → 群机器人 → 自定义（加签/关键字），复制 Webhook 地址"
+                            : "企业微信群 → 群机器人 → 添加机器人，复制 Webhook 地址"}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ② 模板列表 */}
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Bell className="h-5 w-5 text-primary" />
+              <h2 className="text-base font-semibold text-foreground">消息通知模板</h2>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+              勾选「启用」后，对应事件发生时将按勾选的渠道通知管理员；不启用则不通知（系统消息铃铛始终记录，可在总览右上角查看）。
+              「自动触发」模板由系统按周期/条件自动发送，无需业务事件。
+            </p>
+            {notifyLoading ? (
+              <div className="mt-4 flex h-24 items-center justify-center">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="mt-4 flex flex-col gap-3">
+                {notifyTemplates.map((t) => (
+                  <div key={t.id} className={cn("rounded-lg border p-4 transition-colors", t.enabled ? "border-primary/40 bg-primary/5" : "border-border")}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium text-foreground">{t.name}</span>
+                          <span className={cn(
+                            "rounded px-1.5 py-0.5 text-xs font-medium",
+                            t.category === "ORDER" && "bg-emerald-500/10 text-emerald-600",
+                            t.category === "USER" && "bg-blue-500/10 text-blue-600",
+                            t.category === "SYSTEM" && "bg-amber-500/10 text-amber-600",
+                            t.category === "REPORT" && "bg-purple-500/10 text-purple-600",
+                            !["ORDER", "USER", "SYSTEM", "REPORT"].includes(t.category) && "bg-muted text-muted-foreground"
+                          )}>
+                            {t.category === "ORDER" ? "订单" : t.category === "USER" ? "用户" : t.category === "SYSTEM" ? "系统" : t.category === "REPORT" ? "报表" : t.category}
+                          </span>
+                          {t.auto_trigger && (
+                            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-600">自动触发</span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">{t.content}</p>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        <button
+                          type="button"
+                          className={cn(
+                            "relative h-6 w-11 rounded-full transition-colors",
+                            t.enabled ? "bg-primary" : "bg-muted"
+                          )}
+                          onClick={() => toggleTemplateEnabled(t.id)}
+                          title={t.enabled ? "已启用，点击关闭" : "已停用，点击启用"}
+                        >
+                          <span className={cn(
+                            "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                            t.enabled && "translate-x-5"
+                          )} />
+                        </button>
+                        <button
+                          type="button"
+                          className="flex h-7 items-center gap-1 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                          onClick={() => handleTestNotify(t.code)}
+                          disabled={notifyTesting}
+                        >
+                          {notifyTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                          测试发送
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border pt-3">
+                      <span className="text-xs text-muted-foreground">发送渠道：</span>
+                      {notifyChannels.map((ch) => {
+                        const checked = (t.channels || "").split(",").map(s => s.trim()).filter(Boolean).includes(ch.channel_type)
+                        return (
+                          <label key={ch.channel_type} className="flex cursor-pointer items-center gap-1.5 text-xs text-foreground">
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 rounded border-input accent-primary"
+                              checked={checked}
+                              onChange={() => toggleTemplateChannel(t.id, ch.channel_type)}
+                            />
+                            {ch.name}
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ③ 测试结果 */}
+          {notifyTestResult && (
+            <div className={cn("rounded-xl border bg-card p-6 shadow-sm", notifyTestResult.passed ? "border-emerald-500/40" : "border-red-500/40")}>
+              <div className="flex items-center gap-2">
+                {notifyTestResult.passed
+                  ? <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                  : <XCircle className="h-5 w-5 text-red-500" />}
+                <h2 className="text-base font-semibold text-foreground">
+                  测试结果：{notifyTestResult.template_name}
+                  {notifyTestResult.passed ? "（通过）" : "（未通过）"}
+                </h2>
+              </div>
+              <p className={cn("mt-1 text-xs", notifyTestResult.passed ? "text-emerald-600" : "text-red-500")}>
+                {notifyTestResult.message}
+              </p>
+              <div className="mt-4 flex flex-col gap-2">
+                {notifyTestResult.items.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
+                    {item.status
+                      ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                      : <XCircle className="h-4 w-4 shrink-0 text-red-500" />}
+                    <span className="text-sm font-medium text-foreground">{item.name}</span>
+                    <span className={cn("text-xs", item.status ? "text-emerald-600" : "text-red-500")}>{item.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ④ 保存 */}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="flex w-fit items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+              onClick={handleSaveNotify}
+              disabled={notifySaved}
+            >
+              <Save className="h-4 w-4" />
+              {notifySaved ? "保存中..." : "保存通知配置"}
+            </button>
+            {notifySaved && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
           </div>
         </div>
       )}

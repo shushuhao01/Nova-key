@@ -9,6 +9,7 @@ import com.orionkey.entity.UnmatchedTransaction;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.UnmatchedTransactionRepository;
+import com.orionkey.service.NotificationService;
 import com.orionkey.service.TxidVerifyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +35,7 @@ public class TxidVerifyServiceImpl implements TxidVerifyService {
     private final UnmatchedTransactionRepository unmatchedTransactionRepository;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final NotificationService notificationService;
 
     /**
      * TRC20 USDT 合约地址
@@ -151,6 +153,16 @@ public class TxidVerifyServiceImpl implements TxidVerifyService {
             }
             saveUnmatched(order, txid, chain, VerifyResult.AUTO_APPROVED,
                     "AUTO_APPROVED", tx.from, tx.to, tx.amount);
+            // 管理员通知：订单支付成功（USDT 自动通过）
+            try {
+                BigDecimal amount = order.getActualAmount() != null ? order.getActualAmount() : order.getTotalAmount();
+                notificationService.sendTemplate("ORDER_PAID", Map.of(
+                        "order_no", order.getId().toString().substring(0, 8),
+                        "amount", amount != null ? amount.toPlainString() : "0",
+                        "payment_method", "USDT 链上转账"));
+            } catch (Exception e) {
+                log.warn("Order paid notification failed: {}", e.getMessage());
+            }
             return new VerifyDetail(VerifyResult.AUTO_APPROVED,
                     "AUTO_APPROVED", tx.from, tx.to, tx.amount, true);
         }
@@ -464,6 +476,17 @@ public class TxidVerifyServiceImpl implements TxidVerifyService {
         ut.setVerifyReason(reason);
         ut.setSubmittedAt(LocalDateTime.now());
         unmatchedTransactionRepository.save(ut);
+
+        // 管理员通知：USDT 交易进入人工审核
+        if (result == VerifyResult.PENDING_REVIEW) {
+            try {
+                notificationService.sendTemplate("TXID_REVIEW", Map.of(
+                        "order_no", order.getId().toString().substring(0, 8),
+                        "txid", txid == null ? "-" : txid));
+            } catch (Exception e) {
+                log.warn("TXID review notification failed: {}", e.getMessage());
+            }
+        }
     }
 
     // ── Tron 地址格式转换工具 ──

@@ -264,6 +264,55 @@ export interface PaymentChannelItem {
   created_at: string
 }
 
+// ============================================================
+// Admin Notifications
+// ============================================================
+
+/** 消息通知模板（预设，后台勾选启用与渠道） */
+export interface NotificationTemplateItem {
+  id: string
+  code: string
+  name: string
+  category: string
+  title: string
+  content: string
+  /** 勾选的发送渠道，逗号分隔：DINGTALK,WECOM,EMAIL */
+  channels: string
+  enabled: boolean
+  auto_trigger: boolean
+  sort_order: number
+}
+
+/** 消息通知渠道配置（钉钉/企业微信机器人/通知邮箱） */
+export interface NotificationChannelItem {
+  id: string
+  channel_type: string
+  name: string
+  enabled: boolean
+  sort_order: number
+  webhook_url?: string
+  email_to?: string
+}
+
+/** 系统消息（后台铃铛列表项） */
+export interface SystemMessageItem {
+  id: string
+  title: string
+  content: string
+  message_type: string
+  read: boolean
+  created_at: string
+}
+
+/** 通知测试发送结果（逐渠道 ✅/❌，与支付渠道测试连接一致） */
+export interface NotificationTestResult {
+  template_code: string
+  template_name: string
+  passed: boolean
+  items: { name: string; status: boolean; message: string }[]
+  message: string
+}
+
 /** 测试连接的单项检测结果（如 AppID、商户号、连接测试等） */
 export interface PaymentTestItem {
   name: string

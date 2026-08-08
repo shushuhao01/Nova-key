@@ -220,7 +220,7 @@ public class AlipayServiceImpl implements AlipayService {
         //    判断填入的是否真的是「支付宝公钥」（而非「应用公钥」）。
         //    该项不影响连接测试结果，但影响支付回调验签是否成功（回调验签失败将无法发货）。
         boolean respVerifyOk = false;
-        String respVerifyMsg;
+        String respVerifyMsg = "";
         if (!connOk) {
             respVerifyMsg = "未执行（连接测试未通过）";
         } else if (respSign == null || respSign.isBlank()) {

@@ -197,6 +197,59 @@ public class EmailServiceImpl implements EmailService {
         }
     }
 
+    // ═══════════ 管理员通知邮件（消息通知渠道） ═══════════
+
+    @Override
+    public void sendNoticeEmail(String to, String subject, String content) {
+        if (to == null || to.isBlank()) {
+            throw new IllegalArgumentException("通知收件邮箱为空");
+        }
+        JavaMailSender sender = buildMailSender();
+        MimeMessage message = sender.createMimeMessage();
+        try {
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            applyFrom(helper);
+            helper.setTo(to.split("\\s*,\\s*"));
+            helper.setSubject(subject);
+            helper.setText(buildNoticeHtml(subject, content), true);
+            sender.send(message);
+            log.info("Notice email sent to {}", to);
+        } catch (Exception e) {
+            log.error("Failed to send notice email to {}: {}", to, e.getMessage());
+            throw new RuntimeException("通知邮件发送失败：" + e.getMessage(), e);
+        }
+    }
+
+    /** 通知邮件 HTML：复用与发货邮件一致的品牌样式 */
+    private String buildNoticeHtml(String subject, String content) {
+        String name = siteName();
+        StringBuilder sb = new StringBuilder();
+        sb.append("<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"UTF-8\">");
+        sb.append("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\">");
+        sb.append("</head><body style=\"margin:0;padding:0;background-color:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;\">");
+        sb.append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f4f4f7;padding:24px 0;\">");
+        sb.append("<tr><td align=\"center\">");
+        sb.append("<table role=\"presentation\" width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:600px;width:100%;background-color:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);\">");
+        sb.append("<tr><td style=\"background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:24px 40px;text-align:center;\">");
+        sb.append("<h1 style=\"margin:0;color:#ffffff;font-size:20px;font-weight:600;\">").append(escapeHtml(name)).append("</h1>");
+        sb.append("</td></tr>");
+        sb.append("<tr><td style=\"padding:24px 40px;\">");
+        sb.append("<h2 style=\"margin:0 0 12px;color:#333333;font-size:18px;\">").append(escapeHtml(subject)).append("</h2>");
+        // 内容按行转换为 <p>，保留换行
+        String[] lines = content == null ? new String[0] : content.split("\\r?\\n");
+        for (String line : lines) {
+            if (line.isBlank()) continue;
+            sb.append("<p style=\"margin:0 0 8px;color:#555555;font-size:14px;line-height:1.7;\">")
+              .append(escapeHtml(line)).append("</p>");
+        }
+        sb.append("</td></tr>");
+        sb.append("<tr><td style=\"background-color:#f8f9fa;padding:20px 40px;text-align:center;border-top:1px solid #eee;\">");
+        sb.append("<p style=\"margin:0;color:#999;font-size:12px;\">此邮件由系统自动发送，请勿直接回复</p>");
+        sb.append("</td></tr>");
+        sb.append("</table></td></tr></table></body></html>");
+        return sb.toString();
+    }
+
     // ═══════════ HTML 模板 ═══════════
 
     private String buildHtml(Order order, Map<UUID, OrderItem> itemMap,

@@ -13,6 +13,7 @@ import com.orionkey.model.response.UserProfileResponse;
 import com.orionkey.repository.CartItemRepository;
 import com.orionkey.repository.UserRepository;
 import com.orionkey.service.AuthService;
+import com.orionkey.service.NotificationService;
 import com.orionkey.utils.CaptchaUtils;
 import com.orionkey.utils.JwtUtils;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -35,6 +37,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtils jwtUtils;
     private final CaptchaUtils captchaUtils;
+    private final NotificationService notificationService;
 
     @Override
     public CaptchaResponse generateCaptcha() {
@@ -63,6 +66,15 @@ public class AuthServiceImpl implements AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setRole(UserRole.USER);
         userRepository.save(user);
+
+        // 管理员通知：新用户注册
+        try {
+            notificationService.sendTemplate("REGISTER", Map.of(
+                    "username", user.getUsername(),
+                    "email", user.getEmail()));
+        } catch (Exception e) {
+            log.warn("Register notification failed: {}", e.getMessage());
+        }
 
         String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name());
         return new AuthResponse(token, UserProfileResponse.from(user));

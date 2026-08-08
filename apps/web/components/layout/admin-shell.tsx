@@ -2,9 +2,10 @@
 
 import React from "react"
 import { AdminSidebar } from "@/components/layout/admin-sidebar"
+import { AdminNotificationBell } from "@/components/layout/admin-notification-bell"
 import { useRequireAdmin } from "@/lib/hooks"
 
-/** 管理后台的客户端外壳：登录校验 + 侧边栏 + 内容区 */
+/** 管理后台的客户端外壳：登录校验 + 侧边栏 + 内容区 + 右上角消息铃铛 */
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const user = useRequireAdmin()
 
@@ -16,6 +17,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       <main className="md:ml-60 min-h-screen">
         <div className="p-6 lg:p-8">{children}</div>
       </main>
+      <AdminNotificationBell />
     </div>
   )
 }

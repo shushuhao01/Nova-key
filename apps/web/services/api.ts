@@ -28,6 +28,10 @@ import type {
   AdminOrderItem,
   PaymentChannelItem,
   PaymentTestResult,
+  NotificationTemplateItem,
+  NotificationChannelItem,
+  SystemMessageItem,
+  NotificationTestResult,
   OperationLog,
   RiskConfig,
   WholesaleRule,
@@ -567,6 +571,39 @@ export const adminPaymentApi = {
   // 获取渠道完整配置（含私钥/公钥明文），仅管理员，用于后台"查看原值"
   getRawConfig: (id: string) =>
     request<Record<string, string | undefined>>(`/admin/payment-channels/${id}/raw-config`),
+}
+
+// ============================================================
+// Admin Notifications
+// ============================================================
+
+export const adminNotificationApi = {
+  // 模板
+  getTemplates: () =>
+    request<NotificationTemplateItem[]>("/admin/notifications/templates"),
+  updateTemplate: (id: string, data: { enabled?: boolean; channels?: string; title?: string; content?: string }) =>
+    request<null>(`/admin/notifications/templates/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  // 渠道
+  getChannels: () =>
+    request<NotificationChannelItem[]>("/admin/notifications/channels"),
+  saveChannel: (channelType: string, data: { name?: string; enabled?: boolean; webhook_url?: string; email_to?: string }) =>
+    request<null>(`/admin/notifications/channels/${channelType}`, { method: "PUT", body: JSON.stringify(data) }),
+  // 测试发送
+  testSend: (templateCode: string) =>
+    request<NotificationTestResult>("/admin/notifications/test", { method: "POST", body: JSON.stringify({ template_code: templateCode }) }),
+  // 系统消息（铃铛）
+  getMessages: (params: { page?: number; page_size?: number; unread?: boolean }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<SystemMessageItem>>(`/admin/notifications/messages?${qs}`)
+  },
+  getUnreadCount: () =>
+    request<{ count: number }>("/admin/notifications/messages/unread-count"),
+  markRead: (id: string) =>
+    request<null>(`/admin/notifications/messages/${id}/read`, { method: "POST" }),
+  markAllRead: () =>
+    request<{ updated: number }>("/admin/notifications/messages/read-all", { method: "POST" }),
+  clearMessages: () =>
+    request<null>("/admin/notifications/messages/clear", { method: "POST" }),
 }
 
 // ============================================================

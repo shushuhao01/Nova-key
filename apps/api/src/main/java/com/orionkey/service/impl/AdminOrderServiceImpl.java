@@ -12,15 +12,19 @@ import com.orionkey.repository.OrderItemRepository;
 import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.UserRepository;
 import com.orionkey.service.AdminOrderService;
+import com.orionkey.service.NotificationService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AdminOrderServiceImpl implements AdminOrderService {
@@ -28,6 +32,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Override
     public PageResult<?> listOrders(String status, String orderType, String paymentMethod,
@@ -70,6 +75,27 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         order.setStatus(OrderStatus.PAID);
         order.setPaidAt(LocalDateTime.now());
         orderRepository.save(order);
+        // 管理员通知：订单支付成功
+        try {
+            BigDecimal amount = order.getActualAmount() != null ? order.getActualAmount() : order.getTotalAmount();
+            notificationService.sendTemplate("ORDER_PAID", Map.of(
+                    "order_no", order.getId().toString().substring(0, 8),
+                    "amount", amount != null ? amount.toPlainString() : "0",
+                    "payment_method", paymentMethodLabel(order.getPaymentMethod())));
+        } catch (Exception e) {
+            log.warn("Order paid notification failed: {}", e.getMessage());
+        }
+    }
+
+    private static String paymentMethodLabel(String method) {
+        if (method == null || method.isBlank()) return "";
+        return switch (method) {
+            case "native_wxpay" -> "微信支付";
+            case "native_alipay" -> "支付宝";
+            case "epay" -> "易支付";
+            case "balance" -> "余额支付";
+            default -> method.startsWith("usdt_") ? "USDT 链上转账" : method;
+        };
     }
 
     private Map<String, Object> toAdminOrder(Order o) {

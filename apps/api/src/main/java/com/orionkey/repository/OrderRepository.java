@@ -58,6 +58,13 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     @Query("SELECT COUNT(o) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED) AND o.paidAt >= :since")
     long countPaidOrdersSince(@Param("since") LocalDateTime since);
 
+    // 报表通知：区间统计（paidAt ∈ [from, to)）
+    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED) AND o.paidAt >= :from AND o.paidAt < :to")
+    BigDecimal sumSalesBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    @Query("SELECT COUNT(o) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED) AND o.paidAt >= :from AND o.paidAt < :to")
+    long countPaidOrdersBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
     @Query("SELECT COUNT(o) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED)")
     long countTotalPaidOrders();
 
