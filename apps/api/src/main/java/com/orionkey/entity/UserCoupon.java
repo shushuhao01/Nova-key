@@ -41,7 +41,7 @@ public class UserCoupon extends BaseEntity {
     private String type;
 
     /** 立减金额 或 折扣比例值 */
-    @Column(precision = 10, scale = 2)
+    @Column(name = "coupon_value", precision = 10, scale = 2)
     private BigDecimal value;
 
     /** 状态：CLAIMED 已领取未使用 / USED 已使用 / EXPIRED 已过期 */

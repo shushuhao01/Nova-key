@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import {
   Megaphone, Plus, Search, Pencil, Trash2, Send, Eye, EyeOff, ChevronLeft, ChevronRight,
   Tag, Copy, X, Ticket, Mail, Ban, CircleAlert, Bold, Italic, Underline, Heading1, Link as LinkIcon,
-  Image as ImageIcon, Code2, Users, CheckCircle2, XCircle, Save, List,
+  Image as ImageIcon, Code2, Users, CheckCircle2, XCircle, Save, List, Share2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
@@ -279,6 +279,33 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
     toast.success(t("admin.linkCopied"))
   }
 
+  // 一键复制分享内容（领取地址 + 核销码），方便员工直接发给客户
+  const shareCoupon = (c: MarketingCouponItem) => {
+    const origin = window.location.origin
+    const code = c.coupon_code
+    const claimUrl = code ? `${origin}/coupons/claim?code=${encodeURIComponent(code)}` : ""
+    const discount = c.coupon_type === "AMOUNT" ? `立减 ¥${c.coupon_value}` : `减免 ${c.coupon_value}%`
+    const period = c.coupon_valid_from && c.coupon_valid_to
+      ? `${new Date(c.coupon_valid_from).toLocaleDateString()} ~ ${new Date(c.coupon_valid_to).toLocaleDateString()}`
+      : "长期有效"
+    const lines = [
+      `【优惠券】${c.title}`,
+      `优惠：${discount}` + (c.coupon_min_amount && Number(c.coupon_min_amount) > 0 ? `（满 ¥${c.coupon_min_amount} 可用）` : ""),
+      `有效期：${period}`,
+    ]
+    if (claimUrl) {
+      lines.push(`领取地址：${claimUrl}`)
+    }
+    if (code) {
+      lines.push(`核销码：${code}（登录领取后下单时输入即可抵扣）`)
+    } else {
+      lines.push("本券为客户自动分配专属核销码，登录领取后可在个人中心查看（下单时输入即可抵扣）")
+    }
+    navigator.clipboard?.writeText(lines.join("\n"))
+      .then(() => toast.success(t("admin.shareCopied")))
+      .catch(() => toast.error(t("common.error")))
+  }
+
   const statusBadge = (c: MarketingCouponItem) => (
     <span className={cn(
       "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
@@ -383,6 +410,11 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
                         {c.coupon_code && (
                           <button type="button" onClick={() => copyClaimLink(c)} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title={t("admin.copyClaimLink")}>
                             <Copy className="h-4 w-4" />
+                          </button>
+                        )}
+                        {c.is_canceled !== 1 && (
+                          <button type="button" onClick={() => shareCoupon(c)} className="flex h-8 w-8 items-center justify-center rounded-md text-primary/80 hover:bg-primary/10 hover:text-primary" title={t("admin.shareCoupon")}>
+                            <Share2 className="h-4 w-4" />
                           </button>
                         )}
                         {c.is_canceled !== 1 && (

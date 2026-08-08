@@ -734,6 +734,8 @@ const zh = {
   "admin.editorList": "无序列表",
   "admin.linkPrompt": "请输入链接地址",
   "admin.uploadError": "图片上传失败",
+  "admin.shareCoupon": "分享优惠券",
+  "admin.shareCopied": "分享内容已复制",
 
   // Admin Customers
   "admin.customersDesc": "管理注册客户与匿名客户（未注册仅留邮箱的购买者）",
@@ -1615,6 +1617,8 @@ const en: Record<keyof typeof zh, string> = {
   "admin.editorList": "Bullet List",
   "admin.linkPrompt": "Enter link URL",
   "admin.uploadError": "Image upload failed",
+  "admin.shareCoupon": "Share Coupon",
+  "admin.shareCopied": "Share content copied",
 
   // Admin Customers
   "admin.customersDesc": "Manage registered customers & anonymous customers (buyers with email only)",
