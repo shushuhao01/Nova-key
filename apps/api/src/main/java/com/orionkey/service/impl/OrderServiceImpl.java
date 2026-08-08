@@ -118,7 +118,7 @@ public class OrderServiceImpl implements OrderService {
         // 优惠券抵扣（选填）：校验核销码 → 计算抵扣 → 绑定订单并重算应付金额
         String couponCode = (String) req.get("coupon_code");
         if (couponCode != null && !couponCode.isBlank()) {
-            BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, userId, email, totalAmount, order.getId());
+            BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, userId, email, totalAmount, order.getId(), List.of(productId));
             order.setCouponCode(couponCode.trim().toUpperCase());
             order.setCouponDiscount(couponDiscount);
             order.setActualAmount(totalAmount.subtract(couponDiscount).max(BigDecimal.ZERO));
@@ -265,7 +265,8 @@ public class OrderServiceImpl implements OrderService {
         // 优惠券抵扣（选填）：校验核销码 → 计算抵扣 → 绑定订单并重算应付金额
         String couponCode = (String) req.get("coupon_code");
         if (couponCode != null && !couponCode.isBlank()) {
-            BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, userId, email, totalAmount, order.getId());
+            BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, userId, email, totalAmount, order.getId(),
+                    cartItems.stream().map(CartItem::getProductId).toList());
             order.setCouponCode(couponCode.trim().toUpperCase());
             order.setCouponDiscount(couponDiscount);
             order.setActualAmount(totalAmount.subtract(couponDiscount).max(BigDecimal.ZERO));

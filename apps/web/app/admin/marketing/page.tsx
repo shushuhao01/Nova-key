@@ -9,14 +9,16 @@ import {
 import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
 import { toast } from "sonner"
-import { adminMarketingApi, withMockFallback } from "@/services/api"
-import { mockCampaignList } from "@/lib/mock-data"
-import type { MarketingCampaignItem, CampaignPayload } from "@/types"
+import { adminMarketingApi, adminProductApi, withMockFallback } from "@/services/api"
+import { mockCampaignList, mockProducts } from "@/lib/mock-data"
+import type { MarketingCampaignItem, CampaignPayload, CouponScope } from "@/types"
 
 const ITEMS_PER_PAGE = 10
 
 type AudienceType = "ALL_USERS" | "USER_IDS" | "EMAILS"
 type CouponKind = "AMOUNT" | "PERCENT"
+
+interface ProductOption { id: string; title: string }
 
 interface FormState {
   id: string | null
@@ -33,6 +35,8 @@ interface FormState {
   coupon_quantity: string
   valid_from: string
   valid_to: string
+  coupon_scope: CouponScope
+  coupon_product_ids: string
 }
 
 const emptyForm = (): FormState => ({
@@ -50,6 +54,8 @@ const emptyForm = (): FormState => ({
   coupon_quantity: "0",
   valid_from: "",
   valid_to: "",
+  coupon_scope: "ALL",
+  coupon_product_ids: "",
 })
 
 function toDateTimeLocal(iso: string | null | undefined): string {
@@ -75,6 +81,22 @@ export default function AdminMarketingPage() {
   const [sending, setSending] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm())
+  const [products, setProducts] = useState<ProductOption[]>([])
+
+  // 加载商品列表（优惠券「指定商品可用」时选择）
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await withMockFallback<{ list: ProductOption[]; pagination: { page: number; page_size: number; total: number } }>(
+          () => adminProductApi.getList({ page: 1, page_size: 100 }),
+          () => ({ list: mockProducts.map(p => ({ id: p.id, title: p.title })), pagination: { page: 1, page_size: 100, total: mockProducts.length } })
+        )
+        setProducts(data.list)
+      } catch {
+        setProducts([])
+      }
+    })()
+  }, [])
 
   // 支持从客户管理「营销」按钮跳转预填受众（?audience=EMAILS&targets=a@b.com,c@d.com）
   useEffect(() => {
@@ -131,6 +153,13 @@ export default function AdminMarketingPage() {
         targets = arr.join("\n")
       } catch { targets = c.target_json }
     }
+    let couponProductIds = ""
+    if (c.coupon_product_ids) {
+      try {
+        const arr = JSON.parse(c.coupon_product_ids) as string[]
+        couponProductIds = arr.join("\n")
+      } catch { couponProductIds = c.coupon_product_ids }
+    }
     setForm({
       id: c.id,
       title: c.title,
@@ -146,6 +175,8 @@ export default function AdminMarketingPage() {
       coupon_quantity: String(c.coupon_quantity ?? 0),
       valid_from: toDateTimeLocal(c.coupon_valid_from),
       valid_to: toDateTimeLocal(c.coupon_valid_to),
+      coupon_scope: c.coupon_scope === "SPECIFIC" ? "SPECIFIC" : "ALL",
+      coupon_product_ids: couponProductIds,
     })
     setPreview(false)
     setFormOpen(true)
@@ -171,6 +202,11 @@ export default function AdminMarketingPage() {
         payload.coupon_quantity = parseInt(form.coupon_quantity) || 0
         payload.coupon_valid_from = form.valid_from ? `${form.valid_from}:00` : null
         payload.coupon_valid_to = form.valid_to ? `${form.valid_to}:00` : null
+        payload.coupon_scope = form.coupon_scope
+        const productIds = form.coupon_product_ids.split(/[\n,，;；]/).map(s => s.trim()).filter(Boolean)
+        payload.coupon_product_ids = form.coupon_scope === "SPECIFIC" && productIds.length > 0
+          ? JSON.stringify(productIds)
+          : null
       }
     }
     return payload
@@ -187,6 +223,11 @@ export default function AdminMarketingPage() {
     }
     if (form.has_coupon && (!form.coupon_value || Number.isNaN(parseFloat(form.coupon_value)) || parseFloat(form.coupon_value) <= 0)) {
       toast.error(t("admin.couponValue"))
+      return
+    }
+    if (form.has_coupon && form.coupon_scope === "SPECIFIC"
+        && form.coupon_product_ids.split(/[\n,，;；]/).map(s => s.trim()).filter(Boolean).length === 0) {
+      toast.error(t("admin.couponScopeSpecificHint"))
       return
     }
     setSaving(true)
@@ -361,6 +402,11 @@ export default function AdminMarketingPage() {
                         </span>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                      {c.coupon_type && c.coupon_scope === "SPECIFIC" && (
+                        <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600">
+                          {t("admin.couponScopeSpecific")}
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-3">{statusBadge(c)}</td>
@@ -660,6 +706,74 @@ export default function AdminMarketingPage() {
                         className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     </div>
+
+                    {/* 适用范围：全部商品通用 / 指定商品可用 */}
+                    <div className="sm:col-span-2">
+                      <label className="mb-1.5 block text-sm font-medium text-foreground">{t("admin.couponScope")}</label>
+                      <div className="flex flex-wrap gap-2">
+                        {([
+                          { v: "ALL" as CouponScope, label: t("admin.couponScopeAll") },
+                          { v: "SPECIFIC" as CouponScope, label: t("admin.couponScopeSpecific") },
+                        ]).map(opt => (
+                          <button
+                            key={opt.v}
+                            type="button"
+                            onClick={() => setForm(f => ({ ...f, coupon_scope: opt.v, coupon_product_ids: "" }))}
+                            className={cn(
+                              "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                              form.coupon_scope === opt.v
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border text-foreground hover:border-primary/30"
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {form.coupon_scope === "SPECIFIC" && (
+                      <div className="sm:col-span-2">
+                        <label className="mb-1.5 block text-sm font-medium text-foreground">{t("admin.couponSelectProducts")}</label>
+                        <div className="max-h-40 overflow-y-auto rounded-lg border border-border bg-muted/20 p-3">
+                          {products.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">{t("admin.couponNoProducts")}</p>
+                          ) : (
+                            <div className="grid gap-1.5 sm:grid-cols-2">
+                              {products.map(p => {
+                                const ids = form.coupon_product_ids.split(/[\n,，;；]/).map(s => s.trim()).filter(Boolean)
+                                const checked = ids.includes(p.id)
+                                return (
+                                  <label
+                                    key={p.id}
+                                    className="flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm transition-colors hover:bg-accent"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={(e) => {
+                                        const cur = new Set(ids)
+                                        if (e.target.checked) cur.add(p.id)
+                                        else cur.delete(p.id)
+                                        setForm(f => ({ ...f, coupon_product_ids: Array.from(cur).join("\n") }))
+                                      }}
+                                      className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                                    />
+                                    <span className="truncate text-foreground">{p.title}</span>
+                                  </label>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        <textarea
+                          value={form.coupon_product_ids}
+                          onChange={(e) => setForm(f => ({ ...f, coupon_product_ids: e.target.value }))}
+                          placeholder={t("admin.couponProductIdsHint")}
+                          className="mt-2 h-20 w-full rounded-lg border border-input bg-background p-3 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

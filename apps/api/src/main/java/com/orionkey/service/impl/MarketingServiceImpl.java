@@ -156,6 +156,18 @@ public class MarketingServiceImpl implements MarketingService {
         } else {
             c.setCouponValidTo(null);
         }
+        if (body.containsKey("coupon_scope")) {
+            String scope = body.get("coupon_scope") == null ? null : String.valueOf(body.get("coupon_scope"));
+            c.setCouponScope("SPECIFIC".equals(scope) ? "SPECIFIC" : "ALL");
+        }
+        if (body.containsKey("coupon_product_ids")) {
+            String raw = body.get("coupon_product_ids") == null ? null : String.valueOf(body.get("coupon_product_ids"));
+            if ("SPECIFIC".equals(c.getCouponScope()) && raw != null && !raw.isBlank()) {
+                c.setCouponProductIds(raw);
+            } else {
+                c.setCouponProductIds(null);
+            }
+        }
     }
 
     @Override
@@ -313,6 +325,9 @@ public class MarketingServiceImpl implements MarketingService {
         uc.setClaimedAt(now);
         uc.setValidFrom(campaign.getCouponValidFrom());
         uc.setValidTo(campaign.getCouponValidTo());
+        // 快照适用范围，防止活动后续修改影响已领取的券
+        uc.setScope(campaign.getCouponScope() == null ? "ALL" : campaign.getCouponScope());
+        uc.setProductIds(campaign.getCouponProductIds());
         couponRepository.save(uc);
 
         return Map.of(
@@ -325,17 +340,12 @@ public class MarketingServiceImpl implements MarketingService {
 
     @Override
     @Transactional(readOnly = true)
-    public Map<String, Object> validateCoupon(String code, UUID userId, String email, BigDecimal amount) {
-        UserCoupon uc = findUsableCoupon(code, userId, email);
-        if (uc == null) {
-            return Map.of("valid", false, "message", "优惠券无效或未领取");
+    public Map<String, Object> validateCoupon(String code, UUID userId, String email, BigDecimal amount, List<UUID> productIds) {
+        CouponCheck check = checkCoupon(code, userId, email, amount, productIds);
+        if (!check.usable()) {
+            return Map.of("valid", false, "message", check.message());
         }
-        MarketingCampaign campaign = campaignRepository.findById(uc.getCampaignId()).orElse(null);
-        if (campaign != null && campaign.getCouponMinAmount() != null
-                && campaign.getCouponMinAmount().compareTo(BigDecimal.ZERO) > 0
-                && amount != null && amount.compareTo(campaign.getCouponMinAmount()) < 0) {
-            return Map.of("valid", false, "message", "订单金额未达到满减门槛 " + campaign.getCouponMinAmount().toPlainString());
-        }
+        UserCoupon uc = check.coupon();
         BigDecimal discount = computeDiscount(uc, amount == null ? BigDecimal.ZERO : amount);
         return Map.of("valid", true, "discount", discount, "coupon_type", uc.getType(),
                 "coupon_value", uc.getValue() == null ? BigDecimal.ZERO : uc.getValue(),
@@ -344,34 +354,45 @@ public class MarketingServiceImpl implements MarketingService {
 
     @Override
     @Transactional
-    public BigDecimal applyCoupon(String code, UUID userId, String email, BigDecimal totalAmount, UUID orderId) {
+    public BigDecimal applyCoupon(String code, UUID userId, String email, BigDecimal totalAmount, UUID orderId, List<UUID> productIds) {
         if (code == null || code.isBlank()) {
             return BigDecimal.ZERO;
         }
-        String c = code.trim().toUpperCase();
-        UserCoupon uc = findUsableCoupon(c, userId, email);
-        if (uc == null) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "优惠券无效或未领取，请先领取后再使用");
+        CouponCheck check = checkCoupon(code.trim(), userId, email, totalAmount, productIds);
+        if (!check.usable()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, check.message());
         }
-        MarketingCampaign campaign = campaignRepository.findById(uc.getCampaignId()).orElse(null);
-        if (campaign != null && campaign.getCouponMinAmount() != null
-                && campaign.getCouponMinAmount().compareTo(BigDecimal.ZERO) > 0
-                && totalAmount.compareTo(campaign.getCouponMinAmount()) < 0) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST,
-                    "订单金额未达到满减门槛 " + campaign.getCouponMinAmount().toPlainString());
-        }
-        BigDecimal discount = computeDiscount(uc, totalAmount);
-        int updated = couponRepository.markUsed(uc.getId(), LocalDateTime.now(), orderId);
+        BigDecimal discount = computeDiscount(check.coupon(), totalAmount);
+        int updated = couponRepository.markUsed(check.coupon().getId(), LocalDateTime.now(), orderId);
         if (updated <= 0) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "优惠券已被使用");
         }
         return discount;
     }
 
-    /** 查找当前用户/邮箱名下未使用的优惠券 */
-    private UserCoupon findUsableCoupon(String code, UUID userId, String email) {
-        if (code == null || code.isBlank()) return null;
+    /** 校验结果：usable=true 表示可用；message 用于向前台返回具体原因 */
+    private record CouponCheck(boolean usable, String message, UserCoupon coupon) {
+        static CouponCheck fail(String message) {
+            return new CouponCheck(false, message, null);
+        }
+        static CouponCheck ok(UserCoupon coupon) {
+            return new CouponCheck(true, null, coupon);
+        }
+    }
+
+    /**
+     * 校验优惠券并返回详细原因：
+     * 不存在/未领取/已使用/未生效/已过期/未达满减门槛/不适用当前商品。
+     */
+    private CouponCheck checkCoupon(String code, UUID userId, String email, BigDecimal amount, List<UUID> productIds) {
+        if (code == null || code.isBlank()) {
+            return CouponCheck.fail("请输入优惠券核销码");
+        }
         String c = code.trim().toUpperCase();
+        MarketingCampaign campaign = findByCouponCode(c);
+        if (campaign == null || campaign.getCouponType() == null) {
+            return CouponCheck.fail("优惠券不存在或已下架");
+        }
         UserCoupon uc = null;
         if (userId != null) {
             uc = couponRepository.findFirstByCodeAndUserIdAndStatusOrderByCreatedAtDesc(c, userId, "CLAIMED").orElse(null);
@@ -379,11 +400,44 @@ public class MarketingServiceImpl implements MarketingService {
         if (uc == null && email != null && !email.isBlank()) {
             uc = couponRepository.findFirstByCodeAndEmailAndStatusOrderByCreatedAtDesc(c, email.trim().toLowerCase(), "CLAIMED").orElse(null);
         }
-        if (uc == null) return null;
+        if (uc == null) {
+            boolean used = (userId != null && couponRepository.existsByCodeAndUserIdAndStatus(c, userId, "USED"))
+                    || (email != null && !email.isBlank()
+                        && couponRepository.existsByCodeAndEmailAndStatus(c, email.trim().toLowerCase(), "USED"));
+            return used ? CouponCheck.fail("优惠券已使用") : CouponCheck.fail("您尚未领取该优惠券，请先领取后再使用");
+        }
         LocalDateTime now = LocalDateTime.now();
-        if (uc.getValidFrom() != null && now.isBefore(uc.getValidFrom())) return null;
-        if (uc.getValidTo() != null && now.isAfter(uc.getValidTo())) return null;
-        return uc;
+        if (uc.getValidFrom() != null && now.isBefore(uc.getValidFrom())) {
+            return CouponCheck.fail("优惠券还未到生效时间");
+        }
+        if (uc.getValidTo() != null && now.isAfter(uc.getValidTo())) {
+            return CouponCheck.fail("优惠券已过期");
+        }
+        if (campaign.getCouponMinAmount() != null && campaign.getCouponMinAmount().compareTo(BigDecimal.ZERO) > 0
+                && amount != null && amount.compareTo(campaign.getCouponMinAmount()) < 0) {
+            return CouponCheck.fail("订单金额未达到满减门槛 "
+                    + campaign.getCouponMinAmount().stripTrailingZeros().toPlainString() + " 元");
+        }
+        // 适用范围：仅指定商品可用时，订单中必须包含可用商品
+        if ("SPECIFIC".equals(uc.getScope())) {
+            List<UUID> allowed = parseUuidList(uc.getProductIds());
+            if (allowed.isEmpty() || productIds == null || productIds.isEmpty()
+                    || productIds.stream().noneMatch(allowed::contains)) {
+                return CouponCheck.fail("该优惠券仅限指定商品使用，当前商品不适用");
+            }
+        }
+        return CouponCheck.ok(uc);
+    }
+
+    /** 解析 JSON 字符串形式的 UUID 列表 */
+    private List<UUID> parseUuidList(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<UUID>>() {}).stream()
+                    .filter(Objects::nonNull).toList();
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 
     /** 计算抵扣金额：AMOUNT 立减（不超过订单金额）；PERCENT 按减免百分比 */
@@ -426,6 +480,8 @@ public class MarketingServiceImpl implements MarketingService {
         map.put("coupon_claimed", couponRepository.countByCampaignId(c.getId()));
         map.put("coupon_valid_from", c.getCouponValidFrom());
         map.put("coupon_valid_to", c.getCouponValidTo());
+        map.put("coupon_scope", c.getCouponScope());
+        map.put("coupon_product_ids", c.getCouponProductIds());
         map.put("created_at", c.getCreatedAt());
         map.put("updated_at", c.getUpdatedAt());
         return map;

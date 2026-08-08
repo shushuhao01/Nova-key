@@ -553,7 +553,7 @@ export const adminUserApi = {
 export const marketingApi = {
   claim: (data: { code: string; email?: string }) =>
     request<import("@/types").CouponClaimResult>("/marketing/coupons/claim", { method: "POST", body: JSON.stringify(data) }),
-  validate: (data: { code: string; email?: string; amount: number }) =>
+  validate: (data: { code: string; email?: string; amount: number; product_ids?: string[] }) =>
     request<import("@/types").CouponValidateResult>("/marketing/coupons/validate", { method: "POST", body: JSON.stringify(data) }),
 }
 

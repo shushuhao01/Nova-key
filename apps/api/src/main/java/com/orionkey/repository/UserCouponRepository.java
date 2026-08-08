@@ -27,6 +27,10 @@ public interface UserCouponRepository extends JpaRepository<UserCoupon, UUID> {
 
     boolean existsByCodeAndEmail(String code, String email);
 
+    boolean existsByCodeAndUserIdAndStatus(String code, UUID userId, String status);
+
+    boolean existsByCodeAndEmailAndStatus(String code, String email, String status);
+
     /** 原子核销：仅当状态仍为 CLAIMED 时置为 USED，返回受影响行数（并发下防重复使用） */
     @Modifying
     @Query("UPDATE UserCoupon u SET u.status = 'USED', u.usedAt = :usedAt, u.orderId = :orderId WHERE u.id = :id AND u.status = 'CLAIMED'")

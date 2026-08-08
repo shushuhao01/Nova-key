@@ -60,4 +60,11 @@ public class UserCoupon extends BaseEntity {
 
     /** 生效结束时间 */
     private LocalDateTime validTo;
+
+    /** 适用范围：ALL 全部商品通用 / SPECIFIC 仅指定商品可用（领取时快照自活动） */
+    private String scope = "ALL";
+
+    /** 指定商品 ID 列表 JSON（scope=SPECIFIC 时生效，领取时快照自活动） */
+    @Column(columnDefinition = "TEXT")
+    private String productIds;
 }

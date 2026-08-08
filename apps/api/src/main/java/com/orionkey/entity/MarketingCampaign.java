@@ -74,4 +74,11 @@ public class MarketingCampaign extends BaseEntity {
 
     /** 优惠券生效结束时间 */
     private LocalDateTime couponValidTo;
+
+    /** 优惠券适用范围：ALL 全部商品通用 / SPECIFIC 仅指定商品可用 */
+    private String couponScope = "ALL";
+
+    /** 指定商品 ID 列表 JSON：["uuid1","uuid2"]（couponScope=SPECIFIC 时生效） */
+    @Column(columnDefinition = "TEXT")
+    private String couponProductIds;
 }

@@ -394,6 +394,9 @@ export interface CreateCartOrderRequest {
 
 export type CouponType = 'AMOUNT' | 'PERCENT'
 
+/** 优惠券适用范围：ALL 全部商品通用 / SPECIFIC 仅指定商品可用 */
+export type CouponScope = 'ALL' | 'SPECIFIC'
+
 /** 营销活动（后台管理） */
 export interface MarketingCampaignItem {
   id: string
@@ -412,6 +415,8 @@ export interface MarketingCampaignItem {
   coupon_claimed: number
   coupon_valid_from: string | null
   coupon_valid_to: string | null
+  coupon_scope: CouponScope | null
+  coupon_product_ids: string | null
   created_at: string
   updated_at: string
 }
@@ -429,6 +434,8 @@ export interface CampaignPayload {
   coupon_quantity?: number
   coupon_valid_from?: string | null
   coupon_valid_to?: string | null
+  coupon_scope?: CouponScope | null
+  coupon_product_ids?: string | null
 }
 
 /** 优惠券校验结果（下单页确认核销） */

@@ -69,7 +69,7 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
     setCouponStatus("checking")
     try {
       const result = await withMockFallback(
-        () => marketingApi.validate({ code, email: email.trim() || undefined, amount: totalPrice }),
+        () => marketingApi.validate({ code, email: email.trim() || undefined, amount: totalPrice, product_ids: [product.id] }),
         () => ({ valid: true, discount: Math.min(5, totalPrice), coupon_type: "AMOUNT" as const, coupon_value: 5 })
       )
       if (result.valid && (result.discount ?? 0) > 0) {

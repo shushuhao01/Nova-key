@@ -3,6 +3,7 @@ package com.orionkey.service;
 import com.orionkey.common.PageResult;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,14 +29,19 @@ public interface MarketingService {
     /** 领取优惠券（登录用户绑定 userId，匿名需传 email） */
     Map<String, Object> claimCoupon(String code, UUID userId, String email);
 
-    /** 校验优惠券并计算对指定金额的抵扣（下单页预览用） */
-    Map<String, Object> validateCoupon(String code, UUID userId, String email, BigDecimal amount);
+    /**
+     * 校验优惠券并计算对指定金额的抵扣（下单页预览用）。
+     *
+     * @param productIds 订单内商品 ID 列表（用于校验"仅指定商品可用"的优惠券）
+     */
+    Map<String, Object> validateCoupon(String code, UUID userId, String email, BigDecimal amount, List<UUID> productIds);
 
     /**
      * 下单时应用优惠券：校验有效性 → 计算抵扣 → 原子核销绑定订单。
      *
+     * @param productIds 订单内商品 ID 列表（用于校验"仅指定商品可用"的优惠券）
      * @return 抵扣金额（≥0）
-     * @throws com.orionkey.exception.BusinessException 无效/已使用/未生效时抛出
+     * @throws com.orionkey.exception.BusinessException 无效/已使用/未生效/不适用商品时抛出
      */
-    BigDecimal applyCoupon(String code, UUID userId, String email, BigDecimal totalAmount, UUID orderId);
+    BigDecimal applyCoupon(String code, UUID userId, String email, BigDecimal totalAmount, UUID orderId, List<UUID> productIds);
 }

@@ -7,6 +7,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -27,7 +29,7 @@ public class MarketingController {
         return ApiResponse.success(marketingService.claimCoupon(code, userId, email));
     }
 
-    /** 下单页校验优惠券：计算对指定金额的抵扣（amount 传商品总价） */
+    /** 下单页校验优惠券：计算对指定金额的抵扣（amount 传商品总价，product_ids 传订单商品列表） */
     @PostMapping("/coupons/validate")
     public ApiResponse<?> validateCoupon(@RequestBody Map<String, Object> body) {
         UUID userId = RequestContext.getUserId();
@@ -35,6 +37,25 @@ public class MarketingController {
         String email = (String) body.get("email");
         BigDecimal amount = body.get("amount") instanceof Number n
                 ? BigDecimal.valueOf(n.doubleValue()) : BigDecimal.ZERO;
-        return ApiResponse.success(marketingService.validateCoupon(code, userId, email, amount));
+        List<UUID> productIds = new ArrayList<>();
+        if (body.get("product_ids") instanceof List<?> ids) {
+            for (Object o : ids) {
+                if (o instanceof String s) {
+                    try {
+                        productIds.add(UUID.fromString(s));
+                    } catch (IllegalArgumentException ignored) {
+                        // 忽略非法 ID
+                    }
+                }
+            }
+        }
+        if (productIds.isEmpty() && body.get("product_id") instanceof String pid) {
+            try {
+                productIds.add(UUID.fromString(pid));
+            } catch (IllegalArgumentException ignored) {
+                // 忽略非法 ID
+            }
+        }
+        return ApiResponse.success(marketingService.validateCoupon(code, userId, email, amount, productIds));
     }
 }
