@@ -200,7 +200,8 @@ export interface TxidVerifyResult {
 
 export interface CreateOrderResult {
   order: OrderDetail
-  payment: PaymentCreateResult
+  /** 0 元订单（优惠券全额抵扣）时为 null，无需支付 */
+  payment: PaymentCreateResult | null
 }
 
 export interface DeliverResultGroup {

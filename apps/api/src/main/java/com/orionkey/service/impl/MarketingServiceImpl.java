@@ -620,13 +620,15 @@ public class MarketingServiceImpl implements MarketingService {
     }
 
     private Map<String, Object> toClaimResult(UserCoupon uc, MarketingCampaign campaign) {
-        return Map.of(
-                "code", uc.getCode(),
-                "coupon_type", uc.getType(),
-                "coupon_value", uc.getValue() == null ? BigDecimal.ZERO : uc.getValue(),
-                "coupon_title", campaign.getTitle(),
-                "valid_from", uc.getValidFrom(),
-                "valid_to", uc.getValidTo());
+        // 使用 LinkedHashMap 而非 Map.of：valid_from/valid_to 可能为 null，Map.of 不接受 null 值
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("code", uc.getCode());
+        m.put("coupon_type", uc.getType());
+        m.put("coupon_value", uc.getValue() == null ? BigDecimal.ZERO : uc.getValue());
+        m.put("coupon_title", campaign.getTitle());
+        m.put("valid_from", uc.getValidFrom());
+        m.put("valid_to", uc.getValidTo());
+        return m;
     }
 
     @Override

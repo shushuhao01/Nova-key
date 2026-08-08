@@ -120,13 +120,14 @@ public class OrderServiceImpl implements OrderService {
         if (couponCode != null && !couponCode.isBlank()) {
             BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, userId, email, totalAmount, order.getId(), List.of(productId));
             BigDecimal actual = totalAmount.subtract(couponDiscount).max(BigDecimal.ZERO);
-            // 防御：抵扣后实付必须为正数，否则 0 元订单无法走微信/支付宝支付（异常会回滚优惠券核销）
-            if (actual.compareTo(BigDecimal.ZERO) <= 0) {
-                throw new BusinessException(ErrorCode.BAD_REQUEST, "优惠金额不能等于或超过订单金额，请调整或更换优惠券");
-            }
             order.setCouponCode(couponCode.trim().toUpperCase());
             order.setCouponDiscount(couponDiscount);
             order.setActualAmount(actual);
+            if (actual.compareTo(BigDecimal.ZERO) <= 0) {
+                // 0 元订单：优惠券全额抵扣后无需支付，直接标记已支付，由自动发货任务立即发货
+                order.setStatus(OrderStatus.PAID);
+                order.setPaidAt(LocalDateTime.now());
+            }
             orderRepository.save(order);
         }
 
@@ -273,13 +274,14 @@ public class OrderServiceImpl implements OrderService {
             BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, userId, email, totalAmount, order.getId(),
                     cartItems.stream().map(CartItem::getProductId).toList());
             BigDecimal actual = totalAmount.subtract(couponDiscount).max(BigDecimal.ZERO);
-            // 防御：抵扣后实付必须为正数，否则 0 元订单无法走微信/支付宝支付（异常会回滚优惠券核销）
-            if (actual.compareTo(BigDecimal.ZERO) <= 0) {
-                throw new BusinessException(ErrorCode.BAD_REQUEST, "优惠金额不能等于或超过订单金额，请调整或更换优惠券");
-            }
             order.setCouponCode(couponCode.trim().toUpperCase());
             order.setCouponDiscount(couponDiscount);
             order.setActualAmount(actual);
+            if (actual.compareTo(BigDecimal.ZERO) <= 0) {
+                // 0 元订单：优惠券全额抵扣后无需支付，直接标记已支付，由自动发货任务立即发货
+                order.setStatus(OrderStatus.PAID);
+                order.setPaidAt(LocalDateTime.now());
+            }
             orderRepository.save(order);
         }
 
@@ -434,12 +436,16 @@ public class OrderServiceImpl implements OrderService {
     private Map<String, Object> buildOrderResult(Order order, String device) {
         List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
         Map<String, Object> orderDetail = toOrderDetail(order, items);
-        Map<String, Object> payment = paymentService.createPayment(
-                order.getId(), order.getPaymentMethod(), order.getActualAmount(), device);
-
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("order", orderDetail);
-        result.put("payment", payment);
+        // 0 元订单（优惠券全额抵扣后无需支付）：不创建支付，前端直接展示"已支付/发货"
+        if (order.getActualAmount() != null && order.getActualAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            result.put("payment", null);
+        } else {
+            Map<String, Object> payment = paymentService.createPayment(
+                    order.getId(), order.getPaymentMethod(), order.getActualAmount(), device);
+            result.put("payment", payment);
+        }
         return result;
     }
 

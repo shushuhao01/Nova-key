@@ -52,8 +52,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     String role = claims.get("role", String.class);
 
                     // 后台请求（ADMIN/STAFF）：必须校验数据库中用户状态和角色，并按角色注入动态权限码（RBAC）
+                    // /api/upload 上传接口（商品图/邮件图/支付证书）同样需要 BACKEND_ACCESS 等后台权限
                     String path = request.getRequestURI();
-                    boolean backendRequest = path.startsWith("/api/admin");
+                    boolean backendRequest = path.startsWith("/api/admin") || path.startsWith("/api/upload");
                     if (backendRequest && ("ADMIN".equals(role) || "STAFF".equals(role))) {
                         User user = userRepository.findById(userId).orElse(null);
                         if (user == null || user.getIsDeleted() == 1

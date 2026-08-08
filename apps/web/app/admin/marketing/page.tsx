@@ -532,6 +532,7 @@ function CouponFormModal({ form, setForm, products, saving, onClose, onSave }: {
             <div>
               <label className="mb-1.5 block text-sm font-medium text-foreground">{t("admin.couponMinAmount")}</label>
               <input type="number" min={0} step="0.01" value={form.coupon_min_amount} onChange={(e) => upd("coupon_min_amount", e.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+              <p className="mt-1 text-xs text-muted-foreground">{t("admin.couponMinAmountHint")}</p>
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium text-foreground">{t("admin.couponCode")}</label>
@@ -542,6 +543,7 @@ function CouponFormModal({ form, setForm, products, saving, onClose, onSave }: {
               <input type="number" min={0} value={form.coupon_quantity} onChange={(e) => upd("coupon_quantity", e.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
               <p className="mt-1 text-xs text-muted-foreground">{t("admin.couponQuantityDefaultHint")} · {t("admin.couponQuantityHint2")}</p>
             </div>
+            <div /> {/* 占位：让发行数量独占一行，生效开始/结束时间同行 */}
             <div>
               <label className="mb-1.5 block text-sm font-medium text-foreground">{t("admin.couponValidFrom")}</label>
               <input type="datetime-local" value={form.valid_from} onChange={(e) => upd("valid_from", e.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
@@ -1148,7 +1150,7 @@ function EmailFormModal({ form, setForm, coupons, saving, onClose, onSave }: {
           {/* Placeholders */}
           <div className="rounded-lg border border-border bg-muted/20 p-3">
             <p className="mb-2 text-xs font-medium text-muted-foreground">{t("admin.insertPlaceholder")}</p>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid gap-1.5 sm:grid-cols-2">
               {[
                 { ph: "{username}", desc: t("admin.placeholderUsernameDesc") },
                 { ph: "{site_url}", desc: t("admin.placeholderSiteUrlDesc") },
@@ -1159,10 +1161,10 @@ function EmailFormModal({ form, setForm, coupons, saving, onClose, onSave }: {
                   key={x.ph}
                   type="button"
                   onClick={() => insertPlaceholder(x.ph)}
-                  className="group flex items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-primary hover:bg-primary/10"
-                  title={x.desc}
+                  className="flex items-center justify-between gap-2 rounded-md border border-input bg-background px-2.5 py-1.5 text-left hover:bg-primary/5"
                 >
-                  {x.ph}
+                  <span className="font-mono text-xs font-medium text-primary">{x.ph}</span>
+                  <span className="text-xs text-muted-foreground">{x.desc}</span>
                 </button>
               ))}
             </div>

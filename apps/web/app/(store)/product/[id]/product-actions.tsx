@@ -174,6 +174,11 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
         () => mockCreateOrder(email, selectedPayment)
       )
       toast.success(t("checkout.processingOrder"))
+      // 0 元订单（优惠券全额抵扣后无需支付）：直接跳转支付页，服务端订单状态已为 PAID，会自动展示已发货
+      if (!result.payment) {
+        router.push(`/pay/${result.order.id}?method=${selectedPayment}`)
+        return
+      }
       const payUrlH5 = result.payment.pay_url || ""
       const qr = result.payment.qrcode_url || result.payment.payment_url || ""
       let payUrl = `/pay/${result.payment.order_id}?method=${selectedPayment}`
