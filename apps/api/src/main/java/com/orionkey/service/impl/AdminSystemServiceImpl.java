@@ -56,6 +56,19 @@ public class AdminSystemServiceImpl implements AdminSystemService {
                 roleRepository.save(r);
                 log.info("Initialized built-in role {}", SUPER_ADMIN_CODE);
             }
+            // 将历史遗留的内置 ADMIN 用户（未绑定角色）自动绑定到超级管理员角色
+            Role superAdmin = roleRepository.findAll().stream()
+                    .filter(r -> SUPER_ADMIN_CODE.equals(r.getCode()))
+                    .findFirst().orElse(null);
+            if (superAdmin != null) {
+                for (User u : userRepository.findByRoleOrderByCreatedAtDesc(UserRole.ADMIN, Pageable.unpaged()).getContent()) {
+                    if (u.getRoleId() == null) {
+                        u.setRoleId(superAdmin.getId());
+                        userRepository.save(u);
+                        log.info("Bound built-in admin {} to SUPER_ADMIN role", u.getUsername());
+                    }
+                }
+            }
         } catch (Exception e) {
             log.error("Init super admin role failed: {}", e.getMessage(), e);
         }
@@ -134,7 +147,8 @@ public class AdminSystemServiceImpl implements AdminSystemService {
         }
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "角色不存在"));
-        if (userRepository.existsByUsername(username)) {
+        String uName = username.trim();
+        if (userRepository.existsByUsername(uName)) {
             throw new BusinessException(ErrorCode.USERNAME_EXISTS, "用户名已存在");
         }
         String e = email.trim().toLowerCase();
@@ -142,10 +156,11 @@ public class AdminSystemServiceImpl implements AdminSystemService {
             throw new BusinessException(ErrorCode.EMAIL_EXISTS, "该邮箱已使用");
         }
         User user = new User();
-        user.setUsername(username.trim());
+        user.setUsername(uName);
         user.setEmail(e);
         user.setPasswordHash(passwordEncoder.encode(password));
-        user.setRole(UserRole.STAFF);
+        // 绑定超级管理员角色即视为内置管理员；否则为普通员工（与 updateStaff 一致）
+        user.setRole(SUPER_ADMIN_CODE.equals(role.getCode()) ? UserRole.ADMIN : UserRole.STAFF);
         user.setRoleId(role.getId());
         userRepository.save(user);
         log.info("Created staff {} (role={}) by {}", user.getUsername(), role.getCode(), RequestContext.getUserId());

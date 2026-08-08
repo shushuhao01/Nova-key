@@ -562,7 +562,8 @@ const zh = {
   "admin.permissionBackend": "后台访问",
   "admin.roleCodeHint": "英文大写，如 CUSTOMER_SERVICE",
   "admin.rolePermissionsHint": "不勾选「后台访问」则该角色无法进入管理后台",
-  "admin.totalStaff": "位员工",
+  "admin.selfRoleHint": "不能修改自己的角色",
+  "admin.adminProtectedHint": "内置管理员账号不可禁用/删除",
 
   // Admin Marketing
   "admin.marketingDesc": "创建营销活动、自定义营销邮件与优惠券推广",
@@ -1318,7 +1319,8 @@ const en: Record<keyof typeof zh, string> = {
   "admin.permissionBackend": "Backend Access",
   "admin.roleCodeHint": "Uppercase letters, e.g. CUSTOMER_SERVICE",
   "admin.rolePermissionsHint": "Without \"Backend Access\", this role cannot enter the admin panel",
-  "admin.totalStaff": "staff",
+  "admin.selfRoleHint": "You cannot change your own role",
+  "admin.adminProtectedHint": "Built-in admin accounts cannot be disabled or deleted",
 
   // Admin Marketing
   "admin.marketingDesc": "Create marketing campaigns, custom marketing emails & coupon promotions",

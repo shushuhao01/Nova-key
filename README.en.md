@@ -26,14 +26,16 @@ English | [简体中文](README.md)
 > [Orion Key](https://github.com/RivenLau/orion-key) (MIT License).
 > It implements the full **Native WeChat Pay (APIv3)** and **Native Alipay**
 > payment flows (order creation, callback signature verification, active order
-> querying) on top of the original project, and customizes branding and docs.
+> querying), plus **Customer Management**, **Marketing & Coupons**,
+> **Notifications** (DingTalk / WeCom / Email) and an **RBAC permission system**
+> (staff & roles) on top of the original project, and customizes branding and docs.
 > Copyright of the original project belongs to its authors.
 
 | | Link |
 |---|---|
 | 🐙 **This repository** | <a href="https://github.com/shushuhao01/Nova-key" target="_blank" rel="noopener noreferrer">https://github.com/shushuhao01/Nova-key</a> |
 | ⭐ **Upstream repository** | <a href="https://github.com/RivenLau/orion-key" target="_blank" rel="noopener noreferrer">https://github.com/RivenLau/orion-key</a> |
-| 🔑 **Default admin account** | `admin` / `admin123` (change it immediately after first login) |
+| 🔑 **Default admin account** | `admin` / `admin123` (change it immediately after first login; bound to the built-in `SUPER_ADMIN` role) |
 
 ---
 
@@ -44,8 +46,10 @@ English | [简体中文](README.md)
 | 🛒 **Auto Delivery** — card keys are delivered automatically after payment | 🎨 **Theme Switch** — light/dark mode with customizable theme colors |
 | 📦 **Product Management** — categories, on/off shelf, stock, bulk import | 🔒 **Secure Auth** — stateless JWT + BCrypt |
 | 💳 **Multiple Payment Channels** — Native WeChat / Native Alipay / Epay / USDT | 🛡️ **Risk Control** — IP rate limit, login brute-force protection, order anti-abuse |
-| 📊 **Admin Panel** — dashboard, order/user/site management | 🔍 **Order Tracking** — lookup card keys by order number, guest & member support |
+| 📊 **Admin Panel** — dashboard, order/site management | 🔍 **Order Tracking** — lookup card keys by order number, guest & member support |
 | 🛍️ **Cart** — combine multiple products into one order | ⚙️ **Site Config** — announcement, popup, maintenance mode |
+| 👥 **Customer Management** — registered + anonymous customers, spending stats & ban | 📣 **Marketing** — email campaigns + coupons (all/specific products, checkout redeem) |
+| 🔔 **Notifications** — DingTalk / WeCom / Email templates, auto-triggered | 🧑‍💼 **System (RBAC)** — internal staff & role permissions, menu & API control |
 
 ---
 
@@ -62,6 +66,115 @@ English | [简体中文](README.md)
 > **Native WeChat/Alipay callback URLs are auto-generated.** Set the `APP_BASE_URL`
 > environment variable during deployment and callbacks become
 > `{APP_BASE_URL}/api/payments/webhook/wxpay` and `/alipay` automatically.
+
+---
+
+## Admin Panel Modules
+
+Backend entry `/admin`; the logged-in account must have backend access. Overview:
+
+| Module | Features |
+|--------|----------|
+| 📊 Dashboard | Today/month sales & orders, conversion rate, traffic, low-stock alerts |
+| 🗂️ Categories | CRUD and ordering of product categories |
+| 📦 Products | CRUD, specs/wholesale, on/off shelf, stock threshold, Markdown details |
+| 🔑 Card Keys | Bulk import, stock summary, search/export |
+| 🧾 Orders | List/detail, status flow (paid/delivered/expired), manual card key resend |
+| 👥 Customers | Registered + anonymous aggregation, spending stats, order timeline, ban/unban |
+| 📣 Marketing | Email campaigns (audience filtering), coupons with redemption stats |
+| 🔔 Notifications | DingTalk/WeCom bots, notification email, templates, auto-trigger, test send |
+| 💳 Payment Channels | Native WeChat/Alipay, Epay, USDT config; parameter validation & test connection |
+| 🛡️ Risk Control | IP rate limit, login brute-force protection, order anti-abuse thresholds |
+| 🔎 TXID Review | USDT transaction review, auto/manual approval (refund on rejection) |
+| 📜 Operation Logs | Audit of key backend operations (login, order, delivery, payment config) |
+| 🧑‍💼 System | Internal staff (create/reset password/disable/delete/detail) & role permissions (RBAC) |
+
+---
+
+## RBAC Permission System
+
+> Manages **internal staff** (admins, support, etc.) and backend access; frontend
+> registered customers (`role=USER`) are not part of the permission system.
+
+### Model
+
+- **User** (`users`): `role` enum `USER` / `STAFF` / `ADMIN`. `ADMIN` is the built-in
+  super admin; `STAFF` obtains permissions via `role_id` → role.
+- **Role** (`system_roles`): unique `code`, `permissions` (JSON array of permission codes), `is_system` flag.
+- **Permission code**: the smallest unit for backend menu and API authorization.
+
+### Permission Codes
+
+| Code | Backend Module |
+|------|----------------|
+| `BACKEND_ACCESS` | Backend access master switch (cannot enter admin without it) |
+| `DASHBOARD` | Dashboard |
+| `CATEGORY_MANAGE` / `PRODUCT_MANAGE` / `CARDKEY_MANAGE` | Categories / Products / Card Keys |
+| `ORDER_MANAGE` | Orders |
+| `CUSTOMER_MANAGE` | Customers |
+| `MARKETING_MANAGE` | Marketing |
+| `PAYMENT_MANAGE` | Payment Channels |
+| `SITE_CONFIG_MANAGE` | Site Config |
+| `RISK_MANAGE` / `TXID_REVIEW` / `LOG_VIEW` | Risk / TXID Review / Operation Logs |
+| `SYSTEM_MANAGE` | System (staff & roles) |
+
+### Authorization Chain
+
+- Backend: `/admin/**` requires `BACKEND_ACCESS`; `/admin/system/**` additionally requires `SYSTEM_MANAGE`.
+  The JWT filter validates user state (disable/role change takes effect immediately) and injects dynamic permissions.
+- Frontend: sidebar menus are filtered by permission codes.
+- The built-in `SUPER_ADMIN` role has all permissions and cannot be modified/deleted; users bound to it are `ADMIN`.
+- Protection rules: you cannot modify/disable/delete your own account; built-in admins cannot be disabled/deleted;
+  roles bound to staff cannot be deleted.
+
+---
+
+## Customer Management
+
+| View | Description |
+|------|-------------|
+| Overview | Registered count, anonymous count, new today/month, deal/no-deal customers |
+| Registered | `role=USER` users: search, spending stats (orders/paid/total spent), detail, ban/unban |
+| Anonymous | Aggregated by email for guest buyers: order count, total spent, first/last purchase, order drill-down |
+
+> Registered and anonymous customers are counted by orders; the same email before/after
+> registration is counted separately, and the scope is uniformly "non-internal-staff".
+
+---
+
+## Marketing & Coupons
+
+### Email Campaigns
+
+- Audience: all users / specific user IDs / email list.
+- HTML templates with variables (`{{username}}`, `{{coupon_code}}`, ...); send counts tracked.
+
+### Coupons
+
+| Item | Description |
+|------|-------------|
+| Type | Fixed amount (AMOUNT) / Percentage (PERCENT) |
+| Threshold / Validity | Minimum spend, valid from/to |
+| **Scope** | `ALL` products or `SPECIFIC` selected products |
+| Issuance | System-generated redemption code, limited claims, backend redemption stats |
+
+- On the checkout page the code is validated instantly with a **specific reason**:
+  not claimed / already used / not active / expired / below threshold / not applicable to the product, etc.
+- Safety: row-lock prevents over-issuing under concurrency; the actual amount after the coupon must be > 0.
+
+---
+
+## Notifications
+
+| Channel | Description |
+|---------|-------------|
+| DingTalk bot | Webhook + secret signature |
+| WeCom bot | Webhook |
+| Notification email | SMTP |
+
+- Preset templates (new order, payment success, low stock, ...); enable, bind channels,
+  and toggle auto-trigger in the admin panel.
+- Per-channel test send with itemized results.
 
 ---
 

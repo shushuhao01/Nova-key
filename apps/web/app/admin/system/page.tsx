@@ -39,6 +39,8 @@ export default function AdminSystemPage() {
   const [tab, setTab] = useState<Tab>("users")
   const [staffList, setStaffList] = useState<SystemStaffItem[]>([])
   const [roleList, setRoleList] = useState<SystemRoleItem[]>([])
+  // 全量角色（员工创建/编辑时角色下拉用，避免分页截断）
+  const [allRoles, setAllRoles] = useState<SystemRoleItem[]>([])
   const [permissions, setPermissions] = useState<PermissionItem[]>(mockPermissionList)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -72,6 +74,21 @@ export default function AdminSystemPage() {
   }, [])
 
   useEffect(() => { fetchPermissions() }, [fetchPermissions])
+
+  // 全量角色（角色下拉用）
+  const fetchAllRoles = useCallback(async () => {
+    try {
+      const data = await withMockFallback(
+        () => adminSystemApi.getRoles({ page: 1, page_size: 100 }),
+        () => mockSystemRoleList({ page: 1, page_size: 100 })
+      )
+      setAllRoles(data.list)
+    } catch {
+      setAllRoles([])
+    }
+  }, [])
+
+  useEffect(() => { fetchAllRoles() }, [fetchAllRoles])
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -148,10 +165,12 @@ export default function AdminSystemPage() {
         )
         toast.success(t("admin.createStaff"))
       } else if (staffModal.staff) {
+        const isSelf = staffModal.staff.id === me?.id
         await withMockFallback(
           () => adminSystemApi.updateStaff(staffModal.staff!.id, {
             username: staffForm.username.trim(),
-            role_id: staffForm.role_id || undefined,
+            // 编辑自己时后端禁止修改自身角色，故不提交 role_id
+            ...(!isSelf && staffForm.role_id ? { role_id: staffForm.role_id } : {}),
           }),
           () => null
         )
@@ -363,21 +382,24 @@ export default function AdminSystemPage() {
                 <button
                   type="button"
                   onClick={() => toggleStaff(s)}
+                  disabled={s.role === "ADMIN"}
                   className={cn(
                     "flex h-8 w-8 items-center justify-center rounded-md",
                     s.is_deleted
                       ? "text-emerald-600 hover:bg-emerald-500/10"
-                      : "text-red-500 hover:bg-red-500/10"
+                      : "text-red-500 hover:bg-red-500/10",
+                    s.role === "ADMIN" && "cursor-not-allowed opacity-40"
                   )}
-                  title={s.is_deleted ? t("admin.enable") : t("admin.disable")}
+                  title={s.role === "ADMIN" ? t("admin.adminProtectedHint") : (s.is_deleted ? t("admin.enable") : t("admin.disable"))}
                 >
                   {s.is_deleted ? <CheckCircle2 className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
                 </button>
                 <button
                   type="button"
                   onClick={() => deleteStaff(s)}
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  title={t("admin.deleteStaff")}
+                  disabled={s.role === "ADMIN"}
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                  title={s.role === "ADMIN" ? t("admin.adminProtectedHint") : t("admin.deleteStaff")}
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -552,7 +574,7 @@ export default function AdminSystemPage() {
         </div>
         {totalPages > 1 && (
           <div className="flex items-center justify-between border-t border-border px-4 py-3">
-            <span className="text-sm text-muted-foreground">{t("admin.totalRecords")} {total}{t("admin.totalStaff")}</span>
+            <span className="text-sm text-muted-foreground">{t("admin.totalRecords")} {total} {t("admin.records")}</span>
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -659,12 +681,12 @@ export default function AdminSystemPage() {
                   className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:bg-muted disabled:text-muted-foreground"
                 >
                   <option value="">{t("admin.selectRole")}</option>
-                  {roleList.map(r => (
+                  {allRoles.map(r => (
                     <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
                   ))}
                 </select>
                 {staffModal.mode === "edit" && staffModal.staff?.id === me?.id && (
-                  <p className="mt-1 text-xs text-muted-foreground">{t("admin.roleSystemMsg")}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{t("admin.selfRoleHint")}</p>
                 )}
               </div>
             </div>
