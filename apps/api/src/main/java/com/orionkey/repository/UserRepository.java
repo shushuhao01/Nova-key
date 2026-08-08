@@ -36,6 +36,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     /** 统计某时间点之后注册的用户数（报表用） */
     long countByCreatedAtGreaterThanEqual(LocalDateTime since);
 
+    /** 统计某时间点之后注册的客户数（排除管理员，客户管理「新增」卡片用） */
+    long countByRoleNotAndCreatedAtGreaterThanEqual(UserRole role, LocalDateTime since);
+
     /** 统计 [from, to) 区间注册的用户数（报表用） */
     long countByCreatedAtBetween(LocalDateTime from, LocalDateTime to);
 }

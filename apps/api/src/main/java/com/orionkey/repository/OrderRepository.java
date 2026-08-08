@@ -71,6 +71,12 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     List<Order> findByEmailInOrderByCreatedAtDesc(List<String> emails);
 
+    /** 匿名客户订单（仅 user_id IS NULL，即未注册的购买记录，按邮箱批量取） */
+    List<Order> findByEmailInAndUserIdIsNullOrderByCreatedAtDesc(List<String> emails);
+
+    /** 匿名客户订单（仅 user_id IS NULL，详情页用） */
+    List<Order> findByEmailAndUserIdIsNullOrderByCreatedAtDesc(String email);
+
     List<Order> findByIdIn(List<UUID> ids);
 
     /** 自动发货兜底：查询所有已支付（PAID）但尚未发货（DELIVERED）的订单 */

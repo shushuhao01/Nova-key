@@ -286,10 +286,13 @@ public class MarketingServiceImpl implements MarketingService {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "请输入优惠券核销码");
         }
         String c = code.trim().toUpperCase();
-        MarketingCampaign campaign = findByCouponCode(c);
-        if (campaign == null || campaign.getCouponType() == null) {
+        MarketingCampaign found = findByCouponCode(c);
+        if (found == null || found.getCouponType() == null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "优惠券不存在或已下架");
         }
+        // 行锁防并发超发：同一活动同时领取时串行执行数量与去重检查
+        MarketingCampaign campaign = campaignRepository.findByIdForUpdate(found.getId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.BAD_REQUEST, "优惠券不存在或已下架"));
         LocalDateTime now = LocalDateTime.now();
         if (campaign.getCouponValidFrom() != null && now.isBefore(campaign.getCouponValidFrom())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "优惠券还未到生效时间");

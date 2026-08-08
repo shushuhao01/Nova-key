@@ -45,7 +45,7 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
         long totalAnonymous = orderRepository.countAnonymousEmails();
         long totalCustomers = totalRegistered + totalAnonymous;
 
-        long newRegistered = userRepository.countByCreatedAtGreaterThanEqual(monthStart);
+        long newRegistered = userRepository.countByRoleNotAndCreatedAtGreaterThanEqual(CUSTOMER_ROLE, monthStart);
         long newAnonymous = orderRepository.countNewAnonymousEmails(monthStart);
 
         long dealRegistered = orderRepository.countPaidRegisteredCustomers();
@@ -108,7 +108,7 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
         // 批量取出本页邮箱的全部订单，内存聚合（每页最多 100 个邮箱，可控）
         Map<String, List<Order>> ordersByEmail = emails.isEmpty()
                 ? Map.of()
-                : ordersByEmailMap(orderRepository.findByEmailInOrderByCreatedAtDesc(emails));
+                : ordersByEmailMap(orderRepository.findByEmailInAndUserIdIsNullOrderByCreatedAtDesc(emails));
 
         List<Map<String, Object>> list = emails.stream().map(email -> {
             List<Order> orders = ordersByEmail.getOrDefault(email, List.of());
@@ -159,7 +159,7 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "邮箱不能为空");
         }
         String e = email.trim().toLowerCase();
-        List<Order> all = orderRepository.findByEmailOrderByCreatedAtDesc(e);
+        List<Order> all = orderRepository.findByEmailAndUserIdIsNullOrderByCreatedAtDesc(e);
         if (all.isEmpty()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "匿名客户不存在");
         }

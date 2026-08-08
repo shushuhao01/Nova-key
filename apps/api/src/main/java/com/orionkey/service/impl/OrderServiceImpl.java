@@ -119,9 +119,14 @@ public class OrderServiceImpl implements OrderService {
         String couponCode = (String) req.get("coupon_code");
         if (couponCode != null && !couponCode.isBlank()) {
             BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, userId, email, totalAmount, order.getId(), List.of(productId));
+            BigDecimal actual = totalAmount.subtract(couponDiscount).max(BigDecimal.ZERO);
+            // 防御：抵扣后实付必须为正数，否则 0 元订单无法走微信/支付宝支付（异常会回滚优惠券核销）
+            if (actual.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "优惠金额不能等于或超过订单金额，请调整或更换优惠券");
+            }
             order.setCouponCode(couponCode.trim().toUpperCase());
             order.setCouponDiscount(couponDiscount);
-            order.setActualAmount(totalAmount.subtract(couponDiscount).max(BigDecimal.ZERO));
+            order.setActualAmount(actual);
             orderRepository.save(order);
         }
 
@@ -267,9 +272,14 @@ public class OrderServiceImpl implements OrderService {
         if (couponCode != null && !couponCode.isBlank()) {
             BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, userId, email, totalAmount, order.getId(),
                     cartItems.stream().map(CartItem::getProductId).toList());
+            BigDecimal actual = totalAmount.subtract(couponDiscount).max(BigDecimal.ZERO);
+            // 防御：抵扣后实付必须为正数，否则 0 元订单无法走微信/支付宝支付（异常会回滚优惠券核销）
+            if (actual.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "优惠金额不能等于或超过订单金额，请调整或更换优惠券");
+            }
             order.setCouponCode(couponCode.trim().toUpperCase());
             order.setCouponDiscount(couponDiscount);
-            order.setActualAmount(totalAmount.subtract(couponDiscount).max(BigDecimal.ZERO));
+            order.setActualAmount(actual);
             orderRepository.save(order);
         }
 
