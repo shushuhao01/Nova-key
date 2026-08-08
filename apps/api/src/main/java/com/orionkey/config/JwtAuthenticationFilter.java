@@ -6,6 +6,7 @@ import com.orionkey.constant.ErrorCode;
 import com.orionkey.context.RequestContext;
 import com.orionkey.entity.User;
 import com.orionkey.repository.UserRepository;
+import com.orionkey.service.impl.PermissionResolver;
 import com.orionkey.utils.JwtUtils;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -23,6 +24,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,6 +36,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtUtils jwtUtils;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
+    private final PermissionResolver permissionResolver;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -48,22 +51,31 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     String username = claims.get("username", String.class);
                     String role = claims.get("role", String.class);
 
-                    // 管理员请求：必须校验数据库中用户状态和角色
+                    // 后台请求（ADMIN/STAFF）：必须校验数据库中用户状态和角色，并按角色注入动态权限码（RBAC）
                     String path = request.getRequestURI();
-                    if ("ADMIN".equals(role) && path.startsWith("/api/admin")) {
+                    boolean backendRequest = path.startsWith("/api/admin");
+                    if (backendRequest && ("ADMIN".equals(role) || "STAFF".equals(role))) {
                         User user = userRepository.findById(userId).orElse(null);
                         if (user == null || user.getIsDeleted() == 1
                                 || !user.getRole().name().equals(role)) {
-                            log.warn("Admin JWT verification failed: userId={}, dbExists={}, dbDeleted={}, dbRole={}",
+                            log.warn("Backend JWT verification failed: userId={}, dbExists={}, dbDeleted={}, dbRole={}",
                                     userId, user != null, user != null ? user.getIsDeleted() : "N/A",
                                     user != null ? user.getRole() : "N/A");
                             rejectRequest(response, "身份验证失败，请重新登录");
                             return;
                         }
+                        List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+                        authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
+                        permissionResolver.resolve(user)
+                                .forEach(p -> authorities.add(new SimpleGrantedAuthority(p)));
+                        RequestContext.set(new RequestContext.UserInfo(userId, username, role));
+                        SecurityContextHolder.getContext().setAuthentication(
+                                new UsernamePasswordAuthenticationToken(userId, null, authorities));
+                        filterChain.doFilter(request, response);
+                        return;
                     }
 
                     RequestContext.set(new RequestContext.UserInfo(userId, username, role));
-
                     var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
                     var auth = new UsernamePasswordAuthenticationToken(userId, null, authorities);
                     SecurityContextHolder.getContext().setAuthentication(auth);

@@ -33,12 +33,13 @@ public class UserServiceImpl implements UserService {
     private final OrderRepository orderRepository;
     private final PointsLogRepository pointsLogRepository;
     private final PasswordEncoder passwordEncoder;
+    private final PermissionResolver permissionResolver;
 
     @Override
     public UserProfileResponse getProfile(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "用户不存在"));
-        return UserProfileResponse.from(user);
+        return UserProfileResponse.from(user, permissionResolver.resolve(user));
     }
 
     @Override

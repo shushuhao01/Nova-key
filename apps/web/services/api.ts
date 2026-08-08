@@ -24,7 +24,6 @@ import type {
   CardKeyListItem,
   CardImportBatch,
   OrderCardKey,
-  AdminUserItem,
   AdminOrderItem,
   PaymentChannelItem,
   PaymentTestResult,
@@ -39,6 +38,10 @@ import type {
   AuthResult,
   CurrencyItem,
   TxidVerifyResult,
+  SystemStaffItem,
+  SystemStaffDetail,
+  SystemRoleItem,
+  PermissionItem,
 } from "@/types"
 
 // ============================================================
@@ -534,16 +537,41 @@ export const adminOrderApi = {
 }
 
 // ============================================================
-// Admin User
+// Admin System (RBAC：内部员工 + 角色权限)
 // ============================================================
 
-export const adminUserApi = {
-  getList: (params: { page?: number; page_size?: number; keyword?: string }) => {
+export const adminSystemApi = {
+  // ── 员工管理 ──
+  getStaff: (params: { keyword?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
-    return request<PaginatedData<AdminUserItem>>(`/admin/users?${qs}`)
+    return request<PaginatedData<SystemStaffItem>>(`/admin/system/users?${qs}`)
   },
-  toggleStatus: (id: string, isDeleted: 0 | 1) =>
-    request<null>(`/admin/users/${id}/toggle`, { method: "POST", body: JSON.stringify({ is_deleted: isDeleted }) }),
+  staffDetail: (id: string) =>
+    request<SystemStaffDetail>(`/admin/system/users/${id}`),
+  createStaff: (data: { username: string; email: string; password: string; role_id: string }) =>
+    request<{ id: string }>("/admin/system/users", { method: "POST", body: JSON.stringify(data) }),
+  updateStaff: (id: string, data: { username?: string; role_id?: string }) =>
+    request<SystemStaffDetail>(`/admin/system/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  resetPassword: (id: string, password: string) =>
+    request<null>(`/admin/system/users/${id}/password`, { method: "POST", body: JSON.stringify({ password }) }),
+  toggleStaff: (id: string, isDeleted: 0 | 1) =>
+    request<null>(`/admin/system/users/${id}/toggle`, { method: "POST", body: JSON.stringify({ is_deleted: isDeleted }) }),
+  deleteStaff: (id: string) =>
+    request<null>(`/admin/system/users/${id}`, { method: "DELETE" }),
+  // ── 角色管理 ──
+  getRoles: (params: { keyword?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<SystemRoleItem>>(`/admin/system/roles?${qs}`)
+  },
+  createRole: (data: { code: string; name: string; description?: string; permissions: string[] }) =>
+    request<{ id: string }>("/admin/system/roles", { method: "POST", body: JSON.stringify(data) }),
+  updateRole: (id: string, data: { name?: string; description?: string; permissions?: string[] }) =>
+    request<SystemRoleItem>(`/admin/system/roles/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteRole: (id: string) =>
+    request<null>(`/admin/system/roles/${id}`, { method: "DELETE" }),
+  // ── 权限清单 ──
+  getPermissions: () =>
+    request<PermissionItem[]>("/admin/system/permissions"),
 }
 
 // ============================================================

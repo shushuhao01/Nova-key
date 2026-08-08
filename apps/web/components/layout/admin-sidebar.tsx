@@ -8,7 +8,6 @@ import {
   FolderTree,
   KeyRound,
   ShoppingCart,
-  Users,
   CreditCard,
   Settings,
   ScrollText,
@@ -23,27 +22,37 @@ import {
   Moon,
   Globe,
   Palette,
+  ShieldCheck,
 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { useTheme, useLocale, useAuth, useColorScheme, useSiteConfig, COLOR_SCHEMES } from "@/lib/context"
 import type { TranslationKey } from "@/lib/i18n"
+import type { UserProfile } from "@/types"
 
-const navItems: { labelKey: TranslationKey; href: string; icon: typeof LayoutDashboard }[] = [
-  { labelKey: "admin.dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
-  { labelKey: "admin.categories", href: "/admin/categories", icon: FolderTree },
-  { labelKey: "admin.products", href: "/admin/products", icon: Package },
-  { labelKey: "admin.cardKeys", href: "/admin/card-keys", icon: KeyRound },
-  { labelKey: "admin.orders", href: "/admin/orders", icon: ShoppingCart },
-  { labelKey: "admin.users", href: "/admin/users", icon: Users },
-  { labelKey: "admin.marketing", href: "/admin/marketing", icon: Megaphone },
-  { labelKey: "admin.customers", href: "/admin/customers", icon: ContactRound },
-  { labelKey: "admin.payment", href: "/admin/payment-channels", icon: CreditCard },
-  { labelKey: "admin.siteConfig", href: "/admin/site-config", icon: Settings },
-  { labelKey: "admin.risk", href: "/admin/risk", icon: ShieldAlert },
-  { labelKey: "admin.txidReview", href: "/admin/txid-reviews", icon: FileSearch },
-  { labelKey: "admin.logs", href: "/admin/operation-logs", icon: ScrollText },
+const navItems: { labelKey: TranslationKey; href: string; icon: typeof LayoutDashboard; permission?: string }[] = [
+  { labelKey: "admin.dashboard", href: "/admin/dashboard", icon: LayoutDashboard, permission: "DASHBOARD" },
+  { labelKey: "admin.categories", href: "/admin/categories", icon: FolderTree, permission: "CATEGORY_MANAGE" },
+  { labelKey: "admin.products", href: "/admin/products", icon: Package, permission: "PRODUCT_MANAGE" },
+  { labelKey: "admin.cardKeys", href: "/admin/card-keys", icon: KeyRound, permission: "CARDKEY_MANAGE" },
+  { labelKey: "admin.orders", href: "/admin/orders", icon: ShoppingCart, permission: "ORDER_MANAGE" },
+  { labelKey: "admin.marketing", href: "/admin/marketing", icon: Megaphone, permission: "MARKETING_MANAGE" },
+  { labelKey: "admin.customers", href: "/admin/customers", icon: ContactRound, permission: "CUSTOMER_MANAGE" },
+  { labelKey: "admin.payment", href: "/admin/payment-channels", icon: CreditCard, permission: "PAYMENT_MANAGE" },
+  { labelKey: "admin.siteConfig", href: "/admin/site-config", icon: Settings, permission: "SITE_CONFIG_MANAGE" },
+  { labelKey: "admin.risk", href: "/admin/risk", icon: ShieldAlert, permission: "RISK_MANAGE" },
+  { labelKey: "admin.txidReview", href: "/admin/txid-reviews", icon: FileSearch, permission: "TXID_REVIEW" },
+  { labelKey: "admin.logs", href: "/admin/operation-logs", icon: ScrollText, permission: "LOG_VIEW" },
+  { labelKey: "admin.system", href: "/admin/system", icon: ShieldCheck, permission: "SYSTEM_MANAGE" },
 ]
+
+/** 管理员拥有全部权限；员工按 permissions 过滤菜单 */
+function canSee(user: UserProfile | null, permission?: string): boolean {
+  if (permission == null) return true
+  if (!user) return false
+  if (user.role === "ADMIN") return true
+  return (user.permissions ?? []).includes(permission)
+}
 
 export function AdminSidebar() {
   const pathname = usePathname()
@@ -53,7 +62,7 @@ export function AdminSidebar() {
 
   const { setTheme, resolvedTheme } = useTheme()
   const { locale, setLocale, t } = useLocale()
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
   const { colorScheme, setColorScheme } = useColorScheme()
   const { config: siteConfig } = useSiteConfig()
 
@@ -117,7 +126,7 @@ export function AdminSidebar() {
         {/* Nav items */}
         <nav className="flex-1 overflow-y-auto py-3 px-2">
           <ul className="flex flex-col gap-1">
-            {navItems.map((item) => {
+            {navItems.filter(item => canSee(user, item.permission)).map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
               const label = t(item.labelKey)
               return (

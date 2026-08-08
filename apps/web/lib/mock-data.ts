@@ -11,7 +11,6 @@ import type {
   SalesTrend,
   CardKeyStockSummary,
   CardImportBatch,
-  AdminUserItem,
   OperationLog,
   PaymentChannelItem,
   SiteConfig,
@@ -32,6 +31,9 @@ import type {
   RegisteredCustomerItem,
   AnonymousCustomerItem,
   CustomerOverview,
+  SystemStaffItem,
+  SystemRoleItem,
+  PermissionItem,
 } from "@/types"
 
 // ============================================================
@@ -428,13 +430,35 @@ export const mockOrderCardKeys: OrderCardKey[] = [
 ]
 
 // ============================================================
-// Admin Users
+// Admin System (RBAC mock)
 // ============================================================
 
-export const mockAdminUsers: AdminUserItem[] = [
-  { id: uuid(701), username: "john_doe", email: "john@example.com", role: "USER", points: 3200, is_deleted: 0, created_at: "2025-01-10T08:00:00Z" },
-  { id: uuid(702), username: "alice_w", email: "alice@example.com", role: "USER", points: 1500, is_deleted: 0, created_at: "2025-01-12T08:00:00Z" },
-  { id: uuid(703), username: "bob_test", email: "bob@test.com", role: "USER", points: 200, is_deleted: 1, created_at: "2025-01-15T08:00:00Z" },
+export const mockStaffList: SystemStaffItem[] = [
+  { id: uuid(701), username: "admin", email: "admin@novakey.com", role: "ADMIN", role_id: uuid(801), role_name: "超级管理员", is_deleted: 0, created_at: "2025-01-01T00:00:00Z" },
+  { id: uuid(702), username: "kefu_xiaoli", email: "kefu1@novakey.com", role: "STAFF", role_id: uuid(802), role_name: "客服", is_deleted: 0, created_at: "2025-02-10T08:00:00Z" },
+  { id: uuid(703), username: "kefu_xiaowang", email: "kefu2@novakey.com", role: "STAFF", role_id: uuid(802), role_name: "客服", is_deleted: 1, created_at: "2025-03-05T08:00:00Z" },
+]
+
+export const mockRoleList: SystemRoleItem[] = [
+  { id: uuid(801), code: "SUPER_ADMIN", name: "超级管理员", description: "系统内置角色，拥有全部后台权限", permissions: ["BACKEND_ACCESS", "DASHBOARD", "CATEGORY_MANAGE", "PRODUCT_MANAGE", "CARDKEY_MANAGE", "ORDER_MANAGE", "CUSTOMER_MANAGE", "MARKETING_MANAGE", "PAYMENT_MANAGE", "SITE_CONFIG_MANAGE", "RISK_MANAGE", "TXID_REVIEW", "LOG_VIEW", "SYSTEM_MANAGE"], is_system: 1, user_count: 1, created_at: "2025-01-01T00:00:00Z" },
+  { id: uuid(802), code: "CUSTOMER_SERVICE", name: "客服", description: "处理订单与客户咨询", permissions: ["BACKEND_ACCESS", "DASHBOARD", "ORDER_MANAGE", "CUSTOMER_MANAGE", "TXID_REVIEW"], is_system: 0, user_count: 2, created_at: "2025-02-01T00:00:00Z" },
+]
+
+export const mockPermissionList: PermissionItem[] = [
+  { code: "BACKEND_ACCESS", name: "后台访问" },
+  { code: "DASHBOARD", name: "数据看板" },
+  { code: "CATEGORY_MANAGE", name: "分类管理" },
+  { code: "PRODUCT_MANAGE", name: "商品管理" },
+  { code: "CARDKEY_MANAGE", name: "卡密管理" },
+  { code: "ORDER_MANAGE", name: "订单管理" },
+  { code: "CUSTOMER_MANAGE", name: "客户管理" },
+  { code: "MARKETING_MANAGE", name: "营销管理" },
+  { code: "PAYMENT_MANAGE", name: "支付渠道" },
+  { code: "SITE_CONFIG_MANAGE", name: "网站设置" },
+  { code: "RISK_MANAGE", name: "风控管理" },
+  { code: "TXID_REVIEW", name: "USDT 核销审核" },
+  { code: "LOG_VIEW", name: "操作日志" },
+  { code: "SYSTEM_MANAGE", name: "系统管理（用户/角色）" },
 ]
 
 // ============================================================
@@ -708,14 +732,28 @@ export function mockAdminOrderList(params?: { status?: string; page?: number; pa
   }
 }
 
-export function mockAdminUserList(params?: { keyword?: string; page?: number; page_size?: number }): PaginatedData<AdminUserItem> {
-  let filtered = [...mockAdminUsers]
+export function mockSystemStaffList(params?: { keyword?: string; page?: number; page_size?: number }): PaginatedData<SystemStaffItem> {
+  let filtered = [...mockStaffList]
   if (params?.keyword) {
     const kw = params.keyword.toLowerCase()
     filtered = filtered.filter(u => u.username.toLowerCase().includes(kw) || u.email.toLowerCase().includes(kw))
   }
   const page = params?.page ?? 1
-  const pageSize = params?.page_size ?? 20
+  const pageSize = params?.page_size ?? 10
+  return {
+    list: filtered.slice((page - 1) * pageSize, page * pageSize),
+    pagination: { page, page_size: pageSize, total: filtered.length },
+  }
+}
+
+export function mockSystemRoleList(params?: { keyword?: string; page?: number; page_size?: number }): PaginatedData<SystemRoleItem> {
+  let filtered = [...mockRoleList]
+  if (params?.keyword) {
+    const kw = params.keyword.toLowerCase()
+    filtered = filtered.filter(r => r.name.toLowerCase().includes(kw) || r.code.toLowerCase().includes(kw))
+  }
+  const page = params?.page ?? 1
+  const pageSize = params?.page_size ?? 10
   return {
     list: filtered.slice((page - 1) * pageSize, page * pageSize),
     pagination: { page, page_size: pageSize, total: filtered.length },

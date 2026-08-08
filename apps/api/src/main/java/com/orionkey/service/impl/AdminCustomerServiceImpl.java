@@ -34,18 +34,17 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
 
-    private static final UserRole CUSTOMER_ROLE = UserRole.USER;
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> overview() {
         LocalDateTime monthStart = LocalDate.now().withDayOfMonth(1).atStartOfDay();
-        long totalRegistered = userRepository.countByRoleNot(CUSTOMER_ROLE);
+        long totalRegistered = userRepository.countByRole(UserRole.USER);
         long totalAnonymous = orderRepository.countAnonymousEmails();
         long totalCustomers = totalRegistered + totalAnonymous;
 
-        long newRegistered = userRepository.countByRoleNotAndCreatedAtGreaterThanEqual(CUSTOMER_ROLE, monthStart);
+        long newRegistered = userRepository.countByRoleAndCreatedAtGreaterThanEqual(UserRole.USER, monthStart);
         long newAnonymous = orderRepository.countNewAnonymousEmails(monthStart);
 
         long dealRegistered = orderRepository.countPaidRegisteredCustomers();
@@ -72,10 +71,10 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
         Pageable pageable = PageRequest.of(Math.max(page - 1, 0), Math.min(Math.max(pageSize, 1), 100));
         Page<User> userPage;
         if (keyword != null && !keyword.isBlank()) {
-            userPage = userRepository.findByRoleNotAndUsernameContainingOrRoleNotAndEmailContaining(
-                    CUSTOMER_ROLE, keyword.trim(), CUSTOMER_ROLE, keyword.trim(), pageable);
+            userPage = userRepository.findByRoleAndUsernameContainingOrRoleAndEmailContaining(
+                    UserRole.USER, keyword.trim(), UserRole.USER, keyword.trim(), pageable);
         } else {
-            userPage = userRepository.findByRoleNotOrderByCreatedAtDesc(CUSTOMER_ROLE, pageable);
+            userPage = userRepository.findByRoleOrderByCreatedAtDesc(UserRole.USER, pageable);
         }
         List<Map<String, Object>> list = userPage.getContent().stream().map(u -> {
             UUID uid = u.getId();

@@ -38,6 +38,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtUtils jwtUtils;
     private final CaptchaUtils captchaUtils;
     private final NotificationService notificationService;
+    private final PermissionResolver permissionResolver;
 
     @Override
     public CaptchaResponse generateCaptcha() {
@@ -77,7 +78,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name());
-        return new AuthResponse(token, UserProfileResponse.from(user));
+        return new AuthResponse(token, UserProfileResponse.from(user, permissionResolver.resolve(user)));
     }
 
     /** 连续登录失败上限 */
@@ -139,7 +140,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name());
-        return new AuthResponse(token, UserProfileResponse.from(user));
+        return new AuthResponse(token, UserProfileResponse.from(user, permissionResolver.resolve(user)));
     }
 
     @Override

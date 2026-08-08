@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Getter
 @Setter
@@ -33,6 +34,9 @@ public class User extends BaseEntity {
     private int points = 0;
 
     private int isDeleted = 0;
+
+    /** 内部人员绑定的角色 ID（system_roles.id）；普通客户为 null */
+    private UUID roleId;
 
     /** 连续登录失败次数 */
     private int failedLoginAttempts = 0;

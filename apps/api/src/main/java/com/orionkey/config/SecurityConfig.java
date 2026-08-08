@@ -67,9 +67,10 @@ public class SecurityConfig {
                         // Authenticated user endpoints
                         .requestMatchers("/auth/logout").authenticated()
                         .requestMatchers("/user/**").authenticated()
-                        // Admin endpoints
-                        .requestMatchers("/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/upload/**").hasRole("ADMIN")
+                        // Admin endpoints (RBAC：拥有对应权限码才能访问)
+                        .requestMatchers("/admin/system/**").hasAuthority("SYSTEM_MANAGE")
+                        .requestMatchers("/admin/**").hasAuthority("BACKEND_ACCESS")
+                        .requestMatchers("/upload/**").hasAuthority("BACKEND_ACCESS")
                         // Default
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

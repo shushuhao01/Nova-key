@@ -51,9 +51,11 @@ export interface UserProfile {
   id: string
   username: string
   email: string
-  role: 'USER' | 'ADMIN'
+  role: 'USER' | 'STAFF' | 'ADMIN'
   points: number
   created_at: string
+  /** RBAC 后台权限码（登录后由后端返回，前端按此渲染菜单/按钮） */
+  permissions?: string[]
 }
 
 // ============================================================
@@ -638,17 +640,42 @@ export interface AdminOrderItem extends OrderDetail {
 }
 
 // ============================================================
-// Admin Users
+// Admin System (RBAC：内部员工 + 角色权限)
 // ============================================================
 
-export interface AdminUserItem {
+/** 内部员工列表项（系统管理-用户管理） */
+export interface SystemStaffItem {
   id: string
   username: string
   email: string
-  role: string
-  points: number
+  role: 'ADMIN' | 'STAFF'
+  role_id: string | null
+  role_name: string | null
   is_deleted: 0 | 1
   created_at: string
+}
+
+/** 内部员工详情 */
+export interface SystemStaffDetail extends SystemStaffItem {
+  permissions: string[]
+}
+
+/** 角色列表项（系统管理-角色管理） */
+export interface SystemRoleItem {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  permissions: string[]
+  is_system: 0 | 1
+  user_count: number
+  created_at: string
+}
+
+/** 权限点（码 + 名称） */
+export interface PermissionItem {
+  code: string
+  name: string
 }
 
 // ============================================================

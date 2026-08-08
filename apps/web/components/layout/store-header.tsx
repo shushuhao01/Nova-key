@@ -260,7 +260,7 @@ export function StoreHeader({ siteName }: StoreHeaderProps) {
                     <Link href="/my/orders" onClick={() => setUserMenuOpen(false)} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-popover-foreground hover:bg-accent">
                       <Search className="h-4 w-4" />{t("nav.myOrders")}
                     </Link>
-                    {user?.role === "ADMIN" && (
+                    {(user?.role === "ADMIN" || (user?.permissions ?? []).includes("BACKEND_ACCESS")) && (
                       <Link href="/admin/dashboard" onClick={() => setUserMenuOpen(false)} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-popover-foreground hover:bg-accent">
                         <Settings className="h-4 w-4" />{t("nav.admin")}
                       </Link>
