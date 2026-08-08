@@ -18,6 +18,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
 import java.net.URLEncoder;
@@ -252,7 +253,7 @@ public class AlipayServiceImpl implements AlipayService {
                 for (Map.Entry<String, Object> entry : apiRespForVerify.entrySet()) {
                     verifyParams.put(entry.getKey(), String.valueOf(entry.getValue()));
                 }
-                String content = buildSignContent(verifyParams);
+                String content = buildSignContent(verifyParams, false);
                 java.security.PublicKey publicKey;
                 try {
                     publicKey = PaymentCryptoUtils.parsePublicKey(config.alipayPublicKey());
@@ -307,7 +308,7 @@ public class AlipayServiceImpl implements AlipayService {
     public boolean verifySign(String alipayPublicKey, Map<String, String> params, String sign) {
         if (sign == null || sign.isBlank()) return false;
         try {
-            String content = buildSignContent(params);
+            String content = buildSignContent(params, false);
             return PaymentCryptoUtils.verify(
                     PaymentCryptoUtils.parsePublicKey(alipayPublicKey), content, sign);
         } catch (Exception e) {
@@ -359,19 +360,28 @@ public class AlipayServiceImpl implements AlipayService {
     }
 
     /**
-     * 对待签名参数排序拼接并签名（排除 sign / sign_type 及空值）。
+     * 请求签名：sign_type 必须参与签名！支付宝网关验签时生成的验签字符串
+     * 包含 sign_type=RSA2（见网关错误信息中给出的"即将生成的验签字符串"），
+     * 若将其排除会导致 isv.invalid-signature。
      */
     private String sign(Map<String, String> params, String privateKey) {
-        String content = buildSignContent(params);
+        String content = buildSignContent(params, true);
         return PaymentCryptoUtils.sign(PaymentCryptoUtils.parsePrivateKey(privateKey), content);
     }
 
-    private String buildSignContent(Map<String, String> params) {
+    /**
+     * 对待签名参数排序拼接。includeSignType 用于区分两种验签规则：
+     * - 请求签名（includeSignType=true）：网关验签字符串含 sign_type，必须参与；
+     * - 响应/异步通知验签（includeSignType=false）：支付宝通知验签规则剔除 sign 和 sign_type。
+     * 仅排除 sign 及空值。
+     */
+    private String buildSignContent(Map<String, String> params, boolean includeSignType) {
         TreeMap<String, String> sorted = new TreeMap<>();
         for (Map.Entry<String, String> entry : params.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
-            if ("sign".equals(key) || "sign_type".equals(key)) continue;
+            if ("sign".equals(key)) continue;
+            if (!includeSignType && "sign_type".equals(key)) continue;
             if (value == null || value.isEmpty()) continue;
             sorted.put(key, value);
         }
@@ -384,12 +394,24 @@ public class AlipayServiceImpl implements AlipayService {
     }
 
     private String postForm(String url, Map<String, String> params) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        params.forEach(form::add);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        // 支付宝网关请求规范：平台公共参数（app_id/method/charset/sign_type/timestamp/version/sign 等）
+        // 必须放在 URL query 中（特别是 charset），业务参数 biz_content 放在 HTTP body 中。
+        // 若把所有参数都放在 form body，网关验签会失败（isv.invalid-signature，
+        // 提示"请确认charset参数放在了URL查询字符串中"）。
+        String bizContent = params.remove("biz_content");
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(url);
+        params.forEach(builder::queryParam);
+        if (bizContent != null) {
+            MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+            form.add("biz_content", bizContent);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            ResponseEntity<String> response = restTemplate.postForEntity(
+                    builder.build().encode().toUri(), new HttpEntity<>(form, headers), String.class);
+            return response.getBody();
+        }
         ResponseEntity<String> response = restTemplate.postForEntity(
-                url, new HttpEntity<>(form, headers), String.class);
+                builder.build().encode().toUri(), null, String.class);
         return response.getBody();
     }
 
