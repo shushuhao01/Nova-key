@@ -26,6 +26,10 @@ public class Product extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String detailMd;
 
+    /** 商品详情图列表（JSON 数组字符串，如 ["/api/uploads/a.png","/api/uploads/b.png"]） */
+    @Column(columnDefinition = "TEXT")
+    private String detailImages;
+
     private String coverUrl;
 
     @Column(nullable = false, precision = 10, scale = 2)

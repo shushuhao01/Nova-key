@@ -105,6 +105,7 @@ export interface ProductCard {
 /** Full product detail (returned by GET /products/{id}) */
 export interface ProductDetail extends ProductCard {
   detail_md?: string
+  detail_images?: string[]
   specs: ProductSpec[]
   spec_enabled?: boolean
   wholesale_enabled: boolean

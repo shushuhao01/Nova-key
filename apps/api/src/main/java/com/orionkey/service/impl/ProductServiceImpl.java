@@ -13,6 +13,8 @@ import com.orionkey.repository.ProductRepository;
 import com.orionkey.repository.ProductSpecRepository;
 import com.orionkey.repository.WholesaleRuleRepository;
 import com.orionkey.service.ProductService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -32,6 +34,7 @@ public class ProductServiceImpl implements ProductService {
     private final WholesaleRuleRepository wholesaleRuleRepository;
     private final CardKeyRepository cardKeyRepository;
     private final OrderItemRepository orderItemRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     public PageResult<?> listPublicProducts(UUID categoryId, String keyword, int page, int pageSize) {
@@ -103,6 +106,7 @@ public class ProductServiceImpl implements ProductService {
         product.setTitle((String) req.get("title"));
         product.setDescription((String) req.get("description"));
         product.setDetailMd((String) req.get("detail_md"));
+        product.setDetailImages(toDetailImagesJson(req.get("detail_images")));
         product.setCoverUrl((String) req.get("cover_url"));
         product.setBasePrice(new BigDecimal(req.get("base_price").toString()));
         if (req.containsKey("currency")) product.setCurrency((String) req.get("currency"));
@@ -127,6 +131,7 @@ public class ProductServiceImpl implements ProductService {
         if (req.containsKey("title")) product.setTitle((String) req.get("title"));
         if (req.containsKey("description")) product.setDescription((String) req.get("description"));
         if (req.containsKey("detail_md")) product.setDetailMd((String) req.get("detail_md"));
+        if (req.containsKey("detail_images")) product.setDetailImages(toDetailImagesJson(req.get("detail_images")));
         if (req.containsKey("cover_url")) product.setCoverUrl((String) req.get("cover_url"));
         if (req.containsKey("base_price")) product.setBasePrice(new BigDecimal(req.get("base_price").toString()));
         if (req.containsKey("currency")) product.setCurrency((String) req.get("currency"));
@@ -286,6 +291,7 @@ public class ProductServiceImpl implements ProductService {
     private Map<String, Object> toProductDetail(Product p) {
         Map<String, Object> map = new LinkedHashMap<>(toProductCard(p));
         map.put("detail_md", p.getDetailMd());
+        map.put("detail_images", parseDetailImages(p.getDetailImages()));
         List<ProductSpec> specs = productSpecRepository.findByProductIdAndIsDeletedOrderBySortOrderAsc(p.getId(), 0);
         map.put("specs", specs.stream().map(this::toSpecMap).toList());
         map.put("spec_enabled", p.isSpecEnabled());
@@ -310,5 +316,37 @@ public class ProductServiceImpl implements ProductService {
         map.put("card_key_count", cardKeyRepository.countByProductIdAndSpecIdExcludingStatus(
                 s.getProductId(), s.getId(), CardKeyStatus.INVALID));
         return map;
+    }
+
+    /** 将请求中的 detail_images（List<String> 或 null）转为 JSON 数组字符串存储 */
+    @SuppressWarnings("unchecked")
+    private String toDetailImagesJson(Object value) {
+        if (value instanceof List<?> list) {
+            try {
+                List<String> urls = list.stream()
+                        .filter(Objects::nonNull)
+                        .map(String::valueOf)
+                        .filter(u -> !u.isBlank())
+                        .toList();
+                return objectMapper.writeValueAsString(urls);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        if (value instanceof String s && !s.isBlank()) {
+            return s;
+        }
+        return null;
+    }
+
+    /** 解析详情图 JSON 数组字符串为列表；空值返回空列表 */
+    private List<String> parseDetailImages(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        try {
+            List<String> list = objectMapper.readValue(json, new TypeReference<List<String>>() {});
+            return list == null ? List.of() : list;
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 }

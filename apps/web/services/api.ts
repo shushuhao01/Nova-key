@@ -451,13 +451,13 @@ export const adminProductApi = {
   getDetail: (id: string) =>
     request<ProductDetail>(`/admin/products/${id}`),
   create: (data: {
-    title: string; description?: string; detail_md?: string; cover_url?: string;
+    title: string; description?: string; detail_md?: string; detail_images?: string[]; cover_url?: string;
     base_price: number; category_id: string; low_stock_threshold?: number;
     wholesale_enabled?: boolean; is_enabled?: boolean; sort_order?: number
   }) =>
     request<ProductDetail>("/admin/products", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<{
-    title: string; description: string; detail_md: string; cover_url: string;
+    title: string; description: string; detail_md: string; detail_images: string[]; cover_url: string;
     base_price: number; category_id: string; low_stock_threshold: number;
     wholesale_enabled: boolean; is_enabled: boolean; sort_order: number
   }>) =>

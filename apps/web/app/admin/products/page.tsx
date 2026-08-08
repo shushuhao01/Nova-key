@@ -45,6 +45,7 @@ export default function AdminProductsPage() {
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [detailUploading, setDetailUploading] = useState(false)
+  const [detailImagesUploading, setDetailImagesUploading] = useState(false)
   const [specsEnabled, setSpecsEnabled] = useState(false)
   const detailTextareaRef = useRef<HTMLTextAreaElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -57,6 +58,7 @@ export default function AdminProductsPage() {
     title: "",
     description: "",
     detail_md: "",
+    detail_images: [] as string[],
     category_id: "",
     base_price: "",
     currency: "CNY",
@@ -149,6 +151,7 @@ export default function AdminProductsPage() {
       title: product.title,
       description: product.description || "",
       detail_md: product.detail_md || "",
+      detail_images: product.detail_images || [],
       category_id: product.category_id,
       base_price: String(product.base_price),
       currency: product.currency || "CNY",
@@ -251,6 +254,7 @@ export default function AdminProductsPage() {
         title: formData.title,
         description: formData.description || undefined,
         detail_md: formData.detail_md || undefined,
+        detail_images: formData.detail_images.length > 0 ? formData.detail_images : undefined,
         category_id: formData.category_id,
         base_price: basePrice,
         currency: formData.currency,
@@ -322,7 +326,7 @@ export default function AdminProductsPage() {
   const handleCloseModal = () => {
     setShowModal(false)
     setEditingProduct(null)
-    setFormData({ title: "", description: "", detail_md: "", category_id: "", base_price: "", currency: "CNY", cover_url: "", low_stock_threshold: "10", wholesale_enabled: false, is_enabled: true, initial_sales: "", sort_order: "", delivery_type: "AUTO" })
+    setFormData({ title: "", description: "", detail_md: "", detail_images: [], category_id: "", base_price: "", currency: "CNY", cover_url: "", low_stock_threshold: "10", wholesale_enabled: false, is_enabled: true, initial_sales: "", sort_order: "", delivery_type: "AUTO" })
     setFormSpecs([])
     setSpecsEnabled(false)
     setSpecDeleteConfirm(null)
@@ -737,6 +741,58 @@ export default function AdminProductsPage() {
                     ))}
                   </div>
                 )}
+              </div>
+              {/* 商品详情图（多图上传） */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-foreground">{t("admin.detailImages")}</label>
+                  <label className={cn("flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors", detailImagesUploading && "pointer-events-none opacity-50")}>
+                    {detailImagesUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                    上传详情图
+                    <input
+                      type="file"
+                      accept={ALLOWED_IMAGE_ACCEPT}
+                      className="hidden"
+                      onChange={async (e) => {
+                        const files = Array.from(e.target.files || [])
+                        if (files.length === 0) return
+                        for (const file of files) {
+                          const err = validateImageFile(file)
+                          if (err) { toast.error(`${file.name}：${err}`); continue }
+                          setDetailImagesUploading(true)
+                          try {
+                            const result = await adminProductApi.uploadImage(file)
+                            setFormData(prev => ({ ...prev, detail_images: [...prev.detail_images, result.url] }))
+                          } catch (err2: unknown) {
+                            toast.error(`${file.name}：${err2 instanceof Error ? err2.message : "上传失败"}`)
+                          } finally {
+                            setDetailImagesUploading(false)
+                          }
+                        }
+                        e.target.value = ""
+                      }}
+                    />
+                  </label>
+                </div>
+                {formData.detail_images.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {formData.detail_images.map((url, idx) => (
+                      <div key={url} className="group relative overflow-hidden rounded-lg border border-border">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url} alt={`详情图 ${idx + 1}`} className="h-24 w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, detail_images: prev.detail_images.filter((_, i) => i !== idx) }))}
+                          className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+                          title="移除"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">{t("admin.detailImagesHint")}</p>
               </div>
               {/* 详细说明（放在最底部） */}
               <div className="flex flex-col gap-1.5">

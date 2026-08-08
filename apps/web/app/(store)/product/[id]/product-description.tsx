@@ -18,6 +18,15 @@ export function ProductDescription({ product }: { product: ProductDetail }) {
         </h2>
       </div>
 
+      {product.detail_images && product.detail_images.length > 0 && (
+        <div className="mb-8 space-y-4">
+          {product.detail_images.map((url, idx) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={idx} src={url} alt={`detail-${idx}`} className="w-full rounded-lg border border-border" />
+          ))}
+        </div>
+      )}
+
       {product.detail_md ? (
         <div className="prose prose-sm max-w-none text-muted-foreground dark:prose-invert">
           <ReactMarkdown>{product.detail_md}</ReactMarkdown>
