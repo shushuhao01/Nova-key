@@ -148,6 +148,10 @@ public class MarketingServiceImpl implements MarketingService {
                 throw new BusinessException(ErrorCode.BAD_REQUEST, "核销码已被其他优惠券使用");
             }
         }
+        // 未填写核销码时自动生成，确保优惠券可被分享和领取
+        if (code == null) {
+            code = generateUniqueCode();
+        }
         c.setCouponCode(code);
         // 发行数量：默认 1（0 表示不限制，兼容旧数据）
         int quantity = body.get("coupon_quantity") instanceof Number q ? Math.max(0, q.intValue()) : 1;

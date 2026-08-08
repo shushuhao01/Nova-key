@@ -34,6 +34,7 @@ public class DataMigrationRunner implements ApplicationRunner {
             log.info("Migration: set spec_enabled=true for {} products with existing specs", updated);
         }
         migrateUserRoleColumn();
+        migrateCouponCodes();
     }
 
     /**
@@ -69,6 +70,23 @@ public class DataMigrationRunner implements ApplicationRunner {
             }
         } catch (Exception e) {
             log.warn("[Migration] users.role column check skipped: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 为早期创建的无核销码优惠券自动生成 NK- 前缀核销码，确保可被分享和领取。
+     */
+    private void migrateCouponCodes() {
+        try {
+            // 生成基于 UUID 前 8 位的唯一核销码
+            String sql = "UPDATE marketing_campaigns SET coupon_code = 'NK-' || UPPER(SUBSTRING(id::text, 1, 8)) "
+                    + "WHERE record_type = 'COUPON' AND (coupon_code IS NULL OR coupon_code = '')";
+            int updated = jdbcTemplate.update(sql);
+            if (updated > 0) {
+                log.info("[Migration] auto-generated coupon codes for {} campaigns", updated);
+            }
+        } catch (Exception e) {
+            log.warn("[Migration] coupon code generation skipped: {}", e.getMessage());
         }
     }
 }
