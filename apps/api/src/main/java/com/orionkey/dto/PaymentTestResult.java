@@ -24,7 +24,7 @@ public record PaymentTestResult(
      *
      * @param name    检测项名称（如 AppID、商户号、连接测试）
      * @param status  是否通过
-     * @param message 该项的说明（如 "AppID已配置: wx5435ceeb470e967f"）
+     * @param message 该项的说明（如 "AppID已配置: wx0000000000000000"）
      */
     public record TestItem(String name, boolean status, String message) {
     }
