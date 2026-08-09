@@ -143,7 +143,16 @@ public class EmailServiceImpl implements EmailService {
     @Override
     public void sendDeliveryEmail(UUID orderId) {
         if (!cfgEnabled()) {
-            log.debug("Mail disabled, skip delivery email for order {}", orderId);
+            log.warn("Mail disabled (mail_enabled=false), skip delivery email for order {}", orderId);
+            return;
+        }
+
+        // SMTP 配置检查
+        String host = cfg("smtp_host", smtpHostDefault);
+        String username = cfg("smtp_username", smtpUsernameDefault);
+        if (host == null || host.isBlank() || username == null || username.isBlank()) {
+            log.error("SMTP not configured (smtp_host={}, smtp_username={}), cannot send delivery email for order {}. Please configure SMTP in admin panel → 网站设置 → 邮箱发件.",
+                    host, username, orderId);
             return;
         }
 
@@ -165,6 +174,9 @@ public class EmailServiceImpl implements EmailService {
                 });
             }
 
+            log.info("Sending delivery email for order {} to {} (host={}, port={})",
+                    orderId, recipients, host, cfg("smtp_port", smtpPortDefault));
+
             List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
             List<CardKey> keys = cardKeyRepository.findByOrderId(orderId);
             Map<UUID, OrderItem> itemMap = items.stream()
@@ -184,10 +196,10 @@ public class EmailServiceImpl implements EmailService {
             helper.setText(html, true);
 
             sender.send(message);
-            log.info("Delivery email sent for order {} to {}", orderId, recipients);
+            log.info("✓ Delivery email sent for order {} to {}", orderId, recipients);
         } catch (Exception e) {
             // 发货邮件失败不影响发货状态，只记录日志（用户仍可在订单查询页看到卡密）
-            log.error("Failed to send delivery email for order {}: {}", orderId, e.getMessage(), e);
+            log.error("✗ Failed to send delivery email for order {}: {}", orderId, e.getMessage(), e);
         }
     }
 
