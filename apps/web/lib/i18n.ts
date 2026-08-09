@@ -210,7 +210,8 @@ const zh = {
   "payment.retryPay": "重新发起支付",
   "payment.refreshQrCode": "刷新二维码",
   "payment.continuePay": "继续支付",
-  "payment.wechatMobileScanHint": "请截图后打开微信扫一扫",
+  "payment.wechatMobileScanHint": "长按下方二维码识别支付",
+  "payment.longPressHint": "长按二维码 → 识别图中二维码 → 完成支付",
   "payment.completedPayment": "已完成支付？去",
   "payment.goQueryOrder": "查询订单",
 
@@ -1123,7 +1124,8 @@ const en: Record<keyof typeof zh, string> = {
   "payment.retryPay": "Retry Payment",
   "payment.refreshQrCode": "Refresh QR Code",
   "payment.continuePay": "Continue Payment",
-  "payment.wechatMobileScanHint": "Please screenshot and scan in WeChat",
+  "payment.wechatMobileScanHint": "Long press the QR code below to pay",
+  "payment.longPressHint": "Long press QR code → Recognize → Complete payment",
   "payment.completedPayment": "Payment completed? ",
   "payment.goQueryOrder": "Check order status",
 

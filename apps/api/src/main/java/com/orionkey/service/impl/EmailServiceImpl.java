@@ -335,35 +335,29 @@ public class EmailServiceImpl implements EmailService {
         sb.append("<p style=\"margin:0;color:#666666;font-size:14px;line-height:1.6;\">您的订单已完成支付并自动发货，以下是购买的卡密信息：</p>");
         sb.append("</td></tr>");
 
-        // Order info - 紧凑横排布局
+        // Order info - 竖排，标签列固定宽度避免换行
         sb.append("<tr><td style=\"padding:24px 40px;\">");
-        sb.append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f8f9fa;border-radius:6px;\">");
-        // 第一行：订单编号 + 支付金额
-        sb.append("<tr>");
-        sb.append("<td style=\"padding:10px 16px;width:50%;border-bottom:1px solid #eee;\"><span style=\"color:#888;font-size:12px;display:block;margin-bottom:2px;\">订单编号</span>");
-        sb.append("<span style=\"color:#333;font-size:13px;font-family:monospace;\">").append(orderId).append("</span></td>");
-        sb.append("<td style=\"padding:10px 16px;width:50%;border-bottom:1px solid #eee;text-align:right;\"><span style=\"color:#888;font-size:12px;display:block;margin-bottom:2px;\">支付金额</span>");
-        sb.append("<span style=\"color:#e53935;font-size:15px;font-weight:600;\">¥").append(amount).append("</span></td>");
-        sb.append("</tr>");
-        // 第二行：支付方式 + 支付时间
-        sb.append("<tr>");
+        sb.append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f8f9fa;border-radius:6px;padding:16px;\">");
+        sb.append("<tr><td style=\"padding:4px 16px;width:90px;white-space:nowrap;\"><span style=\"color:#888;font-size:13px;\">订单编号</span></td>");
+        sb.append("<td style=\"padding:4px 16px;\"><span style=\"color:#333;font-size:13px;font-family:monospace;word-break:break-all;\">")
+          .append(orderId).append("</span></td></tr>");
+        sb.append("<tr><td style=\"padding:4px 16px;width:90px;white-space:nowrap;\"><span style=\"color:#888;font-size:13px;\">支付金额</span></td>");
+        sb.append("<td style=\"padding:4px 16px;\"><span style=\"color:#e53935;font-size:14px;font-weight:600;\">¥")
+          .append(amount).append("</span></td></tr>");
         if (!paymentLabel.isBlank()) {
-            sb.append("<td style=\"padding:10px 16px;width:50%;\"><span style=\"color:#888;font-size:12px;display:block;margin-bottom:2px;\">支付方式</span>");
-            sb.append("<span style=\"color:#333;font-size:13px;\">").append(escapeHtml(paymentLabel)).append("</span></td>");
-        } else {
-            sb.append("<td style=\"padding:10px 16px;width:50%;\"></td>");
+            sb.append("<tr><td style=\"padding:4px 16px;width:90px;white-space:nowrap;\"><span style=\"color:#888;font-size:13px;\">支付方式</span></td>");
+            sb.append("<td style=\"padding:4px 16px;\"><span style=\"color:#333;font-size:13px;\">")
+              .append(escapeHtml(paymentLabel)).append("</span></td></tr>");
         }
         if (paidTime != null) {
-            sb.append("<td style=\"padding:10px 16px;width:50%;text-align:right;\"><span style=\"color:#888;font-size:12px;display:block;margin-bottom:2px;\">支付时间</span>");
-            sb.append("<span style=\"color:#333;font-size:13px;\">").append(paidTime.format(DATE_FMT)).append("</span></td>");
-        } else {
-            sb.append("<td style=\"padding:10px 16px;width:50%;\"></td>");
+            sb.append("<tr><td style=\"padding:4px 16px;width:90px;white-space:nowrap;\"><span style=\"color:#888;font-size:13px;\">支付时间</span></td>");
+            sb.append("<td style=\"padding:4px 16px;\"><span style=\"color:#333;font-size:13px;\">")
+              .append(paidTime.format(DATE_FMT)).append("</span></td></tr>");
         }
-        sb.append("</tr>");
         sb.append("</table>");
         sb.append("</td></tr>");
 
-        // Card keys - 横排表格布局（每行2个）
+        // Card keys grouped by product
         sb.append("<tr><td style=\"padding:0 40px 24px;\">");
         for (Map.Entry<UUID, List<CardKey>> entry : grouped.entrySet()) {
             OrderItem item = itemMap.get(entry.getKey());
@@ -379,20 +373,10 @@ public class EmailServiceImpl implements EmailService {
             sb.append("<div style=\"background-color:#f0f0f5;padding:10px 16px;font-size:14px;font-weight:600;color:#333;\">")
               .append(title).append("</div>");
             sb.append("<div style=\"padding:12px 16px;\">");
-            // 卡密横排表格（每行2列）
-            sb.append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">");
-            int col = 0;
             for (CardKey key : entry.getValue()) {
-                if (col % 2 == 0) sb.append("<tr>");
-                sb.append("<td style=\"padding:4px;width:50%;\">");
-                sb.append("<div style=\"background-color:#fafafa;border:1px solid #eee;border-radius:4px;padding:8px 12px;font-family:'Courier New',Courier,monospace;font-size:13px;color:#222;word-break:break-all;\">")
+                sb.append("<div style=\"background-color:#fafafa;border:1px solid #eee;border-radius:4px;padding:8px 12px;margin-bottom:6px;font-family:'Courier New',Courier,monospace;font-size:13px;color:#222;word-break:break-all;\">")
                   .append(escapeHtml(key.getContent())).append("</div>");
-                sb.append("</td>");
-                col++;
-                if (col % 2 == 0) sb.append("</tr>");
             }
-            if (col % 2 != 0) sb.append("<td style=\"padding:4px;width:50%;\"></td></tr>");
-            sb.append("</table>");
             sb.append("</div></div>");
         }
         sb.append("</td></tr>");

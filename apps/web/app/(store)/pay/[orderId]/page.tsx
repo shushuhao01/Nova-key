@@ -18,13 +18,13 @@ import {
   AlertTriangle,
   Smartphone,
 } from "lucide-react"
-import { QRCodeSVG } from "qrcode.react"
 import { toast } from "sonner"
 import { useLocale, useCart, useSiteConfig } from "@/lib/context"
 import { orderApi } from "@/services/api"
 import type { OrderStatus } from "@/types"
 import { cn, detectPaymentDevice, isMobileDevice } from "@/lib/utils"
 import { PaymentIcon, getPaymentLabel, getPaymentBrandColor, getPaymentScanHint } from "@/components/shared/payment-icon"
+import { QrCodeImage } from "@/components/shared/qr-code-image"
 
 const POLL_INTERVAL = 3000 // 3 seconds
 const MANUAL_REFRESH_COOLDOWN = 10 // 10 seconds
@@ -369,7 +369,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
             >
               {walletAddress ? (
                 <div className="rounded-lg bg-white p-2">
-                  <QRCodeSVG value={walletAddress} size={160} level="M" includeMargin={false} className="h-[140px] w-[140px] sm:h-[160px] sm:w-[160px]" />
+                  <QrCodeImage value={walletAddress} size={160} alt="USDT 收款地址二维码" className="h-[140px] w-[140px] sm:h-[160px] sm:w-[160px]" />
                 </div>
               ) : (
                 <div className="flex h-[140px] w-[140px] flex-col items-center justify-center gap-2 text-muted-foreground sm:h-[160px] sm:w-[160px]">
@@ -414,7 +414,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
               </p>
               <div className="flex h-52 w-52 items-center justify-center rounded-xl bg-white p-3">
                 {qrcodeUrl ? (
-                  <QRCodeSVG value={qrcodeUrl} size={184} level="M" includeMargin={false} />
+                  <QrCodeImage value={qrcodeUrl} size={184} alt="支付二维码" />
                 ) : (
                   <div className="flex flex-col items-center gap-2 text-muted-foreground">
                     <Loader2 className="h-8 w-8 animate-spin" />
@@ -422,6 +422,11 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
                   </div>
                 )}
               </div>
+              {isWechatMobile && (
+                <p className="animate-pulse text-center text-sm font-medium text-white/90">
+                  {t("payment.longPressHint")}
+                </p>
+              )}
             </div>
             <p className="animate-pulse text-sm text-primary">{t("payment.detecting")}</p>
 
