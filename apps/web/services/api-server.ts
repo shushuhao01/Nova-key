@@ -25,10 +25,10 @@ const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8083"
 // Core request
 // ============================================================
 
-async function serverRequest<T>(path: string): Promise<T> {
+async function serverRequest<T>(path: string, revalidate: number = 60): Promise<T> {
   const res = await fetch(`${BACKEND_URL}/api${path}`, {
     headers: { "Content-Type": "application/json" },
-    cache: "no-store",
+    next: { revalidate },
   })
 
   if (!res.ok) {

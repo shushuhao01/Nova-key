@@ -97,7 +97,7 @@ export function StoreHeader({ siteName }: StoreHeaderProps) {
         <div className="flex min-w-0 flex-1 items-center">
           <Link href="/" className="flex shrink-0 items-center gap-2.5 text-foreground">
             {siteConfig?.logo_url ? (
-              <img src={siteConfig.logo_url} alt={siteName || siteConfig?.site_name || ""} className="h-6 w-6 rounded object-contain" />
+              <img src={siteConfig.logo_url} alt={siteName || siteConfig?.site_name || ""} className="h-6 w-6 rounded object-contain" fetchPriority="high" decoding="async" />
             ) : (
               <Package className="h-6 w-6 text-primary" />
             )}

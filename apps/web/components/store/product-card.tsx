@@ -35,6 +35,8 @@ export function ProductCard({ product }: ProductCardProps) {
           <img
             src={product.cover_url || "/placeholder.svg"}
             alt={product.title}
+            loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover transition-transform duration-300 will-change-transform hover:scale-105"
           />
         ) : (

@@ -32,7 +32,7 @@ export function ProductDescription({ product }: { product: ProductDetail }) {
         <div className="mt-8 space-y-4">
           {product.detail_images.map((url, idx) => (
             // eslint-disable-next-line @next/next/no-img-element
-            <img key={idx} src={url} alt={`detail-${idx}`} className="w-full rounded-lg border border-border" />
+            <img key={idx} src={url} alt={`detail-${idx}`} loading="lazy" decoding="async" className="w-full rounded-lg border border-border" />
           ))}
         </div>
       )}

@@ -97,7 +97,7 @@ export function HomeContent({ products, categories, siteSlogan, siteDescription 
               rel="noopener noreferrer"
               className="tg-ghost-btn mt-6 inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold text-[#2AABEE] transition-all active:scale-[0.97]"
             >
-              <img src="/images/telegram.png" alt="" className="h-4 w-4" />
+              <img src="/images/telegram.png" alt="" className="h-4 w-4" loading="lazy" decoding="async" />
               <span>{t("home.joinTelegram")}</span>
             </a>
           )}

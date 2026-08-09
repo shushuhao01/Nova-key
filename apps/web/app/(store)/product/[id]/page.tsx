@@ -98,6 +98,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
               <img
                 src={product.cover_url}
                 alt={product.title}
+                fetchPriority="high"
+                decoding="async"
                 className="h-full w-full object-cover"
               />
             ) : (

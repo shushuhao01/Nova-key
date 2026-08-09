@@ -18,6 +18,8 @@ import java.nio.file.Paths;
 import java.util.Map;
 import java.util.UUID;
 
+import net.coobird.thumbnailator.Thumbnails;
+
 @Slf4j
 @RestController
 @RequestMapping("/upload")
@@ -125,14 +127,32 @@ public class UploadController {
 
         try {
             Path target = resolvedUploadDir.resolve(filename);
-            file.transferTo(target.toFile());
-            log.info("File uploaded: {}", target);
+            // 压缩图片：限制最大宽度 1200px，JPEG 质量 80%，大幅减小文件体积
+            try (InputStream is = file.getInputStream()) {
+                Thumbnails.of(is)
+                        .size(1200, 1200)
+                        .outputQuality(0.8)
+                        .toFile(target.toFile());
+            }
+            long originalSize = file.getSize();
+            long compressedSize = java.nio.file.Files.size(target);
+            log.info("File uploaded (compressed): {} ({} -> {} bytes)", target, originalSize, compressedSize);
 
             String url = urlPrefix + "/" + filename;
             return ApiResponse.success(Map.of("url", url));
-        } catch (IOException e) {
-            log.error("File upload failed", e);
-            throw new BusinessException(ErrorCode.SERVER_ERROR, "文件上传失败");
+        } catch (Exception e) {
+            // 压缩失败时回退到原始文件
+            log.warn("Image compression failed, falling back to original: {}", e.getMessage());
+            try {
+                Path target = resolvedUploadDir.resolve(filename);
+                file.transferTo(target.toFile());
+                log.info("File uploaded (original): {}", target);
+                String url = urlPrefix + "/" + filename;
+                return ApiResponse.success(Map.of("url", url));
+            } catch (IOException e2) {
+                log.error("File upload failed", e2);
+                throw new BusinessException(ErrorCode.SERVER_ERROR, "文件上传失败");
+            }
         }
     }
 

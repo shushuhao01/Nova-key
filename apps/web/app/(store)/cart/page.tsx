@@ -78,6 +78,8 @@ export default function CartPage() {
                 <img
                   src={item.cover_url || "/placeholder.svg"}
                   alt={item.product_title}
+                  loading="lazy"
+                  decoding="async"
                   className="h-full w-full object-cover"
                 />
               ) : (
