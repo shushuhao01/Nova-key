@@ -538,7 +538,7 @@ export default function AdminProductsPage() {
               {/* 商品简介 */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-foreground">{t("admin.productBrief")}</label>
-                <input type="text" className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" placeholder="简短描述商品特点" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} />
+                <textarea className="min-h-[100px] resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" placeholder="简短描述商品特点，支持换行排版" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} />
               </div>
               {/* 分类 + 货币类型 */}
               <div className="grid grid-cols-2 gap-4">

@@ -24,7 +24,7 @@ export function ProductDescription({ product }: { product: ProductDetail }) {
           <ReactMarkdown>{product.detail_md}</ReactMarkdown>
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground">{product.description}</p>
+        <p className="whitespace-pre-wrap text-sm text-muted-foreground">{product.description}</p>
       )}
 
       {/* 详情图片（在下） */}
