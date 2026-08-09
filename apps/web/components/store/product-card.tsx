@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Zap, Package, AlertTriangle } from "lucide-react"
+import { Zap, Package, AlertTriangle, Play } from "lucide-react"
 import type { ProductCard as ProductCardType } from "@/types"
 import { useLocale } from "@/lib/context"
 import { cn, getCurrencySymbol } from "@/lib/utils"
@@ -32,13 +32,21 @@ export function ProductCard({ product }: ProductCardProps) {
         className="relative block aspect-[4/3.2] cursor-pointer bg-muted"
       >
         {product.cover_url ? (
-          <img
-            src={product.cover_url || "/placeholder.svg"}
-            alt={product.title}
-            loading="lazy"
-            decoding="async"
-            className="h-full w-full object-cover transition-transform duration-300 will-change-transform hover:scale-105"
-          />
+          <>
+            <img
+              src={product.cover_url || "/placeholder.svg"}
+              alt={product.title}
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-cover transition-transform duration-300 will-change-transform hover:scale-105"
+            />
+            {product.video_url && (
+              <span className="absolute bottom-2 right-2 flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
+                <Play className="h-3 w-3 fill-white" />
+                视频
+              </span>
+            )}
+          </>
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-muted to-muted/50">
             <Package className="h-8 w-8 text-muted-foreground/20" />

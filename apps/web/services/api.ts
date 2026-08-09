@@ -484,6 +484,12 @@ export const adminProductApi = {
     formData.append("file", file)
     return uploadRequest<{ url: string }>("/upload/image", formData)
   },
+  // Video upload
+  uploadVideo: (file: File) => {
+    const formData = new FormData()
+    formData.append("file", file)
+    return uploadRequest<{ url: string }>("/upload/video", formData)
+  },
 }
 
 // ============================================================

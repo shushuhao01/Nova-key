@@ -4,6 +4,7 @@ import { getProductDetail, getPaymentChannels } from "@/services/api-server"
 import { ProductActions } from "./product-actions"
 import { ProductBreadcrumb } from "./product-breadcrumb"
 import { ProductDescription } from "./product-description"
+import { ProductGallery } from "./product-gallery"
 import { ScrollToTop } from "./scroll-to-top"
 import type { Metadata } from "next"
 import type { PaymentChannelItem } from "@/types"
@@ -91,23 +92,9 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       <ProductBreadcrumb title={product.title} />
 
       <div className="grid gap-6 lg:grid-cols-5">
-        {/* Left: Image — server rendered */}
+        {/* Left: Media gallery (video + image) */}
         <div className="lg:col-span-2">
-          <div className="relative aspect-square overflow-hidden rounded-lg border border-border bg-muted">
-            {product.cover_url ? (
-              <img
-                src={product.cover_url}
-                alt={product.title}
-                fetchPriority="high"
-                decoding="async"
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center">
-                <Package className="h-20 w-20 text-muted-foreground/20" />
-              </div>
-            )}
-          </div>
+          <ProductGallery product={product} />
         </div>
 
         {/* Right: Interactive purchase section */}

@@ -108,6 +108,7 @@ public class ProductServiceImpl implements ProductService {
         product.setDetailMd((String) req.get("detail_md"));
         product.setDetailImages(toDetailImagesJson(req.get("detail_images")));
         product.setCoverUrl((String) req.get("cover_url"));
+        product.setVideoUrl((String) req.get("video_url"));
         product.setBasePrice(new BigDecimal(req.get("base_price").toString()));
         if (req.containsKey("currency")) product.setCurrency((String) req.get("currency"));
         if (req.containsKey("delivery_type")) product.setDeliveryType((String) req.get("delivery_type"));
@@ -133,6 +134,7 @@ public class ProductServiceImpl implements ProductService {
         if (req.containsKey("detail_md")) product.setDetailMd((String) req.get("detail_md"));
         if (req.containsKey("detail_images")) product.setDetailImages(toDetailImagesJson(req.get("detail_images")));
         if (req.containsKey("cover_url")) product.setCoverUrl((String) req.get("cover_url"));
+        if (req.containsKey("video_url")) product.setVideoUrl((String) req.get("video_url"));
         if (req.containsKey("base_price")) product.setBasePrice(new BigDecimal(req.get("base_price").toString()));
         if (req.containsKey("currency")) product.setCurrency((String) req.get("currency"));
         if (req.containsKey("delivery_type")) product.setDeliveryType((String) req.get("delivery_type"));
@@ -264,6 +266,7 @@ public class ProductServiceImpl implements ProductService {
         map.put("title", p.getTitle());
         map.put("description", p.getDescription());
         map.put("cover_url", p.getCoverUrl());
+        map.put("video_url", p.getVideoUrl());
         map.put("base_price", p.getBasePrice());
         map.put("currency", p.getCurrency());
         map.put("category_id", p.getCategoryId());

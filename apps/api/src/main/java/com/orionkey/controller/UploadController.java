@@ -18,8 +18,6 @@ import java.nio.file.Paths;
 import java.util.Map;
 import java.util.UUID;
 
-import net.coobird.thumbnailator.Thumbnails;
-
 @Slf4j
 @RestController
 @RequestMapping("/upload")
@@ -127,32 +125,61 @@ public class UploadController {
 
         try {
             Path target = resolvedUploadDir.resolve(filename);
-            // 压缩图片：限制最大宽度 1200px，JPEG 质量 80%，大幅减小文件体积
-            try (InputStream is = file.getInputStream()) {
-                Thumbnails.of(is)
-                        .size(1200, 1200)
-                        .outputQuality(0.8)
-                        .toFile(target.toFile());
-            }
-            long originalSize = file.getSize();
-            long compressedSize = java.nio.file.Files.size(target);
-            log.info("File uploaded (compressed): {} ({} -> {} bytes)", target, originalSize, compressedSize);
+            file.transferTo(target.toFile());
+            log.info("File uploaded: {} ({} bytes)", target, file.getSize());
 
             String url = urlPrefix + "/" + filename;
             return ApiResponse.success(Map.of("url", url));
-        } catch (Exception e) {
-            // 压缩失败时回退到原始文件
-            log.warn("Image compression failed, falling back to original: {}", e.getMessage());
-            try {
-                Path target = resolvedUploadDir.resolve(filename);
-                file.transferTo(target.toFile());
-                log.info("File uploaded (original): {}", target);
-                String url = urlPrefix + "/" + filename;
-                return ApiResponse.success(Map.of("url", url));
-            } catch (IOException e2) {
-                log.error("File upload failed", e2);
-                throw new BusinessException(ErrorCode.SERVER_ERROR, "文件上传失败");
+        } catch (IOException e) {
+            log.error("File upload failed", e);
+            throw new BusinessException(ErrorCode.SERVER_ERROR, "文件上传失败");
+        }
+    }
+
+    /**
+     * 上传视频文件（商品展示视频，支持 MP4/WebM/MOV/AVI 等）。
+     */
+    @PostMapping("/video")
+    public ApiResponse<?> uploadVideo(@RequestParam("file") MultipartFile file) {
+        if (file.isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "文件不能为空");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType != null && !contentType.toLowerCase().startsWith("video/")) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "不支持的格式，仅支持视频文件（MP4/WebM/MOV 等）");
+        }
+
+        // 限制视频大小 100MB
+        long maxVideoSize = 100L * 1024 * 1024;
+        if (file.getSize() > maxVideoSize) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "视频文件不能超过 100MB");
+        }
+
+        // 从原始文件名提取扩展名，默认 mp4
+        String original = file.getOriginalFilename();
+        String ext = "mp4";
+        if (original != null) {
+            int dotIdx = original.lastIndexOf('.');
+            if (dotIdx > 0) {
+                String origExt = original.substring(dotIdx + 1).toLowerCase();
+                if (origExt.matches("mp4|webm|mov|avi|mkv|flv|wmv|m4v")) {
+                    ext = origExt;
+                }
             }
+        }
+
+        String filename = UUID.randomUUID() + "." + ext;
+        try {
+            Path target = resolvedUploadDir.resolve(filename);
+            file.transferTo(target.toFile());
+            log.info("Video uploaded: {} ({} bytes)", target, file.getSize());
+
+            String url = urlPrefix + "/" + filename;
+            return ApiResponse.success(Map.of("url", url));
+        } catch (IOException e) {
+            log.error("Video upload failed", e);
+            throw new BusinessException(ErrorCode.SERVER_ERROR, "视频上传失败");
         }
     }
 

@@ -32,6 +32,10 @@ public class Product extends BaseEntity {
 
     private String coverUrl;
 
+    /** 商品展示视频 URL（支持 MP4/WebM/MOV 等，在详情页首图位置展示，点击播放） */
+    @Column(columnDefinition = "TEXT")
+    private String videoUrl;
+
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal basePrice;
 

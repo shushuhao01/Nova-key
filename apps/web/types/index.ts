@@ -89,6 +89,7 @@ export interface ProductCard {
   title: string
   description?: string
   cover_url?: string
+  video_url?: string
   base_price: number
   currency?: string
   category_id: string

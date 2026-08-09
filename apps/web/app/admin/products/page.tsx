@@ -63,6 +63,7 @@ export default function AdminProductsPage() {
     base_price: "",
     currency: "CNY",
     cover_url: "",
+    video_url: "",
     low_stock_threshold: "10",
     wholesale_enabled: false,
     is_enabled: true,
@@ -156,6 +157,7 @@ export default function AdminProductsPage() {
       base_price: String(product.base_price),
       currency: product.currency || "CNY",
       cover_url: product.cover_url || "",
+      video_url: product.video_url || "",
       low_stock_threshold: String(product.low_stock_threshold ?? 10),
       wholesale_enabled: false,
       is_enabled: product.is_enabled !== false,
@@ -259,6 +261,7 @@ export default function AdminProductsPage() {
         base_price: basePrice,
         currency: formData.currency,
         cover_url: formData.cover_url || undefined,
+        video_url: formData.video_url || undefined,
         low_stock_threshold: parseInt(formData.low_stock_threshold) || 10,
         wholesale_enabled: false,
         spec_enabled: specsEnabled,
@@ -326,7 +329,7 @@ export default function AdminProductsPage() {
   const handleCloseModal = () => {
     setShowModal(false)
     setEditingProduct(null)
-    setFormData({ title: "", description: "", detail_md: "", detail_images: [], category_id: "", base_price: "", currency: "CNY", cover_url: "", low_stock_threshold: "10", wholesale_enabled: false, is_enabled: true, initial_sales: "", sort_order: "", delivery_type: "AUTO" })
+    setFormData({ title: "", description: "", detail_md: "", detail_images: [], category_id: "", base_price: "", currency: "CNY", cover_url: "", video_url: "", low_stock_threshold: "10", wholesale_enabled: false, is_enabled: true, initial_sales: "", sort_order: "", delivery_type: "AUTO" })
     setFormSpecs([])
     setSpecsEnabled(false)
     setSpecDeleteConfirm(null)
@@ -602,6 +605,47 @@ export default function AdminProductsPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">建议 1:1 正方形图片，支持 JPG/PNG/GIF/WebP，用于商品卡和详情页展示</p>
                 </div>
+              </div>
+              {/* 商品视频 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">商品视频 <span className="text-xs font-normal text-muted-foreground">（可选，在详情页首图位置展示，点击播放）</span></label>
+                <div className="flex gap-2">
+                  <input type="text" className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" placeholder="https://... 或上传视频文件" value={formData.video_url} onChange={(e) => setFormData({ ...formData, video_url: e.target.value })} />
+                  <label className={cn("flex h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-accent transition-colors", uploading && "pointer-events-none opacity-50")}>
+                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    上传视频
+                    <input
+                      type="file"
+                      accept="video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska,.mp4,.webm,.mov,.avi,.mkv"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        if (file.size > 100 * 1024 * 1024) { toast.error("视频不能超过 100MB"); e.target.value = ""; return }
+                        setUploading(true)
+                        try {
+                          const result = await adminProductApi.uploadVideo(file)
+                          setFormData(prev => ({ ...prev, video_url: result.url }))
+                          toast.success("视频上传成功")
+                        } catch (err: unknown) {
+                          toast.error(err instanceof Error ? err.message : "视频上传失败")
+                        } finally {
+                          setUploading(false)
+                          e.target.value = ""
+                        }
+                      }}
+                    />
+                  </label>
+                  {formData.video_url && (
+                    <button type="button" onClick={() => setFormData(prev => ({ ...prev, video_url: "" }))} className="flex h-10 shrink-0 items-center rounded-lg border border-input bg-background px-3 text-sm text-destructive hover:bg-destructive/5">
+                      移除
+                    </button>
+                  )}
+                </div>
+                {formData.video_url && (
+                  <video src={formData.video_url} className="mt-2 max-h-40 rounded-lg border border-border" controls preload="metadata" />
+                )}
+                <p className="text-xs text-muted-foreground">支持 MP4/WebM/MOV/AVI，最大 100MB。详情页会在首图位置展示视频，用户可点击播放</p>
               </div>
               {/* 排序权重 + 低库存预警 */}
               <div className="grid grid-cols-2 gap-4">
