@@ -18,7 +18,7 @@ interface ConfigField {
   key: string
   label: string
   placeholder: string
-  type?: "password" | "text" | "textarea" | "file"
+  type?: "password" | "text" | "textarea" | "file" | "switch"
   /** 只读字段（如系统自动生成的回调地址），展示但不参与保存 */
   readonly?: boolean
   /** readonly 字段固定展示的值（如签名类型 RSA2），优先于 config_data */
@@ -100,6 +100,7 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
         hint: "微信支付证书（apiclient_cert.pem），存储于服务器 payment-certs 目录（不在 /uploads 下，不会公开下载）",
       },
       { key: "notify_url", label: "支付回调地址", placeholder: "系统自动生成", readonly: true, copyable: true, hint: "支付成功后微信会回调此地址，请确保服务器可访问；请在微信商户平台「产品中心 → 开发配置」中绑定该回调地址" },
+      { key: "h5_enabled", label: "H5支付（手机浏览器拉起微信App）", placeholder: "关闭时手机端显示二维码", type: "switch", hint: "开启后手机浏览器（Safari/Chrome）选微信支付会自动拉起微信App；需在微信商户平台开通H5支付权限，未开通时保持关闭即可" },
     ],
   },
   {
@@ -828,6 +829,23 @@ export default function AdminPaymentChannelsPage() {
                       value={fieldValue}
                       onChange={(e) => handleConfigChange(field.key, e.target.value)}
                     />
+                  ) : field.type === "switch" ? (
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => handleConfigChange(field.key, fieldValue === "true" ? "false" : "true")}
+                        className={cn(
+                          "relative h-6 w-11 rounded-full transition-colors",
+                          fieldValue === "true" ? "bg-primary" : "bg-muted"
+                        )}
+                      >
+                        <span className={cn(
+                          "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                          fieldValue === "true" ? "translate-x-5" : "translate-x-0.5"
+                        )} />
+                      </button>
+                      <span className="text-sm text-muted-foreground">{fieldValue === "true" ? "已开启" : "已关闭"}</span>
+                    </div>
                   ) : (
                     <div className="flex items-center gap-2">
                       <input

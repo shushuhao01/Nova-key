@@ -180,9 +180,11 @@ public class PaymentServiceImpl implements PaymentService {
     private void createNativeWxpayPayment(PaymentChannel channel, Order order, BigDecimal amount, String device) {
         WxpayConfig config = buildWxpayConfig(channel);
         String productName = buildProductName(order.getId());
+        Map<String, String> cfg = parseConfigData(channel.getConfigData());
 
-        // 微信浏览器内（device=wechat）无法使用 H5 支付（需 JSAPI），回退到扫码
-        boolean pc = device == null || "pc".equals(device) || "wechat".equals(device);
+        // H5 支付需在后台开启且非 PC/微信浏览器内
+        boolean h5Enabled = "true".equals(cfg.get("h5_enabled"));
+        boolean pc = device == null || "pc".equals(device) || "wechat".equals(device) || !h5Enabled;
         if (pc) {
             WxpayPaymentResult result = wxpayService.createNativePayment(
                     config, formatOutTradeNo(order.getId()), productName, amount, order.getClientIp());
