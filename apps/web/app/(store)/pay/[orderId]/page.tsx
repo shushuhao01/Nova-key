@@ -410,7 +410,11 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
                 <span className="text-xl font-bold text-white">{paymentMethodName}</span>
               </div>
               <p className="text-sm font-medium text-white/90">
-                {isWechatMobile ? t("payment.wechatMobileScanHint") : scanHint}
+                {isWechatMobile
+                  ? t("payment.wechatMobileScanHint")
+                  : isMobile
+                    ? t("payment.mobileScreenshotHint")
+                    : scanHint}
               </p>
               <div className="flex h-52 w-52 items-center justify-center rounded-xl bg-white p-3">
                 {qrcodeUrl ? (
