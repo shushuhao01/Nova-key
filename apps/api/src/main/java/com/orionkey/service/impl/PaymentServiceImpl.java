@@ -100,7 +100,7 @@ public class PaymentServiceImpl implements PaymentService {
         switch (providerType) {
             case "epay" -> createEpayPayment(channel, order, paymentMethod, amount, device);
             case "native_alipay" -> createNativeAlipayPayment(channel, order, amount, device);
-            case "native_wxpay" -> createNativeWxpayPayment(channel, order, amount);
+            case "native_wxpay" -> createNativeWxpayPayment(channel, order, amount, device);
             case "usdt" -> createBepusdtPayment(channel, order, amount);
             default -> throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE, "不支持的支付提供商类型: " + providerType);
         }
@@ -175,16 +175,24 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     /**
-     * 原生微信支付（APIv3 Native 扫码）下单流程
+     * 原生微信支付下单流程：PC 使用 Native 扫码（二维码），移动端使用 H5 支付（拉起微信 App）
      */
-    private void createNativeWxpayPayment(PaymentChannel channel, Order order, BigDecimal amount) {
+    private void createNativeWxpayPayment(PaymentChannel channel, Order order, BigDecimal amount, String device) {
         WxpayConfig config = buildWxpayConfig(channel);
         String productName = buildProductName(order.getId());
 
-        WxpayPaymentResult result = wxpayService.createNativePayment(
-                config, formatOutTradeNo(order.getId()), productName, amount, order.getClientIp());
-
-        order.setQrcodeUrl(result.codeUrl());
+        // 微信浏览器内（device=wechat）无法使用 H5 支付（需 JSAPI），回退到扫码
+        boolean pc = device == null || "pc".equals(device) || "wechat".equals(device);
+        WxpayPaymentResult result;
+        if (pc) {
+            result = wxpayService.createNativePayment(
+                    config, formatOutTradeNo(order.getId()), productName, amount, order.getClientIp());
+            order.setQrcodeUrl(result.codeUrl());
+        } else {
+            result = wxpayService.createH5Payment(
+                    config, formatOutTradeNo(order.getId()), productName, amount, order.getClientIp());
+            order.setPaymentUrl(result.h5Url());
+        }
         orderRepository.save(order);
     }
 

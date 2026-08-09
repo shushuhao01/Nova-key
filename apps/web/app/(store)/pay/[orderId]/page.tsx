@@ -49,7 +49,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
   const [hasRedirected, setHasRedirected] = useState(false)
 
   const isMobile = isMobileDevice()
-
+  const deviceType = detectPaymentDevice()
   const paymentMethod = searchParams.get("method") || "alipay"
   const paymentMethodName = getPaymentLabel(paymentMethod, t)
   const scanHint = getPaymentScanHint(paymentMethod, t)
@@ -57,8 +57,10 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
 
   // USDT 支付判断 & 参数
   const isUsdtPayment = paymentMethod.startsWith("usdt_")
-  // 微信移动端：jspay 走 JSAPI（需微信内置浏览器），普通浏览器只能展示二维码
-  const isWechatMobile = isMobile && ["wechat", "wxpay"].includes(paymentMethod.toLowerCase())
+  // 微信浏览器内（JSAPI 场景，需二维码）；普通手机浏览器走 H5 可拉起微信 App
+  const isWechatBrowser = deviceType === "wechat"
+  const isWechatPayment = ["wechat", "wxpay"].includes(paymentMethod.toLowerCase())
+  const isWechatMobile = isWechatBrowser && isWechatPayment
   const walletAddress = searchParams.get("wallet") || ""
   const cryptoAmount = searchParams.get("crypto_amount") || ""
   const usdtChain = searchParams.get("chain") || paymentMethod
@@ -101,8 +103,8 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
     fetchOrderInfo()
   }, [orderId, searchParams])
 
-  // H5 自动跳转（移动端 + 有 payUrl + PENDING 状态 + 未跳转过 + 非微信）
-  // 微信 jspay 走 JSAPI（需微信浏览器），普通浏览器不能 H5 跳转，只能扫码
+  // H5 自动跳转（移动端 + 有 payUrl + PENDING 状态 + 未跳转过 + 非微信浏览器内）
+  // 微信浏览器内不能用 H5（需 JSAPI），普通手机浏览器可以拉起微信 App
   useEffect(() => {
     if (!isMobile || !payUrlH5 || status !== "PENDING" || isUsdtPayment || isWechatMobile) return
     const storageKey = `pay_redirected_${orderId}`
@@ -396,7 +398,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
             {/* 检测状态 */}
             <p className="animate-pulse text-sm text-primary">{t("payment.detecting")}</p>
           </div>
-        ) : (!isMobile || isWechatMobile) ? (
+        ) : (!isMobile || isWechatMobile || !payUrlH5) ? (
           /* ========== PC / 微信移动端 — 二维码视图 ========== */
           <>
             <div

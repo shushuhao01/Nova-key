@@ -108,6 +108,58 @@ public class WxpayServiceImpl implements WxpayService {
     }
 
     @Override
+    public WxpayPaymentResult createH5Payment(WxpayConfig config, String outTradeNo, String description,
+                                               BigDecimal amount, String clientIp) {
+        String canonicalPath = "/v3/pay/transactions/h5";
+        String gateway = trimSlash(config.gatewayUrl());
+
+        int totalCents = amount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        if (totalCents <= 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "微信支付金额必须大于 0");
+        }
+
+        String ip = (clientIp != null && !clientIp.isBlank()) ? clientIp : "127.0.0.1";
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("appid", config.appid());
+        body.put("mchid", config.mchid());
+        body.put("description", description);
+        body.put("out_trade_no", outTradeNo);
+        body.put("notify_url", config.notifyUrl());
+        Map<String, Object> amountMap = new LinkedHashMap<>();
+        amountMap.put("total", totalCents);
+        amountMap.put("currency", "CNY");
+        body.put("amount", amountMap);
+        // H5 支付必须提供 scene_info
+        Map<String, Object> sceneInfo = new LinkedHashMap<>();
+        sceneInfo.put("payer_client_ip", ip);
+        sceneInfo.put("h5_info", Map.of("type", "Wap"));
+        body.put("scene_info", sceneInfo);
+
+        try {
+            String jsonBody = objectMapper.writeValueAsString(body);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    gateway + canonicalPath, HttpMethod.POST,
+                    new HttpEntity<>(jsonBody, apiV3Headers(config, "POST", canonicalPath, jsonBody)),
+                    String.class);
+            Map<String, Object> resp = objectMapper.readValue(response.getBody(), new TypeReference<>() {
+            });
+            String h5Url = resp.get("h5_url") != null ? resp.get("h5_url").toString() : null;
+            if (h5Url == null || h5Url.isBlank()) {
+                log.error("Wxpay H5 order failed: outTradeNo={}, resp={}", outTradeNo, response.getBody());
+                throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信H5支付下单失败：" + response.getBody());
+            }
+            log.info("Wxpay H5 order created: outTradeNo={}, totalCents={}", outTradeNo, totalCents);
+            return WxpayPaymentResult.h5(h5Url);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Wxpay H5 order API error: outTradeNo={}, error={}", outTradeNo, e.getMessage());
+            throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信H5支付下单失败：网络错误");
+        }
+    }
+
+    @Override
     public WxpayOrderQueryResult queryOrder(WxpayConfig config, String outTradeNo) {
         String canonicalPath = "/v3/pay/transactions/out-trade-no/" + outTradeNo + "?mchid=" + config.mchid();
         String gateway = trimSlash(config.gatewayUrl());

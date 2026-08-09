@@ -25,7 +25,19 @@ public interface WxpayService {
                        String privateKey, String notifyUrl, String gatewayUrl) {
     }
 
-    record WxpayPaymentResult(String codeUrl) {
+    record WxpayPaymentResult(String codeUrl, String h5Url) {
+        /** Native 扫码结果（只有 codeUrl） */
+        public WxpayPaymentResult(String codeUrl) {
+            this(codeUrl, null);
+        }
+        /** H5 跳转结果（只有 h5Url） */
+        public static WxpayPaymentResult h5(String h5Url) {
+            return new WxpayPaymentResult(null, h5Url);
+        }
+        /** 是否为 H5 支付结果 */
+        public boolean isH5() {
+            return h5Url != null && !h5Url.isBlank();
+        }
     }
 
     record WxpayOrderQueryResult(String tradeState, Integer total, String transactionId) {
@@ -50,6 +62,13 @@ public interface WxpayService {
      */
     WxpayPaymentResult createNativePayment(WxpayConfig config, String outTradeNo, String description,
                                            BigDecimal amount, String clientIp);
+
+    /**
+     * H5 支付下单，返回 h5_url（移动端浏览器直接跳转拉起微信 App）。
+     * 仅适用于非微信浏览器的移动端（Safari/Chrome 等），微信内需用 JSAPI。
+     */
+    WxpayPaymentResult createH5Payment(WxpayConfig config, String outTradeNo, String description,
+                                       BigDecimal amount, String clientIp);
 
     /**
      * 主动查询订单状态。查询失败（网络/网关错误）返回 null。
