@@ -183,15 +183,22 @@ public class PaymentServiceImpl implements PaymentService {
 
         // 微信浏览器内（device=wechat）无法使用 H5 支付（需 JSAPI），回退到扫码
         boolean pc = device == null || "pc".equals(device) || "wechat".equals(device);
-        WxpayPaymentResult result;
         if (pc) {
-            result = wxpayService.createNativePayment(
+            WxpayPaymentResult result = wxpayService.createNativePayment(
                     config, formatOutTradeNo(order.getId()), productName, amount, order.getClientIp());
             order.setQrcodeUrl(result.codeUrl());
         } else {
-            result = wxpayService.createH5Payment(
-                    config, formatOutTradeNo(order.getId()), productName, amount, order.getClientIp());
-            order.setPaymentUrl(result.h5Url());
+            try {
+                WxpayPaymentResult result = wxpayService.createH5Payment(
+                        config, formatOutTradeNo(order.getId()), productName, amount, order.getClientIp());
+                order.setPaymentUrl(result.h5Url());
+            } catch (Exception e) {
+                // H5 支付未开通或失败，回退到扫码支付
+                log.warn("Wxpay H5 payment failed, falling back to Native QR: {}", e.getMessage());
+                WxpayPaymentResult result = wxpayService.createNativePayment(
+                        config, formatOutTradeNo(order.getId()), productName, amount, order.getClientIp());
+                order.setQrcodeUrl(result.codeUrl());
+            }
         }
         orderRepository.save(order);
     }
