@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation"
-import { Package } from "lucide-react"
 import { getProductDetail, getPaymentChannels } from "@/services/api-server"
 import { ProductActions } from "./product-actions"
 import { ProductBreadcrumb } from "./product-breadcrumb"
