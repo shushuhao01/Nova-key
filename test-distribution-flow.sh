@@ -65,19 +65,128 @@ if [ "$1" = "--clean" ]; then
   echo -e "  ${OK} 清理完成"; exit 0
 fi
 
+# ── 运行模式 ──
+MODE="full"
+[ "$1" = "--settle" ] && MODE="settle"
+
 # ── admin 登录 ──
 ADMIN_TOKEN=""
 echo -e "${ARROW} 登录 admin..."
 LOGIN_RESP=$(curl -s -X POST "$BASE_URL/auth/login" -H "Content-Type: application/json" \
   -d '{"account":"admin","password":"admin123"}')
 ADMIN_TOKEN=$(jget "$LOGIN_RESP" token)
+# 登录限流为每分钟 5 次/IP（RateLimitFilter），被限流时等待 60 秒自动重试一次
+if [ -z "$ADMIN_TOKEN" ] && echo "$LOGIN_RESP" | grep -q '10005'; then
+  echo -e "  ${WARN} 触发登录限流(10005)，等待 60 秒重试..."
+  sleep 60
+  LOGIN_RESP=$(curl -s -X POST "$BASE_URL/auth/login" -H "Content-Type: application/json" \
+    -d '{"account":"admin","password":"admin123"}')
+  ADMIN_TOKEN=$(jget "$LOGIN_RESP" token)
+fi
 if [ -z "$ADMIN_TOKEN" ]; then
-  echo -e "  ${FAIL} admin 登录失败: $(echo "$LOGIN_RESP" | head -c 200)"
+  echo -e "  ${FAIL} admin 登录失败: $(echo "$LOGIN_RESP" | head -c 300)"
   exit 1
 fi
 echo -e "  ${OK} admin 登录成功"
 
 ADMIN_HEADERS=(-H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json")
+
+# ═══════════════════════════════════════════════════════════════
+#  --settle 模式：基于已生成的测试数据 结算 + 提现（不重建数据）
+#  用法：先跑完整流程生成数据，再执行 bash test-distribution-flow.sh --settle
+# ═══════════════════════════════════════════════════════════════
+if [ "$MODE" = "settle" ]; then
+  echo -e "\n${ARROW} [结算+提现模式] 定位最近一批测试数据..."
+  O_IDS=$(psql_run "SELECT string_agg(id::text, ',') FROM (SELECT id FROM orders WHERE email LIKE '%@dist.test' ORDER BY created_at DESC LIMIT 6) t")
+  if [ -z "$O_IDS" ]; then
+    echo -e "  ${FAIL} 未找到测试订单，请先运行 bash test-distribution-flow.sh 生成测试数据"; exit 1
+  fi
+  A_DIST_ID=$(psql_run "SELECT d.id::text FROM distributors d JOIN users u ON u.id=d.user_id WHERE u.username LIKE 'tA_%' ORDER BY d.created_at DESC LIMIT 1")
+  B_DIST_ID=$(psql_run "SELECT d.id::text FROM distributors d JOIN users u ON u.id=d.user_id WHERE u.username LIKE 'tB_%' ORDER BY d.created_at DESC LIMIT 1")
+  if [ -z "$A_DIST_ID" ] || [ -z "$B_DIST_ID" ]; then
+    echo -e "  ${FAIL} 未找到测试分销员 A/B（tA_%/tB_%）"; exit 1
+  fi
+  echo -e "  ${OK} 测试订单: $O_IDS"
+  echo -e "  ${OK} 分销员 A=$A_DIST_ID  B=$B_DIST_ID"
+
+  echo -e "\n${ARROW} [结算验证] 测试佣金 backdate 8 天，调用手动结算接口..."
+  psql_run "UPDATE commission_records SET created_at=now()-interval '8 days' WHERE order_id IN ($O_IDS)" >/dev/null
+  SETTLE_RESP=$(curl -s -X POST "$BASE_URL/admin/distribution/commissions/settle" "${ADMIN_HEADERS[@]}")
+  echo -e "  ${OK} 结算接口响应: $(jget "$SETTLE_RESP" code)"
+  sleep 1
+  echo ""
+  echo "  结算后佣金状态:"
+  psql_run "SELECT status, count(*), sum(commission_amount) FROM commission_records WHERE order_id IN ($O_IDS) GROUP BY status" | sed 's/^/    /'
+  echo "  A 分销员余额:"
+  psql_run "SELECT 'available='||available_balance||' frozen='||frozen_balance||' total='||total_commission FROM distributors WHERE id='$A_DIST_ID'" | sed 's/^/    /'
+  echo "  B 分销员余额:"
+  psql_run "SELECT 'available='||available_balance||' frozen='||frozen_balance||' total='||total_commission FROM distributors WHERE id='$B_DIST_ID'" | sed 's/^/    /'
+
+  # ── 提现验证（A 申请提现 → admin 审批 → 手动结算）──
+  MIN_W=$(psql_run "SELECT min_withdraw_amount FROM distribution_rules LIMIT 1")
+  A_BAL=$(psql_run "SELECT available_balance FROM distributors WHERE id='$A_DIST_ID'")
+  if [ -z "$A_BAL" ] || [ "$A_BAL" = "0.00" ] || [ "$A_BAL" = "0" ]; then
+    echo -e "\n${WARN} 结算后 A 可提现余额仍为 $A_BAL，提现验证跳过（请检查结算逻辑）"
+  else
+    echo -e "\n${ARROW} A 可提现余额: $A_BAL 元，开始提现流程..."
+    if [ -n "$MIN_W" ] && [ "$(psql_run "SELECT $A_BAL < $MIN_W")" = "t" ]; then
+      echo -e "  ${WARN} 可提现余额 $A_BAL < 最低提现门槛 $MIN_W，临时调低门槛为 0.01 验证提现流程..."
+      curl -s -X PUT "$BASE_URL/admin/distribution/rules" "${ADMIN_HEADERS[@]}" \
+        -d '{"min_withdraw_amount":0.01}' >/dev/null
+    fi
+    # 登录最新 A 测试用户（获取提现所需 token；密码均为 admin123）
+    echo -e "${ARROW} 登录测试分销员 A..."
+    UA_EMAIL=$(psql_run "SELECT email FROM users WHERE id=(SELECT user_id FROM distributors WHERE id='$A_DIST_ID')")
+    A_LOGIN=$(curl -s -X POST "$BASE_URL/auth/login" -H "Content-Type: application/json" \
+      -d "{\"account\":\"$UA_EMAIL\",\"password\":\"admin123\"}")
+    A_TOKEN=$(jget "$A_LOGIN" token)
+    if [ -z "$A_TOKEN" ]; then
+      echo -e "  ${WARN} A 登录失败: $(echo "$A_LOGIN" | head -c 200)（可能触发登录限流，请稍后重试）"
+    else
+      echo -e "  ${OK} A 登录成功"
+      psql_run "UPDATE distributors SET wechat_openid='test_openid_$(date +%s)', wechat_nickname='测试分销员A' WHERE id='$A_DIST_ID'" >/dev/null
+      echo -e "  ${OK} A 已绑定测试微信 openid"
+      W_AMOUNT=$(psql_run "SELECT available_balance FROM distributors WHERE id='$A_DIST_ID'")
+      W_REQ=$(curl -s -X POST "$BASE_URL/distributor/withdrawals" -H "Authorization: Bearer $A_TOKEN" -H "Content-Type: application/json" \
+        -d "{\"amount\":$W_AMOUNT}")
+      W_ID=$(jget "$W_REQ" id)
+      [ -z "$W_ID" ] && W_ID=$(jget "$W_REQ" 'data.id // empty')
+      if [ -z "$W_ID" ]; then
+        echo -e "  ${FAIL} 提现申请失败: $(echo "$W_REQ" | head -c 300)"
+      else
+        echo -e "  ${OK} 提现申请成功: id=$W_ID 金额=$W_AMOUNT"
+        echo -e "${ARROW} admin 审批提现..."
+        W_APPROVE=$(curl -s -X PUT "$BASE_URL/admin/distribution/withdrawals/$W_ID/approve" "${ADMIN_HEADERS[@]}" -d '{}')
+        echo -e "  ${OK} 审批响应: $(jget "$W_APPROVE" code)（假 openid 会触发微信转账失败→自动转手动打款）"
+        echo -e "${ARROW} admin 手动结算..."
+        W_SETTLE=$(curl -s -X PUT "$BASE_URL/admin/distribution/withdrawals/$W_ID/settle" "${ADMIN_HEADERS[@]}" \
+          -d "{\"actual_amount\":$W_AMOUNT}")
+        echo -e "  ${OK} 手动结算响应: $(jget "$W_SETTLE" code)"
+        echo ""
+        echo "  提现最终状态:"
+        psql_run "SELECT 'amount='||amount||' actual='||actual_amount||' status='||status||' completed='||COALESCE(completed_at::text,'-') FROM withdrawal_records WHERE id='$W_ID'" | sed 's/^/    /'
+        echo "  A 最终余额:"
+        psql_run "SELECT 'available='||available_balance||' frozen='||frozen_balance||' withdrawn='||withdrawn_amount FROM distributors WHERE id='$A_DIST_ID'" | sed 's/^/    /'
+      fi
+    fi
+  fi
+
+  # ── 恢复规则（仅恢复提现门槛，不触碰其它配置）──
+  if [ -n "$MIN_W" ]; then
+    echo -e "\n${ARROW} 恢复最低提现门槛 $MIN_W ..."
+    curl -s -X PUT "$BASE_URL/admin/distribution/rules" "${ADMIN_HEADERS[@]}" \
+      -d "{\"min_withdraw_amount\":$MIN_W}" >/dev/null
+    echo -e "  ${OK} 提现门槛已恢复 $MIN_W"
+  fi
+  echo ""
+  echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
+  echo -e "${GREEN}  结算+提现验证完成${NC}"
+  echo -e "${GREEN}  测试订单: $O_IDS${NC}"
+  echo -e "${GREEN}  分销员A: $A_DIST_ID  B: $B_DIST_ID${NC}"
+  echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
+  echo -e "清理测试数据: bash test-distribution-flow.sh --clean"
+  exit 0
+fi
 
 # ── 检查可分销商品 ──
 echo -e "${ARROW} 查找可分销商品..."
@@ -286,25 +395,7 @@ else
   echo -e "  ${WARN} 订单3 阶梯档位=$C3_TIER（预期 2），佣金=$C3_COMM"
 fi
 
-# ── 结算阶段 ──
-if [ "$1" = "--settle" ]; then
-  echo -e "\n${ARROW} [结算验证] 手动触发佣金结算..."
-  # 将测试订单佣金 backdate 到 8 天前（超过默认 7 天结算延迟），等效定时任务条件满足
-  psql_run "UPDATE commission_records SET created_at=now()-interval '8 days' WHERE order_id IN ('$O1_ID','$O2_ID','$O3_ID')" >/dev/null
-  echo -e "  ${ARROW} 测试佣金已 backdate 8 天，调用手动结算接口..."
-  SETTLE_RESP=$(curl -s -X POST "$BASE_URL/admin/distribution/commissions/settle" "${ADMIN_HEADERS[@]}")
-  echo -e "  ${OK} 结算接口响应: $(jget "$SETTLE_RESP" code)"
-  sleep 1
-  echo ""
-  echo "  结算后佣金状态:"
-  psql_run "SELECT status, count(*), sum(commission_amount) FROM commission_records WHERE order_id IN ('$O1_ID','$O2_ID','$O3_ID') GROUP BY status" | sed 's/^/    /'
-  echo "  A 分销员余额:"
-  psql_run "SELECT 'available='||available_balance||' frozen='||frozen_balance||' total='||total_commission FROM distributors WHERE id='$A_DIST_ID'" | sed 's/^/    /'
-  echo "  B 分销员余额:"
-  psql_run "SELECT 'available='||available_balance||' frozen='||frozen_balance||' total='||total_commission FROM distributors WHERE id='$B_DIST_ID'" | sed 's/^/    /'
-fi
-
-# ── 结算 + 提现（需要已结算余额；若未结算则提示先跑 --settle）──
+# ── 结算 + 提现（完整流程结束佣金为 PENDING，需先 --settle 结算）──
 MIN_W=$(psql_run "SELECT min_withdraw_amount FROM distribution_rules LIMIT 1")
 A_BAL=$(psql_run "SELECT available_balance FROM distributors WHERE id='$A_DIST_ID'")
 if [ -z "$A_BAL" ] || [ "$A_BAL" = "0.00" ] || [ "$A_BAL" = "0" ]; then
@@ -364,4 +455,5 @@ echo -e "${GREEN}  测试完成。测试标识: ${PREFIX}${NC}"
 echo -e "${GREEN}  测试订单: $O1_ID / $O2_ID / $O3_ID${NC}"
 echo -e "${GREEN}  分销员A: $A_DIST_ID  B: $B_DIST_ID${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
+echo -e "下一步: bash test-distribution-flow.sh --settle   # 结算+提现验证"
 echo -e "清理测试数据: bash test-distribution-flow.sh --clean"
