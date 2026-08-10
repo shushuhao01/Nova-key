@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Share2, X, Copy, Check } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Share2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth, useLocale } from "@/lib/context"
 import { toast } from "sonner"
@@ -72,15 +73,14 @@ interface ShareCommissionButtonProps {
 export function ShareCommissionButton({ productId, productTitle, productPrice }: ShareCommissionButtonProps) {
   const { user } = useAuth()
   const { t } = useLocale()
+  const router = useRouter()
   const [commission, setCommission] = useState<number | null>(null)
   const [maxCommission, setMaxCommission] = useState<number | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [linkUrl, setLinkUrl] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [copied, setCopied] = useState(false)
   // 已审核分销员 → 点击直接弹出与分销中心一致的商品海报（可下载/分享/复制链接）
   const [poster, setPoster] = useState<any>(null)
   const [busy, setBusy] = useState(false)
+  // 非分销员 → 提示申请分销员资格
+  const [applyPromptOpen, setApplyPromptOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -112,31 +112,14 @@ export function ShareCommissionButton({ productId, productTitle, productPrice }:
         setPoster(res)
         return
       }
-      // 非分销员 → 原弹窗：推广链接 + 二维码
-      setModalOpen(true)
-      setLoading(true)
-      try {
-        const result = await distributorApi.generateLink(productId)
-        setLinkUrl(`${window.location.origin}/p/${result.link_code}`)
-      } catch (err) {
-        toast.error(getApiErrorMessage(err, t) || "生成推广链接失败")
-        setModalOpen(false)
-      } finally {
-        setLoading(false)
-      }
+      // 非分销员 → 提示申请分销员资格（跳转分销中心申请）
+      setApplyPromptOpen(true)
     } catch (err) {
-      toast.error(getApiErrorMessage(err, t) || "生成海报失败")
+      toast.error(getApiErrorMessage(err, t) || "操作失败，请稍后再试")
     } finally {
       setBusy(false)
     }
   }, [user, productId, t])
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(linkUrl)
-    setCopied(true)
-    toast.success("链接已复制")
-    setTimeout(() => setCopied(false), 2000)
-  }, [linkUrl])
 
   if (!amount || amount <= 0) return null
 
@@ -155,65 +138,34 @@ export function ShareCommissionButton({ productId, productTitle, productPrice }:
         分享赚 ¥{amount.toFixed(2)}
       </button>
 
-      {modalOpen && (
+      {/* 非分销员：申请分销员资格提示 */}
+      {applyPromptOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setModalOpen(false)}
+          onClick={() => setApplyPromptOpen(false)}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl"
+            className="w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-xl"
             onClick={e => e.stopPropagation()}
           >
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-foreground">推广分享</h3>
-              <button onClick={() => setModalOpen(false)} className="text-muted-foreground hover:text-foreground">
-                <X className="h-5 w-5" />
+            <h3 className="text-lg font-bold text-foreground">申请成为分销员</h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              成为分销员后，即可生成精美商品海报分享赚佣金，好友通过您的链接下单，您将获得佣金奖励。
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setApplyPromptOpen(false)}
+                className="flex-1 rounded-lg border border-input px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => { setApplyPromptOpen(false); router.push("/my/distribution") }}
+                className="flex-1 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110"
+              >
+                去申请
               </button>
             </div>
-
-            <p className="mb-4 text-sm text-muted-foreground">
-              商品：{productTitle}（¥{productPrice.toFixed(2)}）
-            </p>
-
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              </div>
-            ) : (
-              <>
-                {/* 推广链接 */}
-                <div className="mb-4">
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">推广链接</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      readOnly
-                      value={linkUrl}
-                      className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                    />
-                    <button
-                      onClick={handleCopy}
-                      className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:brightness-110"
-                    >
-                      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* 二维码 */}
-                <div className="flex flex-col items-center gap-2">
-                  <label className="text-xs font-medium text-muted-foreground">推广二维码</label>
-                  <div className="rounded-lg border border-border bg-white p-3">
-                    <img
-                      src={`/qr-image?url=${encodeURIComponent(linkUrl)}&size=200`}
-                      alt="推广二维码"
-                      className="h-40 w-40"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">扫码或复制链接分享给好友</p>
-                </div>
-              </>
-            )}
           </div>
         </div>
       )}
