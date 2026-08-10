@@ -16,6 +16,9 @@ DB_NAME=${DB_NAME:-novakey}
 DB_USER=${DB_USER:-novakey}
 DB_PASS=${DB_PASS:-'AjfXCMiMkBpTDc2d'}
 
+# 服务器上 psql 通常在 /www/server/pgsql/bin/（宝塔），不在 PATH 时自动用全路径
+PSQL_BIN=${PSQL_BIN:-$(command -v psql 2>/dev/null || echo /www/server/pgsql/bin/psql)}
+
 TS=$(date +%s)
 PREFIX="disttest_${TS}"
 C1_EMAIL="c1_${PREFIX}@dist.test"
@@ -24,7 +27,7 @@ C2_EMAIL="c2_${PREFIX}@dist.test"
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 OK="${GREEN}✓${NC}"; FAIL="${RED}✗${NC}"; WARN="${YELLOW}⚠${NC}"; ARROW="${CYAN}→${NC}"
 
-psql_run() { PGPASSWORD="$DB_PASS" psql -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -t -A -c "$1" 2>/dev/null; }
+psql_run() { PGPASSWORD="$DB_PASS" "$PSQL_BIN" -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -t -A -c "$1" 2>/dev/null; }
 
 # JSON 提取：优先 jq，回退 grep
 jget() {
