@@ -118,6 +118,12 @@ if [ "$MODE" = "settle" ]; then
   psql_run "UPDATE commission_records SET created_at=now()-interval '8 days' WHERE order_id IN ($O_IDS)" >/dev/null
   echo -e "  ${OK} 佣金已 backdate 8 天"
   echo ""
+  echo "  结算延迟天数: $(psql_run "SELECT settle_delay_days FROM distribution_rules LIMIT 1")"
+  echo "  订单当前状态:"
+  psql_run "SELECT substring(id::text,1,8)||' | status='||status||' | completed_at='||COALESCE(completed_at::text,'NULL') FROM orders WHERE id IN ($O_IDS)" | sed 's/^/    /'
+  echo "  模拟结算条件匹配数(PENDING+COMPLETED+completed_at<now-7d):"
+  psql_run "SELECT count(*) FROM commission_records cr JOIN orders o ON o.id=cr.order_id WHERE cr.status='PENDING' AND o.status='COMPLETED' AND o.completed_at IS NOT NULL AND o.completed_at < now() - interval '7 days'" | sed 's/^/    /'
+  echo ""
   echo "  结算前佣金状态:"
   psql_run "SELECT status, count(*), sum(commission_amount) FROM commission_records WHERE order_id IN ($O_IDS) GROUP BY status" | sed 's/^/    /'
   echo -e "${ARROW} 调用手动结算接口..."
