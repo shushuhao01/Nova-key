@@ -29,17 +29,41 @@ OK="${GREEN}✓${NC}"; FAIL="${RED}✗${NC}"; WARN="${YELLOW}⚠${NC}"; ARROW="$
 
 psql_run() { PGPASSWORD="$DB_PASS" "$PSQL_BIN" -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -t -A -c "$1" 2>/dev/null; }
 
-# JSON 提取：优先 jq，回退 grep
+# JSON 提取：优先 jq，回退 grep；支持 "token" / "data.id" / "order.id // empty" 等写法
+# 自动兼容 data 包裹：先按原路径取，取不到再按 .data.<路径> 取
 jget() {
+  local json="$1" p="$2" v=""
   if command -v jq >/dev/null 2>&1; then
-    echo "$1" | jq -r "$2" 2>/dev/null
-  else
-    echo "$1" | grep -o "\"$2\":[^,}]*" | head -1 | sed 's/^.*://; s/^"//; s/"$//'
+    v=$(echo "$json" | jq -r "$p // empty" 2>/dev/null)
+    if [ -z "$v" ] || [ "$v" = "null" ]; then
+      v=$(echo "$json" | jq -r ".data.$p // empty" 2>/dev/null)
+    fi
   fi
+  if [ -z "$v" ] || [ "$v" = "null" ]; then
+    local key="${p% // *}"
+    key="${key##*.}"
+    v=$(echo "$json" | grep -o "\"$key\":\"[^\"]*\"" | head -1 | cut -d'"' -f4)
+    [ -z "$v" ] && v=$(echo "$json" | grep -o "\"$key\":[0-9.-]*" | head -1 | cut -d':' -f2)
+  fi
+  echo "$v"
 }
 
 # 需要 jq 的场景（嵌套/数组）直接调 jq，缺失时报错提示
 jq_get() { echo "$1" | jq -r "$2" 2>/dev/null; }
+
+# ── --clean: 清理测试数据（按 disttest 特征模式，多次运行残留一并清理）──
+if [ "$1" = "--clean" ]; then
+  echo -e "${ARROW} 清理测试数据（disttest 模式）..."
+  psql_run "DELETE FROM commission_records WHERE order_id IN (SELECT id FROM orders WHERE email LIKE '%@dist.test')" >/dev/null
+  psql_run "DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE email LIKE '%@dist.test')" >/dev/null
+  psql_run "DELETE FROM withdrawal_records WHERE distributor_id IN (SELECT d.id FROM distributors d JOIN users u ON u.id=d.user_id WHERE u.username LIKE 'tA_%' OR u.username LIKE 'tB_%')" >/dev/null
+  psql_run "DELETE FROM promotion_links WHERE distributor_id IN (SELECT d.id FROM distributors d JOIN users u ON u.id=d.user_id WHERE u.username LIKE 'tA_%' OR u.username LIKE 'tB_%')" >/dev/null
+  psql_run "DELETE FROM customer_bindings WHERE customer_email LIKE '%@dist.test'" >/dev/null
+  psql_run "DELETE FROM orders WHERE email LIKE '%@dist.test'" >/dev/null
+  psql_run "DELETE FROM distributors WHERE user_id IN (SELECT id FROM users WHERE username LIKE 'tA_%' OR username LIKE 'tB_%')" >/dev/null
+  psql_run "DELETE FROM users WHERE username LIKE 'tA_%' OR username LIKE 'tB_%'" >/dev/null
+  echo -e "  ${OK} 清理完成"; exit 0
+fi
 
 # ── admin 登录 ──
 ADMIN_TOKEN=""
@@ -57,16 +81,15 @@ ADMIN_HEADERS=(-H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: applica
 
 # ── 检查可分销商品 ──
 echo -e "${ARROW} 查找可分销商品..."
-PRODUCT_RESP=$(curl -s "$BASE_URL/distribution/products?page=1&page_size=5")
-PID=$(jget "$PRODUCT_RESP" 'items[0].product_id // empty')
+# 优先取已开启分销的商品；否则为第一个启用商品开启分销（默认比例）
+PID=$(psql_run "SELECT pc.product_id::text FROM product_commissions pc JOIN products p ON p.id=pc.product_id WHERE p.is_deleted=0 AND p.enabled=true AND pc.excluded=false ORDER BY p.created_at LIMIT 1")
 if [ -z "$PID" ]; then
-  # 无已开启分销的商品 → 用 psql 给第一个启用商品开启分销（默认比例）
   echo -e "  ${WARN} 无可分销商品，为第一个启用商品开启分销..."
   PID=$(psql_run "SELECT id::text FROM products WHERE is_deleted=0 AND enabled=true ORDER BY created_at LIMIT 1")
   if [ -z "$PID" ]; then
     echo -e "  ${FAIL} 无可用商品，测试终止"; exit 1
   fi
-  psql_run "INSERT INTO product_commissions (id, product_id, custom_rate, is_excluded, created_at, updated_at) VALUES (gen_random_uuid(), '$PID', NULL, false, now(), now()) ON CONFLICT (product_id) DO NOTHING" >/dev/null
+  psql_run "INSERT INTO product_commissions (id, product_id, custom_rate, excluded, created_at, updated_at) VALUES (gen_random_uuid(), '$PID', NULL, false, now(), now()) ON CONFLICT (product_id) DO NOTHING" >/dev/null
   echo -e "  ${OK} 已为商品 $PID 开启分销"
 fi
 echo -e "  ${OK} 测试商品: $PID"
@@ -120,10 +143,9 @@ A_DIST_CODE=$(jget "$A_APPLY" distributor_code)
 [ -z "$A_DIST_ID" ] && A_DIST_ID=$(jget "$A_APPLY" 'data.id // empty')
 [ -z "$A_INVITE" ] && A_INVITE=$(jget "$A_APPLY" 'data.invite_code // empty')
 if [ -z "$A_DIST_ID" ]; then
-  # 可能已存在分销记录 → 查 profile
-  A_APPLY=$(curl -s "$BASE_URL/distributor/profile" -H "Authorization: Bearer $A_TOKEN")
-  A_DIST_ID=$(jget "$A_APPLY" distributor_id)
-  A_INVITE=$(jget "$A_APPLY" invite_code)
+  # 可能已存在分销记录 → 直接查库（profile 接口不返回分销员 UUID）
+  A_DIST_ID=$(psql_run "SELECT id::text FROM distributors WHERE user_id='$UA_ID' LIMIT 1")
+  A_INVITE=$(psql_run "SELECT invite_code FROM distributors WHERE user_id='$UA_ID' LIMIT 1")
 fi
 if [ -z "$A_DIST_ID" ]; then
   echo -e "  ${FAIL} A 申请分销失败: $(echo "$A_APPLY" | head -c 300)"; exit 1
@@ -137,8 +159,7 @@ B_APPLY=$(curl -s -X POST "$BASE_URL/distributor/apply" -H "Authorization: Beare
 B_DIST_ID=$(jget "$B_APPLY" id)
 [ -z "$B_DIST_ID" ] && B_DIST_ID=$(jget "$B_APPLY" 'data.id // empty')
 if [ -z "$B_DIST_ID" ]; then
-  B_APPLY=$(curl -s "$BASE_URL/distributor/profile" -H "Authorization: Bearer $B_TOKEN")
-  B_DIST_ID=$(jget "$B_APPLY" distributor_id)
+  B_DIST_ID=$(psql_run "SELECT id::text FROM distributors WHERE user_id='$UB_ID' LIMIT 1")
 fi
 if [ -z "$B_DIST_ID" ]; then
   echo -e "  ${FAIL} B 申请分销失败: $(echo "$B_APPLY" | head -c 300)"; exit 1
@@ -253,30 +274,38 @@ fi
 
 # ── 结算阶段 ──
 if [ "$1" = "--settle" ]; then
-  echo -e "\n${ARROW} [结算验证] 检查已结算佣金与余额..."
-  # 将测试订单佣金 backdate 到 8 天前（超过默认 7 天结算延迟），等待定时任务
+  echo -e "\n${ARROW} [结算验证] 手动触发佣金结算..."
+  # 将测试订单佣金 backdate 到 8 天前（超过默认 7 天结算延迟），等效定时任务条件满足
   psql_run "UPDATE commission_records SET created_at=now()-interval '8 days' WHERE order_id IN ('$O1_ID','$O2_ID','$O3_ID')" >/dev/null
-  echo -e "  ${ARROW} 测试佣金已 backdate 8 天。等待定时任务（每小时整点）结算..."
-  echo -e "  ${ARROW} 也可直接查看: 佣金状态 / 分销员余额（约 1 小时内自动结算）"
+  echo -e "  ${ARROW} 测试佣金已 backdate 8 天，调用手动结算接口..."
+  SETTLE_RESP=$(curl -s -X POST "$BASE_URL/admin/distribution/commissions/settle" "${ADMIN_HEADERS[@]}")
+  echo -e "  ${OK} 结算接口响应: $(jget "$SETTLE_RESP" code)"
+  sleep 1
   echo ""
-  echo "  当前佣金状态:"
+  echo "  结算后佣金状态:"
   psql_run "SELECT status, count(*), sum(commission_amount) FROM commission_records WHERE order_id IN ('$O1_ID','$O2_ID','$O3_ID') GROUP BY status" | sed 's/^/    /'
   echo "  A 分销员余额:"
   psql_run "SELECT 'available='||available_balance||' frozen='||frozen_balance||' total='||total_commission FROM distributors WHERE id='$A_DIST_ID'" | sed 's/^/    /'
   echo "  B 分销员余额:"
   psql_run "SELECT 'available='||available_balance||' frozen='||frozen_balance||' total='||total_commission FROM distributors WHERE id='$B_DIST_ID'" | sed 's/^/    /'
-  exit 0
 fi
 
 # ── 结算 + 提现（需要已结算余额；若未结算则提示先跑 --settle）──
+MIN_W=$(psql_run "SELECT min_withdraw_amount FROM distribution_rules LIMIT 1")
 A_BAL=$(psql_run "SELECT available_balance FROM distributors WHERE id='$A_DIST_ID'")
 if [ -z "$A_BAL" ] || [ "$A_BAL" = "0.00" ] || [ "$A_BAL" = "0" ]; then
   echo -e "\n${WARN} A 的可提现余额为 $A_BAL，暂未结算。"
   echo -e "  继续执行提现流程前请先完成结算："
   echo -e "    bash test-distribution-flow.sh --settle"
-  echo -e "  结算完成后（可提现余额 > 0），提现部分可用 psql 验证余额、或继续本脚本跑提现。"
+  echo -e "  结算完成后（可提现余额 > 0），再次运行本脚本即可继续验证提现。"
 else
   echo -e "\n${ARROW} A 可提现余额: $A_BAL 元，开始提现流程..."
+  # 测试金额可能低于最低提现门槛 → 临时调低（结束后恢复）
+  if [ -n "$MIN_W" ] && [ "$(psql_run "SELECT $A_BAL < $MIN_W")" = "t" ]; then
+    echo -e "  ${WARN} 可提现余额 $A_BAL < 最低提现门槛 $MIN_W，临时调低门槛为 0.01 验证提现流程..."
+    curl -s -X PUT "$BASE_URL/admin/distribution/rules" "${ADMIN_HEADERS[@]}" \
+      -d '{"min_withdraw_amount":0.01}' >/dev/null
+  fi
   # 给 A 绑定微信 openid（测试用假 openid，微信转账会失败→走手动打款，便于验证）
   psql_run "UPDATE distributors SET wechat_openid='test_openid_${TS}', wechat_nickname='测试分销员A' WHERE id='$A_DIST_ID'" >/dev/null
   echo -e "  ${OK} A 已绑定测试微信 openid"
@@ -304,11 +333,16 @@ else
   fi
 fi
 
-# ── 恢复规则（关闭阶梯，避免影响生产配置）──
-echo -e "\n${ARROW} 恢复分销规则（关闭阶梯佣金）..."
+# ── 恢复规则（关闭阶梯 + 恢复最低提现门槛，避免影响生产配置）──
+RESTORE_NOTE="tier_enabled=false"
+[ -n "$MIN_W" ] && RESTORE_NOTE="$RESTORE_NOTE、min_withdraw_amount=$MIN_W"
+echo -e "\n${ARROW} 恢复分销规则（$RESTORE_NOTE）..."
+RESTORE_JSON="{\"tier_enabled\":false"
+[ -n "$MIN_W" ] && RESTORE_JSON="$RESTORE_JSON,\"min_withdraw_amount\":$MIN_W"
+RESTORE_JSON="$RESTORE_JSON}"
 curl -s -X PUT "$BASE_URL/admin/distribution/rules" "${ADMIN_HEADERS[@]}" \
-  -d '{"tier_enabled":false}' >/dev/null
-echo -e "  ${OK} 规则已恢复"
+  -d "$RESTORE_JSON" >/dev/null
+echo -e "  ${OK} 规则已恢复（$RESTORE_NOTE）"
 
 echo ""
 echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
