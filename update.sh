@@ -86,15 +86,23 @@ fi
 # ─────────────────────────────────────────
 section "停止旧后端进程"
 # ─────────────────────────────────────────
-OLD_PID=$(pgrep -f 'nova-key.*jar' 2>/dev/null || echo "")
-if [ -n "$OLD_PID" ]; then
-    info "发现旧进程 PID: $OLD_PID，正在停止..."
-    pkill -f 'nova-key.*jar' 2>/dev/null || true
-    sleep 3
-    ok "旧进程已停止"
-else
-    info "无旧进程运行"
+# 同时按「8083 端口占用」和「进程名」双重清理，避免残留旧进程占用端口
+info "清理 8083 端口占用进程..."
+for pid in $(ss -ltnp | grep ':8083' | grep -o 'pid=[0-9]*' | cut -d= -f2 | sort -u); do
+    info "强制结束 PID: $pid"
+    kill -9 "$pid" 2>/dev/null || true
+done
+info "清理 nova-key 相关 Java 进程..."
+pkill -9 -f 'nova-key.*jar' 2>/dev/null || true
+sleep 3
+if ss -ltnp | grep -q ':8083'; then
+    fail "8083 端口仍被占用！这通常是宝塔面板的守护进程在自动拉起后端。"
+    fail "请先在宝塔面板【暂停】该项目的守护进程，再重新运行本脚本。"
+    info "当前占用进程:"
+    ss -ltnp | grep ':8083' | sed 's/^/    /'
+    exit 1
 fi
+ok "旧进程已停止，8083 端口已释放"
 
 # ─────────────────────────────────────────
 section "启动后端服务"
