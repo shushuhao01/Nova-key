@@ -12,8 +12,15 @@ import { cn } from "@/lib/utils"
  */
 export function FloatingContact() {
   const { t } = useLocale()
-  const { config } = useSiteConfig()
+  const siteCfg = useSiteConfig()
+  const config = siteCfg?.config ?? null
   const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  // 仅在客户端挂载后渲染，SSR 阶段不输出任何内容，杜绝 SSR/hydration 边界异常
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const hasContact = !!(
     config?.contact_email ||
@@ -35,6 +42,7 @@ export function FloatingContact() {
     return () => window.removeEventListener("keydown", onKey)
   }, [open])
 
+  if (!mounted) return null
   if (!hasContact) return null
 
   const telegramHref =
@@ -47,7 +55,7 @@ export function FloatingContact() {
       : config?.contact_telegram || ""
 
   return (
-    <div className="fixed bottom-6 right-5 z-50 flex flex-col items-end sm:bottom-8 sm:right-6">
+    <div className="fixed bottom-16 right-5 z-50 flex flex-col items-end sm:bottom-20 sm:right-6">
       {open && (
         <>
           {/* 点击遮罩关闭 */}

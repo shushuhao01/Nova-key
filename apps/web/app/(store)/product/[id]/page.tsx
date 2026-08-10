@@ -5,7 +5,7 @@ import { ProductBreadcrumb } from "./product-breadcrumb"
 import { ProductDescription } from "./product-description"
 import { ProductGallery } from "./product-gallery"
 import { ScrollToTop } from "./scroll-to-top"
-import { FloatingContact } from "@/components/store/floating-contact"
+import { FloatingContact } from "../../../../components/store/floating-contact"
 import type { Metadata } from "next"
 import type { PaymentChannelItem } from "@/types"
 
