@@ -20,24 +20,18 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
     List<CommissionRecord> findByOrderId(UUID orderId);
 
     /**
-     * 管理后台佣金记录列表。原生 SQL + status::text 显式转文本比较，
-     * 兼容 status 列为 varchar 或早期 PG 原生枚举（USER-DEFINED）两种情形，
-     * 避免 System error 500（详见 DistributorRepository.findAdminList）。
+     * 管理后台佣金记录列表。使用 JPQL（Hibernate 从方法签名绑定参数类型，
+     * null 参数也携带类型），从机制上规避 PG 原生 SQL 对 null 参数
+     * "could not determine data type of parameter" 的报错（System error 500）。
      */
-    @Query(value = "SELECT * FROM commission_records WHERE " +
-            "(:distributorId IS NULL OR distributor_id = CAST(:distributorId AS uuid)) " +
-            "AND (:status IS NULL OR :status = '' OR status::text = CAST(:status AS text)) " +
-            "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
-            "AND (:to IS NULL OR created_at < CAST(:to AS timestamp)) " +
-            "ORDER BY created_at DESC",
-            countQuery = "SELECT COUNT(*) FROM commission_records WHERE " +
-            "(:distributorId IS NULL OR distributor_id = CAST(:distributorId AS uuid)) " +
-            "AND (:status IS NULL OR :status = '' OR status::text = CAST(:status AS text)) " +
-            "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
-            "AND (:to IS NULL OR created_at < CAST(:to AS timestamp))",
-            nativeQuery = true)
+    @Query("SELECT cr FROM CommissionRecord cr WHERE " +
+            "(:distributorId IS NULL OR cr.distributorId = :distributorId) " +
+            "AND (:status IS NULL OR cr.status = :status) " +
+            "AND (:from IS NULL OR cr.createdAt >= :from) " +
+            "AND (:to IS NULL OR cr.createdAt < :to) " +
+            "ORDER BY cr.createdAt DESC")
     Page<CommissionRecord> findAdminList(@Param("distributorId") UUID distributorId,
-                                         @Param("status") String status,
+                                         @Param("status") CommissionStatus status,
                                          @Param("from") LocalDateTime from,
                                          @Param("to") LocalDateTime to,
                                          Pageable pageable);

@@ -1,5 +1,6 @@
 package com.orionkey.repository;
 
+import com.orionkey.constant.WithdrawalStatus;
 import com.orionkey.entity.WithdrawalRecord;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,21 +18,16 @@ public interface WithdrawalRecordRepository extends JpaRepository<WithdrawalReco
     Page<WithdrawalRecord> findByDistributorIdOrderByCreatedAtDesc(UUID distributorId, Pageable pageable);
 
     /**
-     * 管理后台提现记录列表。原生 SQL + status::text 显式转文本比较，
-     * 兼容 status 列为 varchar 或早期 PG 原生枚举（USER-DEFINED）两种情形，
-     * 避免 System error 500（详见 DistributorRepository.findAdminList）。
+     * 管理后台提现记录列表。使用 JPQL（Hibernate 从方法签名绑定参数类型，
+     * null 参数也携带类型），从机制上规避 PG 原生 SQL 对 null 参数
+     * "could not determine data type of parameter" 的报错（System error 500）。
      */
-    @Query(value = "SELECT * FROM withdrawal_records WHERE " +
-            "(:status IS NULL OR :status = '' OR status::text = CAST(:status AS text)) " +
-            "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
-            "AND (:to IS NULL OR created_at < CAST(:to AS timestamp)) " +
-            "ORDER BY created_at DESC",
-            countQuery = "SELECT COUNT(*) FROM withdrawal_records WHERE " +
-            "(:status IS NULL OR :status = '' OR status::text = CAST(:status AS text)) " +
-            "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
-            "AND (:to IS NULL OR created_at < CAST(:to AS timestamp))",
-            nativeQuery = true)
-    Page<WithdrawalRecord> findAdminList(@Param("status") String status,
+    @Query("SELECT wr FROM WithdrawalRecord wr WHERE " +
+            "(:status IS NULL OR wr.status = :status) " +
+            "AND (:from IS NULL OR wr.createdAt >= :from) " +
+            "AND (:to IS NULL OR wr.createdAt < :to) " +
+            "ORDER BY wr.createdAt DESC")
+    Page<WithdrawalRecord> findAdminList(@Param("status") WithdrawalStatus status,
                                          @Param("from") java.time.LocalDateTime from,
                                          @Param("to") java.time.LocalDateTime to,
                                          Pageable pageable);

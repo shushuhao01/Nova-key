@@ -31,26 +31,17 @@ public interface DistributorRepository extends JpaRepository<Distributor, UUID> 
     List<Distributor> findByParentId(UUID parentId);
 
     /**
-     * 管理后台分销员列表。使用原生 SQL 且 status::text 显式转文本比较，
-     * 兼容 status 列为 varchar 或早期 PG 原生枚举（USER-DEFINED）两种情形，
-     * 避免 Hibernate 绑定 varchar 参数与原生枚举列比较时报
-     * "operator does not exist ... = character varying" → System error 500。
-     * <p>注意：可空参数必须用 CAST(:param AS ...) 显式声明类型，否则 PG 对 null
-     * 参数报 "could not determine data type of parameter"（System error）。
+     * 管理后台分销员列表。使用 JPQL（Hibernate 从方法签名绑定参数类型，
+     * null 参数也携带类型），从机制上规避 PG 原生 SQL 对 null 参数
+     * "could not determine data type of parameter" 的报错（System error 500）。
      */
-    @Query(value = "SELECT * FROM distributors WHERE " +
-            "(:status IS NULL OR :status = '' OR status::text = CAST(:status AS text)) " +
-            "AND (:keyword IS NULL OR :keyword = '' OR LOWER(distributor_code) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
-            "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
-            "AND (:to IS NULL OR created_at < CAST(:to AS timestamp)) " +
-            "ORDER BY created_at DESC",
-            countQuery = "SELECT COUNT(*) FROM distributors WHERE " +
-            "(:status IS NULL OR :status = '' OR status::text = CAST(:status AS text)) " +
-            "AND (:keyword IS NULL OR :keyword = '' OR LOWER(distributor_code) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
-            "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
-            "AND (:to IS NULL OR created_at < CAST(:to AS timestamp))",
-            nativeQuery = true)
-    Page<Distributor> findAdminList(@Param("status") String status,
+    @Query("SELECT d FROM Distributor d WHERE " +
+            "(:status IS NULL OR d.status = :status) " +
+            "AND (:keyword IS NULL OR :keyword = '' OR LOWER(d.distributorCode) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            "AND (:from IS NULL OR d.createdAt >= :from) " +
+            "AND (:to IS NULL OR d.createdAt < :to) " +
+            "ORDER BY d.createdAt DESC")
+    Page<Distributor> findAdminList(@Param("status") DistributorStatus status,
                                     @Param("keyword") String keyword,
                                     @Param("from") java.time.LocalDateTime from,
                                     @Param("to") java.time.LocalDateTime to,

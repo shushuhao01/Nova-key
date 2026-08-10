@@ -210,8 +210,8 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListDistributors(String status, String keyword, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         DistributorStatus statusEnum = parseStatus(status);
-        // 项目约定：String 参数传空字符串而非 null，避免 PG 原生 SQL 对 null 参数无法推断类型
-        Page<Distributor> dp = distributorRepository.findAdminList(statusEnum != null ? statusEnum.name() : "",
+        // JPQL：枚举参数由 Hibernate 绑定类型，null 也携带类型，PG 不会报类型推断错误
+        Page<Distributor> dp = distributorRepository.findAdminList(statusEnum,
                 keyword != null ? keyword : "",
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
@@ -526,9 +526,9 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListCommissions(UUID distributorId, String status, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         CommissionStatus statusEnum = parseCommissionStatus(status);
-        // 项目约定：String 参数传空字符串而非 null，避免 PG 原生 SQL 对 null 参数无法推断类型
+        // JPQL：枚举参数由 Hibernate 绑定类型，null 也携带类型，PG 不会报类型推断错误
         Page<CommissionRecord> cp = commissionRecordRepository.findAdminList(distributorId,
-                statusEnum != null ? statusEnum.name() : "",
+                statusEnum,
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
                 pageable);
@@ -593,8 +593,8 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListWithdrawals(String status, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         WithdrawalStatus statusEnum = parseWithdrawalStatus(status);
-        // 项目约定：String 参数传空字符串而非 null，避免 PG 原生 SQL 对 null 参数无法推断类型
-        Page<WithdrawalRecord> wp = withdrawalRecordRepository.findAdminList(statusEnum != null ? statusEnum.name() : "",
+        // JPQL：枚举参数由 Hibernate 绑定类型，null 也携带类型，PG 不会报类型推断错误
+        Page<WithdrawalRecord> wp = withdrawalRecordRepository.findAdminList(statusEnum,
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
                 pageable);
@@ -1380,7 +1380,7 @@ public class DistributionServiceImpl implements DistributionService {
         Page<CommissionRecord> cp;
         if (statusEnum != null) {
             // 复用 admin 查询（distributorId + status，无时间范围限制）
-            cp = commissionRecordRepository.findAdminList(me, statusEnum != null ? statusEnum.name() : null, null, null, pageable);
+            cp = commissionRecordRepository.findAdminList(me, statusEnum, null, null, pageable);
         } else {
             cp = commissionRecordRepository.findByDistributorIdOrderByCreatedAtDesc(me, pageable);
         }
