@@ -629,6 +629,8 @@ export interface RegisteredCustomerItem {
   mp_nickname?: string | null
   /** 微信头像 URL（可能为空，前端用默认头像兜底） */
   mp_avatar?: string | null
+  /** 推广员等级：1=一级推广员（蓝色推标）2=二级推广员（绿色推标），非推广员为 null */
+  distributor_level?: 1 | 2 | null
 }
 
 /** 匿名客户列表项 */

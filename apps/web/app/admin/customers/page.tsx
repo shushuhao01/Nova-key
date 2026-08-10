@@ -298,29 +298,41 @@ export default function AdminCustomersPage() {
                   <tr key={u.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className={cn(
-                          "flex h-7 w-7 items-center justify-center rounded-full",
-                          u.is_banned ? "bg-red-500/10 text-red-500" : "bg-primary/10 text-primary"
-                        )}>
-                          <UserRound className="h-4 w-4" />
-                        </span>
+                        {u.mp_avatar ? (
+                          <img src={u.mp_avatar} alt="" className="h-7 w-7 shrink-0 rounded-full border border-border object-cover" />
+                        ) : (
+                          <span className={cn(
+                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+                            u.is_banned ? "bg-red-500/10 text-red-500" : "bg-primary/10 text-primary"
+                          )}>
+                            <UserRound className="h-4 w-4" />
+                          </span>
+                        )}
+                        {u.distributor_level === 1 && (
+                          <span
+                            title={t("admin.customerLevel1")}
+                            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-blue-500 text-[10px] font-bold leading-none text-white"
+                          >
+                            推
+                          </span>
+                        )}
+                        {u.distributor_level === 2 && (
+                          <span
+                            title={t("admin.customerLevel2")}
+                            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-emerald-500 text-[10px] font-bold leading-none text-white"
+                          >
+                            推
+                          </span>
+                        )}
                         <span className="font-medium text-foreground">{u.username}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
                     <td className="px-4 py-3">
                       {u.wechat_customer ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          {u.mp_avatar ? (
-                            <img src={u.mp_avatar} alt="" className="h-7 w-7 shrink-0 rounded-full border border-border object-cover" />
-                          ) : (
-                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
-                              <UserRound className="h-4 w-4" />
-                            </span>
-                          )}
-                          <span className="max-w-[140px] truncate text-xs font-medium text-emerald-600">
-                            {u.mp_nickname || "微信客户"}
-                          </span>
+                        <span className="inline-flex max-w-[140px] items-center gap-1 text-xs font-medium text-emerald-600">
+                          <UserRound className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{u.mp_nickname || "微信客户"}</span>
                         </span>
                       ) : (
                         <span className="text-muted-foreground">—</span>

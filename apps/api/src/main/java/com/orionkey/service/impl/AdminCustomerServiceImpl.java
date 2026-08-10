@@ -1,6 +1,7 @@
 package com.orionkey.service.impl;
 
 import com.orionkey.common.PageResult;
+import com.orionkey.constant.DistributorStatus;
 import com.orionkey.constant.ErrorCode;
 import com.orionkey.constant.UserRole;
 import com.orionkey.entity.Distributor;
@@ -122,11 +123,10 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
             m.put("total_spent", orderRepository.sumPaidByUserId(uid));
             return m;
         }).toList();
-        // 批量注入微信绑定信息（公众号 openid / 分销员微信绑定）
+        // 批量注入微信绑定信息与分销员等级（公众号 openid / 分销员微信绑定 / 一级二级推广）
         Set<UUID> userIds = userPage.getContent().stream().map(User::getId).collect(Collectors.toSet());
         Map<UUID, Distributor> distByUser = userIds.isEmpty() ? Map.of()
                 : distributorRepository.findByUserIdIn(userIds).stream()
-                        .filter(d -> d.getWechatOpenid() != null && !d.getWechatOpenid().isBlank())
                         .collect(Collectors.toMap(Distributor::getUserId, d -> d, (a, b) -> a));
         Map<UUID, User> userById = userPage.getContent().stream().collect(Collectors.toMap(User::getId, u -> u));
         for (Map<String, Object> m : list) {
@@ -134,13 +134,17 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
             User u = userById.get(uid);
             Distributor d = distByUser.get(uid);
             boolean wechatBound = (u.getMpOpenid() != null && !u.getMpOpenid().isBlank())
-                    || d != null;
+                    || (d != null && d.getWechatOpenid() != null && !d.getWechatOpenid().isBlank());
             m.put("wechat_customer", wechatBound);
             m.put("mp_subscribe", u.getMpSubscribe());
             m.put("mp_nickname", u.getMpNickname() != null && !u.getMpNickname().isBlank()
                     ? u.getMpNickname()
                     : (d != null ? d.getWechatNickname() : null));
             m.put("mp_avatar", u.getMpAvatar() != null && !u.getMpAvatar().isBlank() ? u.getMpAvatar() : null);
+            // 推广员等级：已通过审核的一级（无上级）/ 二级（有上级）
+            m.put("distributor_level", d != null && d.getStatus() == DistributorStatus.APPROVED
+                    ? (d.getParentId() != null ? 2 : 1)
+                    : null);
         }
         return PageResult.of(userPage, list);
     }
