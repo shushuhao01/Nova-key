@@ -153,12 +153,15 @@ public class MarketingServiceImpl implements MarketingService {
             code = generateUniqueCode();
         }
         c.setCouponCode(code);
-        // 发行数量：默认 1（0 表示不限制，兼容旧数据）
+        // 发行数量（总量）：默认 1（0 表示不限量，领完即止）
         int quantity = body.get("coupon_quantity") instanceof Number q ? Math.max(0, q.intValue()) : 1;
         if (body.get("coupon_quantity") == null && c.getCouponQuantity() == 0) {
             quantity = 1;
         }
         c.setCouponQuantity(quantity);
+        // 每人可领取数量：默认 1（0=不限，1=限领 1 张，2=限领 2 张）
+        int perUserLimit = body.get("coupon_per_user_limit") instanceof Number p ? Math.max(0, p.intValue()) : 1;
+        c.setCouponPerUserLimit(perUserLimit);
         LocalDateTime from = parseDateTime(body.get("coupon_valid_from"));
         LocalDateTime to = parseDateTime(body.get("coupon_valid_to"));
         if (from != null && to != null && from.isAfter(to)) {
@@ -538,6 +541,7 @@ public class MarketingServiceImpl implements MarketingService {
         m.put("coupon_valid_from", campaign.getCouponValidFrom());
         m.put("coupon_valid_to", campaign.getCouponValidTo());
         m.put("coupon_quantity", campaign.getCouponQuantity());
+        m.put("coupon_per_user_limit", campaign.getCouponPerUserLimit());
         m.put("coupon_claimed", couponRepository.countByCampaignId(campaign.getId()));
         m.put("coupon_scope", campaign.getCouponScope());
         m.put("coupon_product_ids", campaign.getCouponProductIds());
@@ -587,6 +591,18 @@ public class MarketingServiceImpl implements MarketingService {
         }
         if (userId == null && (email == null || email.isBlank())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "请先登录或提供邮箱后领取");
+        }
+        // 每人可领取数量限制（0=不限；同一活动按用户/邮箱去重统计）
+        int perUserLimit = campaign.getCouponPerUserLimit();
+        if (perUserLimit > 0) {
+            long userClaimed = userId != null
+                    ? couponRepository.countByCampaignIdAndUserId(campaign.getId(), userId)
+                    : couponRepository.countByCampaignIdAndEmail(campaign.getId(), email.trim().toLowerCase());
+            if (userClaimed >= perUserLimit) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST,
+                        perUserLimit == 1 ? "您已领取过该优惠券，每人限领 1 张"
+                                : "每人最多可领取 " + perUserLimit + " 张优惠券");
+            }
         }
         UserCoupon uc = new UserCoupon();
         uc.setCampaignId(campaign.getId());
@@ -815,6 +831,7 @@ public class MarketingServiceImpl implements MarketingService {
         map.put("coupon_min_amount", c.getCouponMinAmount());
         map.put("coupon_code", c.getCouponCode());
         map.put("coupon_quantity", c.getCouponQuantity());
+        map.put("coupon_per_user_limit", c.getCouponPerUserLimit());
         map.put("coupon_claimed", couponRepository.countByCampaignId(c.getId()));
         map.put("coupon_used", couponRepository.countByCampaignIdAndStatus(c.getId(), "USED"));
         map.put("coupon_valid_from", c.getCouponValidFrom());

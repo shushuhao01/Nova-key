@@ -496,6 +496,7 @@ export interface MarketingCouponItem {
   coupon_min_amount: number | null
   coupon_code: string | null
   coupon_quantity: number
+  coupon_per_user_limit?: number
   coupon_claimed: number
   coupon_used: number
   coupon_valid_from: string | null
@@ -515,6 +516,7 @@ export interface CouponPayload {
   coupon_min_amount?: number
   coupon_code?: string | null
   coupon_quantity?: number
+  coupon_per_user_limit?: number
   coupon_valid_from?: string | null
   coupon_valid_to?: string | null
   coupon_scope?: CouponScope
@@ -619,6 +621,14 @@ export interface RegisteredCustomerItem {
   order_count: number
   paid_count: number
   total_spent: number
+  /** 是否绑定微信（公众号绑定或分销员绑定） */
+  wechat_customer?: boolean
+  /** 公众号关注状态：SUBSCRIBED / UNSUBSCRIBED / null */
+  mp_subscribe?: "SUBSCRIBED" | "UNSUBSCRIBED" | null
+  /** 微信昵称 */
+  mp_nickname?: string | null
+  /** 微信头像 URL（可能为空，前端用默认头像兜底） */
+  mp_avatar?: string | null
 }
 
 /** 匿名客户列表项 */

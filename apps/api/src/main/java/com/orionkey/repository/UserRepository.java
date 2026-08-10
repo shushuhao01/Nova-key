@@ -18,6 +18,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByUsernameOrEmail(String username, String email);
 
+    /** 按公众号 openid 查找用户（关注/取关事件关联） */
+    Optional<User> findByMpOpenid(String mpOpenid);
+
     boolean existsByUsername(String username);
 
     boolean existsByEmail(String email);

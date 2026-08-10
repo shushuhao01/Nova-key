@@ -3,14 +3,17 @@ package com.orionkey.service.impl;
 import com.orionkey.common.PageResult;
 import com.orionkey.constant.ErrorCode;
 import com.orionkey.constant.UserRole;
+import com.orionkey.entity.Distributor;
 import com.orionkey.entity.Order;
 import com.orionkey.entity.OrderItem;
 import com.orionkey.entity.User;
 import com.orionkey.exception.BusinessException;
+import com.orionkey.repository.DistributorRepository;
 import com.orionkey.repository.OrderItemRepository;
 import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.UserRepository;
 import com.orionkey.service.AdminCustomerService;
+import com.orionkey.service.WechatMpConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -24,6 +27,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -33,6 +37,8 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+    private final DistributorRepository distributorRepository;
+    private final WechatMpConfigService wechatMpConfigService;
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -66,7 +72,7 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public PageResult<?> listRegistered(String keyword, int page, int pageSize) {
         Pageable pageable = PageRequest.of(Math.max(page - 1, 0), Math.min(Math.max(pageSize, 1), 100));
         Page<User> userPage;
@@ -75,6 +81,32 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
                     UserRole.USER, keyword.trim(), UserRole.USER, keyword.trim(), pageable);
         } else {
             userPage = userRepository.findByRoleOrderByCreatedAtDesc(UserRole.USER, pageable);
+        }
+        // 懒同步微信资料：已绑定公众号但缺少昵称/头像的，调用微信接口拉取（每页最多同步 50 个，避免阻塞）
+        Map<String, User> syncedByOpenid = new HashMap<>();
+        int syncBudget = 50;
+        for (User u : userPage.getContent()) {
+            if (syncBudget <= 0) break;
+            if (u.getMpOpenid() == null || u.getMpOpenid().isBlank()) continue;
+            if (u.getMpNickname() != null && !u.getMpNickname().isBlank()
+                    && u.getMpAvatar() != null && !u.getMpAvatar().isBlank()) continue;
+            if (syncedByOpenid.containsKey(u.getMpOpenid())) continue;
+            syncedByOpenid.put(u.getMpOpenid(), u);
+            syncBudget--;
+            try {
+                Map<String, Object> profile = wechatMpConfigService.fetchUserProfile(u.getMpOpenid());
+                if (profile != null) {
+                    Object nick = profile.get("nickname");
+                    Object avatar = profile.get("headimgurl");
+                    if (nick != null && !nick.toString().isBlank()) u.setMpNickname(nick.toString());
+                    if (avatar != null && !avatar.toString().isBlank()) u.setMpAvatar(avatar.toString());
+                }
+            } catch (Exception e) {
+                log.warn("Sync wechat profile failed for user {}: {}", u.getId(), e.getMessage());
+            }
+        }
+        if (!syncedByOpenid.isEmpty()) {
+            userRepository.saveAll(userPage.getContent());
         }
         List<Map<String, Object>> list = userPage.getContent().stream().map(u -> {
             UUID uid = u.getId();
@@ -90,6 +122,26 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
             m.put("total_spent", orderRepository.sumPaidByUserId(uid));
             return m;
         }).toList();
+        // 批量注入微信绑定信息（公众号 openid / 分销员微信绑定）
+        Set<UUID> userIds = userPage.getContent().stream().map(User::getId).collect(Collectors.toSet());
+        Map<UUID, Distributor> distByUser = userIds.isEmpty() ? Map.of()
+                : distributorRepository.findByUserIdIn(userIds).stream()
+                        .filter(d -> d.getWechatOpenid() != null && !d.getWechatOpenid().isBlank())
+                        .collect(Collectors.toMap(Distributor::getUserId, d -> d, (a, b) -> a));
+        Map<UUID, User> userById = userPage.getContent().stream().collect(Collectors.toMap(User::getId, u -> u));
+        for (Map<String, Object> m : list) {
+            UUID uid = (UUID) m.get("id");
+            User u = userById.get(uid);
+            Distributor d = distByUser.get(uid);
+            boolean wechatBound = (u.getMpOpenid() != null && !u.getMpOpenid().isBlank())
+                    || d != null;
+            m.put("wechat_customer", wechatBound);
+            m.put("mp_subscribe", u.getMpSubscribe());
+            m.put("mp_nickname", u.getMpNickname() != null && !u.getMpNickname().isBlank()
+                    ? u.getMpNickname()
+                    : (d != null ? d.getWechatNickname() : null));
+            m.put("mp_avatar", u.getMpAvatar() != null && !u.getMpAvatar().isBlank() ? u.getMpAvatar() : null);
+        }
         return PageResult.of(userPage, list);
     }
 

@@ -177,7 +177,7 @@ public class DistributionServiceImpl implements DistributionService {
         long totalClicks = clickRepository.countByDistributorId(distId);
 
         BigDecimal totalSales = BigDecimal.ZERO;
-        BigDecimal pendingCommission = nullSafe(commissionRecordRepository.sumByDistributorAndStatus(distId, CommissionStatus.PENDING));
+        BigDecimal pendingCommission = nullSafe(commissionRecordRepository.sumByDistributorAndStatus(distId, CommissionStatus.PENDING.name()));
         long subCount = distributorRepository.findByParentId(distId).size();
         long customerCount = customerBindingRepository.countByDistributorId(distId);
 
@@ -210,7 +210,7 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListDistributors(String status, String keyword, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         DistributorStatus statusEnum = parseStatus(status);
-        Page<Distributor> dp = distributorRepository.findAdminList(statusEnum,
+        Page<Distributor> dp = distributorRepository.findAdminList(statusEnum != null ? statusEnum.name() : null,
                 keyword != null ? keyword : "",
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
@@ -243,8 +243,8 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("applied_at", d.getCreatedAt());
         m.put("customer_count", customerBindingRepository.countByDistributorId(d.getId()));
         m.put("subordinate_count", distributorRepository.findByParentId(d.getId()).size());
-        m.put("pending_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.PENDING)));
-        m.put("settled_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.SETTLED)));
+        m.put("pending_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.PENDING.name())));
+        m.put("settled_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.SETTLED.name())));
         return m;
     }
 
@@ -525,7 +525,7 @@ public class DistributionServiceImpl implements DistributionService {
         Pageable pageable = toPageable(page, pageSize);
         CommissionStatus statusEnum = parseCommissionStatus(status);
         Page<CommissionRecord> cp = commissionRecordRepository.findAdminList(distributorId,
-                statusEnum,
+                statusEnum != null ? statusEnum.name() : null,
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
                 pageable);
@@ -533,11 +533,15 @@ public class DistributionServiceImpl implements DistributionService {
         Set<UUID> distIds = cp.getContent().stream().map(CommissionRecord::getDistributorId).collect(Collectors.toSet());
         Map<UUID, Distributor> distMap = distIds.isEmpty() ? Map.of()
                 : distributorRepository.findAllById(distIds).stream().collect(Collectors.toMap(Distributor::getId, d -> d));
+        Set<UUID> userIds = distMap.values().stream().map(Distributor::getUserId).collect(Collectors.toSet());
+        Map<UUID, User> userMap = userIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(userIds).stream().collect(Collectors.toMap(User::getId, u -> u));
 
         List<Map<String, Object>> items = cp.getContent().stream().map(cr -> {
             Map<String, Object> m = commissionToMap(cr);
             Distributor d = distMap.get(cr.getDistributorId());
             m.put("distributor_code", d != null ? d.getDistributorCode() : null);
+            m.put("distributor_name", d != null && userMap.get(d.getUserId()) != null ? userMap.get(d.getUserId()).getUsername() : null);
             return m;
         }).toList();
         return pageResult(items, cp.getTotalElements(), page, pageSize);
@@ -556,9 +560,9 @@ public class DistributionServiceImpl implements DistributionService {
 
         for (Distributor d : all) {
             totalCommission = totalCommission.add(nullSafe(d.getTotalCommission()));
-            pendingTotal = pendingTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.PENDING)));
-            settledTotal = settledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.SETTLED)));
-            cancelledTotal = cancelledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.CANCELLED)));
+            pendingTotal = pendingTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.PENDING.name())));
+            settledTotal = settledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.SETTLED.name())));
+            cancelledTotal = cancelledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.CANCELLED.name())));
         }
 
         // 今日佣金
@@ -586,7 +590,7 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListWithdrawals(String status, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         WithdrawalStatus statusEnum = parseWithdrawalStatus(status);
-        Page<WithdrawalRecord> wp = withdrawalRecordRepository.findAdminList(statusEnum,
+        Page<WithdrawalRecord> wp = withdrawalRecordRepository.findAdminList(statusEnum != null ? statusEnum.name() : null,
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
                 pageable);
@@ -594,11 +598,15 @@ public class DistributionServiceImpl implements DistributionService {
         Set<UUID> distIds = wp.getContent().stream().map(WithdrawalRecord::getDistributorId).collect(Collectors.toSet());
         Map<UUID, Distributor> distMap = distIds.isEmpty() ? Map.of()
                 : distributorRepository.findAllById(distIds).stream().collect(Collectors.toMap(Distributor::getId, d -> d));
+        Set<UUID> userIds = distMap.values().stream().map(Distributor::getUserId).collect(Collectors.toSet());
+        Map<UUID, User> userMap = userIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(userIds).stream().collect(Collectors.toMap(User::getId, u -> u));
 
         List<Map<String, Object>> items = wp.getContent().stream().map(wr -> {
             Map<String, Object> m = withdrawalToMap(wr);
             Distributor d = distMap.get(wr.getDistributorId());
             m.put("distributor_code", d != null ? d.getDistributorCode() : null);
+            m.put("distributor_name", d != null && userMap.get(d.getUserId()) != null ? userMap.get(d.getUserId()).getUsername() : null);
             return m;
         }).toList();
         return pageResult(items, wp.getTotalElements(), page, pageSize);
@@ -816,7 +824,7 @@ public class DistributionServiceImpl implements DistributionService {
             frozenBalance = frozenBalance.add(nullSafe(d.getFrozenBalance()));
         }
         BigDecimal curPendingCommission = cur == null
-                ? all.stream().map(d -> nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.PENDING)))
+                ? all.stream().map(d -> nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.PENDING.name())))
                         .reduce(BigDecimal.ZERO, BigDecimal::add)
                 : commissionRecordRepository.sumPendingBetween(cur[0], cur[1]);
         BigDecimal todayPendingCommission = commissionRecordRepository.sumPendingBetween(todayStart, todayEnd);
@@ -1248,7 +1256,7 @@ public class DistributionServiceImpl implements DistributionService {
         Page<CommissionRecord> cp;
         if (statusEnum != null) {
             // 复用 admin 查询（distributorId + status，无时间范围限制）
-            cp = commissionRecordRepository.findAdminList(me, statusEnum, null, null, pageable);
+            cp = commissionRecordRepository.findAdminList(me, statusEnum != null ? statusEnum.name() : null, null, null, pageable);
         } else {
             cp = commissionRecordRepository.findByDistributorIdOrderByCreatedAtDesc(me, pageable);
         }

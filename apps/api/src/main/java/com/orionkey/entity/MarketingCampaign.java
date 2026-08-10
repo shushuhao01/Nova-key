@@ -85,9 +85,13 @@ public class MarketingCampaign extends BaseEntity {
     /** 优惠券核销码（用户领取后凭此码下单抵扣） */
     private String couponCode;
 
-    /** 可领取总数量 */
+    /** 可领取总数量（发行总量，领完即止） */
     @Column(columnDefinition = "integer not null default 0")
     private int couponQuantity = 0;
+
+    /** 每人可领取数量（0=不限制，1=每人限领 1 张，2=每人限领 2 张） */
+    @Column(columnDefinition = "integer not null default 1")
+    private int couponPerUserLimit = 1;
 
     /** 优惠券生效开始时间 */
     private LocalDateTime couponValidFrom;

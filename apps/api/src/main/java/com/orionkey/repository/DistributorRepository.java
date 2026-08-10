@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -18,19 +19,36 @@ public interface DistributorRepository extends JpaRepository<Distributor, UUID> 
 
     Optional<Distributor> findByUserId(UUID userId);
 
+    List<Distributor> findByUserIdIn(Collection<UUID> userIds);
+
+    /** 按绑定的微信 openid 查找分销员（关注事件关联） */
+    Optional<Distributor> findByWechatOpenid(String wechatOpenid);
+
     Optional<Distributor> findByDistributorCode(String code);
 
     Optional<Distributor> findByInviteCode(String inviteCode);
 
     List<Distributor> findByParentId(UUID parentId);
 
-    @Query("SELECT d FROM Distributor d WHERE " +
-            "(:status IS NULL OR d.status = :status) " +
-            "AND (:keyword IS NULL OR :keyword = '' OR LOWER(d.distributorCode) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
-            "AND (:from IS NULL OR d.createdAt >= :from) " +
-            "AND (:to IS NULL OR d.createdAt < :to) " +
-            "ORDER BY d.createdAt DESC")
-    Page<Distributor> findAdminList(@Param("status") DistributorStatus status,
+    /**
+     * 管理后台分销员列表。使用原生 SQL 且 status::text 显式转文本比较，
+     * 兼容 status 列为 varchar 或早期 PG 原生枚举（USER-DEFINED）两种情形，
+     * 避免 Hibernate 绑定 varchar 参数与原生枚举列比较时报
+     * "operator does not exist ... = character varying" → System error 500。
+     */
+    @Query(value = "SELECT * FROM distributors WHERE " +
+            "(:status IS NULL OR status::text = :status) " +
+            "AND (:keyword IS NULL OR :keyword = '' OR LOWER(distributor_code) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            "AND (:from IS NULL OR created_at >= :from) " +
+            "AND (:to IS NULL OR created_at < :to) " +
+            "ORDER BY created_at DESC",
+            countQuery = "SELECT COUNT(*) FROM distributors WHERE " +
+            "(:status IS NULL OR status::text = :status) " +
+            "AND (:keyword IS NULL OR :keyword = '' OR LOWER(distributor_code) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            "AND (:from IS NULL OR created_at >= :from) " +
+            "AND (:to IS NULL OR created_at < :to)",
+            nativeQuery = true)
+    Page<Distributor> findAdminList(@Param("status") String status,
                                     @Param("keyword") String keyword,
                                     @Param("from") java.time.LocalDateTime from,
                                     @Param("to") java.time.LocalDateTime to,

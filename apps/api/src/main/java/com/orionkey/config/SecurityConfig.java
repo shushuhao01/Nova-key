@@ -68,6 +68,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/distribution/resolve/**", "/distribution/commission-preview").permitAll()
                         // 微信 OAuth 回调（浏览器重定向访问，无 JWT）
                         .requestMatchers(HttpMethod.GET, "/distributor/wechat/callback").permitAll()
+                        // 微信公众号服务器回调（GET 验证 + POST 消息/事件，均来自微信服务器，无 JWT）
+                        .requestMatchers(HttpMethod.GET, "/wechat-mp/callback").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/wechat-mp/callback").permitAll()
                         // Distributor endpoints (authenticated)
                         .requestMatchers("/distributor/**").authenticated()
                         // User messages (authenticated)

@@ -1,10 +1,10 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send, Bell, Webhook, CheckCircle2, XCircle, Plus, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react"
+import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send, Bell, Webhook, CheckCircle2, XCircle, Plus, ChevronLeft, ChevronRight, ChevronDown, RefreshCw, Link2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
-import { adminConfigApi, adminProductApi, adminNotificationApi, adminWechatMpApi, withMockFallback } from "@/services/api"
+import { adminConfigApi, adminProductApi, adminNotificationApi, adminWechatMpApi, withMockFallback, type MpMessageTemplate } from "@/services/api"
 import { mockSiteConfigKVs } from "@/lib/mock-data"
 import { useLocale } from "@/lib/context"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog"
@@ -97,12 +97,51 @@ export default function AdminSiteConfigPage() {
   }, [tab, notifyPage, notifyCategoryFilter, notifyEnabledFilter, loadNotifyTemplates])
 
   // ─── 公众号配置（wechatMp tab）数据 ───
-  const [mpConfig, setMpConfig] = useState({ appid: "", appsecret: "", follow_qr: "", template_id: "", configured: false })
+  const [mpConfig, setMpConfig] = useState<{
+    appid: string
+    appsecret: string
+    follow_qr: string
+    template_id: string
+    message_templates: MpMessageTemplate[]
+    server_url: string
+    token: string
+    aes_key: string
+    encrypt_mode: string
+    data_format: string
+    bind_link: string
+    configured: boolean
+  }>({
+    appid: "", appsecret: "", follow_qr: "", template_id: "", message_templates: [],
+    server_url: "", token: "", aes_key: "", encrypt_mode: "plain", data_format: "XML", bind_link: "", configured: false,
+  })
   const [mpSaving, setMpSaving] = useState(false)
   const [mpTesting, setMpTesting] = useState(false)
   const [mpFollowUploading, setMpFollowUploading] = useState(false)
   const [mpTestResult, setMpTestResult] = useState<{ passed: boolean; items: { name: string; status: string; message: string }[] } | null>(null)
   const mpLoadedRef = useRef(false)
+
+  // 随机字符串（Token / EncodingAESKey 生成）
+  const randomStr = (len: number) => {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+      const arr = new Uint8Array(len)
+      crypto.getRandomValues(arr)
+      return Array.from(arr, (b) => chars[b % chars.length]).join("")
+    }
+    let s = ""
+    for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)]
+    return s
+  }
+
+  // 复制到剪贴板
+  const copyText = async (text: string, tip: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success(`${tip}已复制`)
+    } catch {
+      toast.error("复制失败，请手动复制")
+    }
+  }
 
   useEffect(() => {
     if (tab !== "wechatMp") return
@@ -114,6 +153,13 @@ export default function AdminSiteConfigPage() {
           appsecret: cfg?.appsecret || "",
           follow_qr: cfg?.follow_qr || "",
           template_id: cfg?.template_id || "",
+          message_templates: Array.isArray(cfg?.message_templates) ? cfg.message_templates : [],
+          server_url: cfg?.server_url || "",
+          token: cfg?.token || "",
+          aes_key: cfg?.aes_key || "",
+          encrypt_mode: cfg?.encrypt_mode || "plain",
+          data_format: cfg?.data_format || "XML",
+          bind_link: cfg?.bind_link || "",
           configured: !!cfg?.configured,
         }))
         .catch((err: unknown) => toast.error(err instanceof Error ? err.message : "公众号配置加载失败"))
@@ -128,6 +174,10 @@ export default function AdminSiteConfigPage() {
         appsecret: mpConfig.appsecret.trim(),
         follow_qr: mpConfig.follow_qr.trim(),
         template_id: mpConfig.template_id.trim(),
+        message_templates: mpConfig.message_templates,
+        token: mpConfig.token.trim(),
+        aes_key: mpConfig.aes_key.trim(),
+        encrypt_mode: mpConfig.encrypt_mode,
       })
       setMpTestResult(null)
       toast.success("公众号配置已保存")
@@ -136,6 +186,14 @@ export default function AdminSiteConfigPage() {
     } finally {
       setMpSaving(false)
     }
+  }
+
+  // 更新某个消息模板的字段（模板 ID / 启用状态）
+  const updateMpTemplate = (code: string, patch: Partial<MpMessageTemplate>) => {
+    setMpConfig((c) => ({
+      ...c,
+      message_templates: (c.message_templates || []).map((t) => (t.code === code ? { ...t, ...patch } : t)),
+    }))
   }
 
   const handleTestMp = async () => {
@@ -1431,16 +1489,135 @@ export default function AdminSiteConfigPage() {
                   onChange={(e) => setMpConfig((c) => ({ ...c, appsecret: e.target.value }))}
                 />
               </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-foreground">公众号消息模板 ID（可选）</label>
-                <input
-                  type="text"
-                  placeholder="在微信公众平台申请「模板消息」后填写模板 ID（如 R34xxxxx）"
-                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={mpConfig.template_id}
-                  onChange={(e) => setMpConfig((c) => ({ ...c, template_id: e.target.value }))}
-                />
-                <p className="text-xs text-muted-foreground">申请模板消息需满足微信公众平台条件，配置后可用于向用户发送通知。</p>
+              <div className="rounded-lg border border-border bg-muted/30 p-4">
+                <div className="flex items-center gap-2">
+                  <Webhook className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-semibold text-foreground">服务器配置（接收微信消息推送）</p>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  在微信公众平台「设置与开发 → 基本配置 → 服务器配置」中启用，按下表填写 URL、Token、EncodingAESKey，消息加解密方式与平台保持一致，数据格式选择 XML。
+                </p>
+                <div className="mt-3 flex flex-col gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-foreground">URL（服务器地址，由当前站点自动生成）</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={mpConfig.server_url}
+                        className="h-10 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 font-mono text-xs text-foreground focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => copyText(mpConfig.server_url, "URL")}
+                        className="inline-flex h-10 shrink-0 items-center gap-1 rounded-lg border border-input px-3 text-xs font-medium text-foreground hover:bg-accent"
+                      >
+                        复制
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-foreground">Token（令牌）</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={mpConfig.token}
+                        placeholder="32 位随机字符串"
+                        className="h-10 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        onChange={(e) => setMpConfig((c) => ({ ...c, token: e.target.value }))}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setMpConfig((c) => ({ ...c, token: randomStr(32) }))}
+                        className="inline-flex h-10 shrink-0 items-center gap-1 rounded-lg border border-input px-3 text-xs font-medium text-foreground hover:bg-accent"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        随机生成
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-foreground">EncodingAESKey（消息加密密钥）</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={mpConfig.aes_key}
+                        placeholder="43 位随机字符串"
+                        className="h-10 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        onChange={(e) => setMpConfig((c) => ({ ...c, aes_key: e.target.value }))}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setMpConfig((c) => ({ ...c, aes_key: randomStr(43) }))}
+                        className="inline-flex h-10 shrink-0 items-center gap-1 rounded-lg border border-input px-3 text-xs font-medium text-foreground hover:bg-accent"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        随机生成
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-foreground">消息加解密方式</label>
+                    <select
+                      className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      value={mpConfig.encrypt_mode}
+                      onChange={(e) => setMpConfig((c) => ({ ...c, encrypt_mode: e.target.value }))}
+                    >
+                      <option value="plain">明文模式</option>
+                      <option value="compatible">兼容模式</option>
+                      <option value="safe">安全模式（推荐）</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="shrink-0 text-xs font-medium text-foreground">数据格式</label>
+                    <span className="rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-foreground">XML</span>
+                    <span className="text-xs text-muted-foreground">（固定使用 XML，无需修改）</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">服务号消息模板（关注后推送通知）</label>
+                <p className="text-xs text-muted-foreground">
+                  以下为系统预置的业务通知模板。请在微信公众平台「广告与服务 → 模板消息」中申请对应模板后，将模板 ID 填入下表对应位置并勾选启用。「变量」为推送时自动替换的内容，申请模板时请按变量对应选择字段。
+                </p>
+                <div className="mt-1 flex flex-col gap-2">
+                  {(mpConfig.message_templates || []).length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-input bg-muted/30 px-3 py-4 text-center text-xs text-muted-foreground">
+                      暂无模板，请刷新页面或联系管理员
+                    </p>
+                  ) : (
+                    mpConfig.message_templates.map((tpl) => (
+                      <div key={tpl.code} className="rounded-lg border border-border bg-muted/30 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-foreground">{tpl.name}</p>
+                          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              checked={!!tpl.enabled}
+                              onChange={(e) => updateMpTemplate(tpl.code, { enabled: e.target.checked })}
+                              className="h-3.5 w-3.5 accent-primary"
+                            />
+                            启用
+                          </label>
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">{tpl.description}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          变量：<span className="text-foreground/70">{tpl.variables.join("、")}</span>
+                        </p>
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{tpl.code}</span>
+                          <input
+                            type="text"
+                            placeholder="模板 ID（如 R34xxxxx）"
+                            className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                            value={tpl.template_id}
+                            onChange={(e) => updateMpTemplate(tpl.code, { template_id: e.target.value.trim() })}
+                          />
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-foreground">公众号关注二维码</label>
@@ -1478,6 +1655,32 @@ export default function AdminSiteConfigPage() {
                     )}
                     <p className="text-xs text-muted-foreground">上传公众号二维码后，分销中心将展示「关注公众号」引导。</p>
                   </div>
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 p-4">
+                <div className="flex items-center gap-2">
+                  <Link2 className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-semibold text-foreground">公开登录绑定链接（引导客户绑定账号）</p>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  客户在微信中打开该链接，即可通过微信静默授权绑定本系统账号（需先登录）。请将该链接放到公众号菜单或关注后自动回复中，客户点击后绑定账号，即可收到下单/发货等微信消息通知。即使客户未主动绑定，只要在管理后台已为其绑定微信，关注公众号后同样可正常推送。
+                </p>
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={mpConfig.bind_link}
+                    placeholder="保存配置后自动生成（形如 https://noepay.cn/wechat/mp-bind）"
+                    className="h-10 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 font-mono text-xs text-foreground focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyText(mpConfig.bind_link, "绑定链接")}
+                    disabled={!mpConfig.bind_link}
+                    className="inline-flex h-10 shrink-0 items-center gap-1 rounded-lg border border-input px-3 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+                  >
+                    复制
+                  </button>
                 </div>
               </div>
               <div className="flex items-center gap-3 pt-2">

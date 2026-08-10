@@ -258,6 +258,8 @@ export default function AdminCustomersPage() {
                   <>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerUsername")}</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerEmail")}</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerWechat")}</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerMpSubscribe")}</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerOrderCount")}</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerPaidCount")}</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerTotalSpent")}</th>
@@ -281,7 +283,7 @@ export default function AdminCustomersPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="py-12">
+                  <td colSpan={10} className="py-12">
                     <div className="flex items-center justify-center">
                       <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     </div>
@@ -289,7 +291,7 @@ export default function AdminCustomersPage() {
                 </tr>
               ) : (tab === "registered" ? registered : anonymous).length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">{t("admin.customerNoData")}</td>
+                  <td colSpan={10} className="py-8 text-center text-sm text-muted-foreground">{t("admin.customerNoData")}</td>
                 </tr>
               ) : tab === "registered" ? (
                 registered.map((u) => (
@@ -306,6 +308,37 @@ export default function AdminCustomersPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
+                    <td className="px-4 py-3">
+                      {u.wechat_customer ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          {u.mp_avatar ? (
+                            <img src={u.mp_avatar} alt="" className="h-7 w-7 shrink-0 rounded-full border border-border object-cover" />
+                          ) : (
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
+                              <UserRound className="h-4 w-4" />
+                            </span>
+                          )}
+                          <span className="max-w-[140px] truncate text-xs font-medium text-emerald-600">
+                            {u.mp_nickname || "微信客户"}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {u.mp_subscribe === "SUBSCRIBED" ? (
+                        <span className="inline-flex rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-600">
+                          {t("admin.customerMpSubscribed")}
+                        </span>
+                      ) : u.mp_subscribe === "UNSUBSCRIBED" ? (
+                        <span className="inline-flex rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600">
+                          {t("admin.customerMpUnsubscribed")}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">{t("admin.customerMpNone")}</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-foreground">{u.order_count}</td>
                     <td className="px-4 py-3 text-foreground">{u.paid_count}</td>
                     <td className="px-4 py-3 font-medium text-primary">{currency(u.total_spent)}</td>

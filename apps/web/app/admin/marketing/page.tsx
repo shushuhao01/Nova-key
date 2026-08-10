@@ -92,6 +92,7 @@ interface CouponFormState {
   coupon_min_amount: string
   coupon_code: string
   coupon_quantity: string
+  coupon_per_user_limit: string
   valid_from: string
   valid_to: string
   coupon_scope: CouponScope
@@ -106,6 +107,7 @@ const emptyCouponForm = (): CouponFormState => ({
   coupon_min_amount: "",
   coupon_code: "",
   coupon_quantity: "1",
+  coupon_per_user_limit: "1",
   valid_from: "",
   valid_to: "",
   coupon_scope: "ALL",
@@ -189,6 +191,7 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
       coupon_min_amount: c.coupon_min_amount != null ? String(c.coupon_min_amount) : "",
       coupon_code: c.coupon_code || "",
       coupon_quantity: String(c.coupon_quantity ?? 1),
+      coupon_per_user_limit: String(c.coupon_per_user_limit ?? 1),
       valid_from: toDateTimeLocal(c.coupon_valid_from),
       valid_to: toDateTimeLocal(c.coupon_valid_to),
       coupon_scope: c.coupon_scope === "SPECIFIC" ? "SPECIFIC" : "ALL",
@@ -206,6 +209,7 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
       coupon_min_amount: parseFloat(form.coupon_min_amount) || 0,
       coupon_code: form.coupon_code.trim().toUpperCase() || null,
       coupon_quantity: parseInt(form.coupon_quantity) || 1,
+      coupon_per_user_limit: (() => { const v = parseInt(form.coupon_per_user_limit); return Number.isNaN(v) ? 1 : Math.max(0, v) })(),
       coupon_valid_from: form.valid_from ? `${form.valid_from}:00` : null,
       coupon_valid_to: form.valid_to ? `${form.valid_to}:00` : null,
       coupon_scope: form.coupon_scope,
@@ -346,7 +350,7 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.campaignTitle")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponType")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponCode")}</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponQuantity")}</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponIssueLimit")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponClaimed")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponUsedCount")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponValidFrom")} ~ {t("admin.couponValidTo")}</th>
@@ -379,7 +383,10 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
                       )}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-foreground">{c.coupon_code || "—"}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{c.coupon_quantity > 0 ? c.coupon_quantity : "∞"}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      <span className="block">发行 {c.coupon_quantity > 0 ? c.coupon_quantity : "∞"}</span>
+                      <span className="block">限领 {c.coupon_per_user_limit == null ? 1 : c.coupon_per_user_limit === 0 ? "不限" : c.coupon_per_user_limit}</span>
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground">{c.coupon_claimed}</td>
                     <td className="px-4 py-3 text-muted-foreground">{c.coupon_used}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
@@ -456,7 +463,8 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
                 [t("admin.couponType"), detail.coupon_type === "AMOUNT" ? `立减 ¥${detail.coupon_value}` : `减免 ${detail.coupon_value}%`],
                 [t("admin.couponMinAmount"), detail.coupon_min_amount ? `¥${detail.coupon_min_amount}` : "无门槛"],
                 [t("admin.couponCode"), detail.coupon_code || "自动生成"],
-                [t("admin.couponQuantity"), detail.coupon_quantity > 0 ? String(detail.coupon_quantity) : "不限量"],
+                [t("admin.couponIssueQuantity"), detail.coupon_quantity > 0 ? String(detail.coupon_quantity) : "不限量"],
+                [t("admin.couponPerUserLimit"), detail.coupon_per_user_limit == null ? "1" : detail.coupon_per_user_limit === 0 ? "不限" : String(detail.coupon_per_user_limit)],
                 [t("admin.couponClaimed"), `${detail.coupon_claimed}`],
                 [t("admin.couponUsedCount"), `${detail.coupon_used}`],
                 [t("admin.couponValidFrom"), detail.coupon_valid_from ? new Date(detail.coupon_valid_from).toLocaleString() : "长期"],
@@ -539,11 +547,15 @@ function CouponFormModal({ form, setForm, products, saving, onClose, onSave }: {
               <input type="text" value={form.coupon_code} onChange={(e) => upd("coupon_code", e.target.value)} placeholder={t("admin.couponCodeHint")} className="h-10 w-full rounded-lg border border-input bg-background px-3 font-mono text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">{t("admin.couponQuantity")}</label>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">{t("admin.couponIssueQuantity")}</label>
               <input type="number" min={0} value={form.coupon_quantity} onChange={(e) => upd("coupon_quantity", e.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
-              <p className="mt-1 text-xs text-muted-foreground">{t("admin.couponQuantityDefaultHint")} · {t("admin.couponQuantityHint2")}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{t("admin.couponQuantityHint2")}</p>
             </div>
-            <div /> {/* 占位：让发行数量独占一行，生效开始/结束时间同行 */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">{t("admin.couponPerUserLimit")}</label>
+              <input type="number" min={0} value={form.coupon_per_user_limit} onChange={(e) => upd("coupon_per_user_limit", e.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+              <p className="mt-1 text-xs text-muted-foreground">{t("admin.couponPerUserLimitHint")}</p>
+            </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium text-foreground">{t("admin.couponValidFrom")}</label>
               <input type="datetime-local" value={form.valid_from} onChange={(e) => upd("valid_from", e.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />

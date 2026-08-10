@@ -43,4 +43,23 @@ public class User extends BaseEntity {
 
     /** 账户锁定截止时间（null 表示未锁定） */
     private LocalDateTime lockUntil;
+
+    /** 公众号 openid（微信服务号绑定，用于接收服务通知） */
+    @Column(length = 64)
+    private String mpOpenid;
+
+    /** 公众号关注状态：SUBSCRIBED / UNSUBSCRIBED（null 表示未知/未获取） */
+    @Column(length = 20)
+    private String mpSubscribe;
+
+    /** 公众号昵称（微信用户信息） */
+    @Column(length = 64)
+    private String mpNickname;
+
+    /** 公众号头像 URL（微信用户信息，可能为空，前端用默认头像兜底） */
+    @Column(length = 512)
+    private String mpAvatar;
+
+    /** 公众号关注状态最近更新时间 */
+    private LocalDateTime mpSubscribeChangedAt;
 }

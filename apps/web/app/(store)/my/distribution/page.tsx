@@ -16,6 +16,8 @@ import { distributorApi, wechatMpApi, getApiErrorMessage } from "@/services/api"
 import { cn } from "@/lib/utils"
 
 const PROMOTION_BASE_URL = "https://noepay.cn/p"
+// 邀请下级落地页（自动预填 ?invite= 邀请码）
+const INVITE_BASE_URL = "https://noepay.cn/my/distribution"
 const PAGE_SIZE = 10
 
 type Tab = "overview" | "products" | "commissions" | "withdrawals" | "subordinates"
@@ -234,7 +236,7 @@ export default function DistributionPage() {
       {activeTab === "products" && <ProductsTab profile={profile} />}
       {activeTab === "commissions" && <CommissionsTab />}
       {activeTab === "withdrawals" && <WithdrawalsTab balance={profile.available_balance} />}
-      {activeTab === "subordinates" && <SubordinatesTab />}
+      {activeTab === "subordinates" && <SubordinatesTab profile={profile} />}
 
       {/* 分销规则弹窗 */}
       <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
@@ -274,7 +276,11 @@ function StatusNotice({
 
 function ApplyDistributorForm({ onApplied, compact }: { onApplied: () => void; compact?: boolean }) {
   const { t } = useLocale()
-  const [inviteCode, setInviteCode] = useState("")
+  // 邀请链接 ?invite=xxx 自动预填邀请码
+  const [inviteCode, setInviteCode] = useState<string>(() => {
+    if (typeof window === "undefined") return ""
+    return new URLSearchParams(window.location.search).get("invite") || ""
+  })
   const [submitting, setSubmitting] = useState(false)
 
   const handleApply = async (e: React.FormEvent) => {
@@ -849,10 +855,13 @@ function ProductsTab({ profile }: { profile: any }) {
                   <th className="w-[32%] min-w-[180px] px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
                   <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">价格</th>
                   <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">佣金比例</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">预计佣金</th>
+                  {subTab === "available" && (
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">预计佣金</th>
+                  )}
                   {subTab === "mine" && (
                     <>
                       <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">成交</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">佣金</th>
                       <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">点击</th>
                       <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">转化率</th>
                     </>
@@ -887,10 +896,13 @@ function ProductsTab({ profile }: { profile: any }) {
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{fmtMoney(p.base_price ?? p.price)}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{effectiveRate(p).toFixed(2)}%</td>
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-emerald-600">{fmtMoney(p.commission_amount)}</td>
+                      {subTab === "available" && (
+                        <td className="whitespace-nowrap px-4 py-3 font-medium text-emerald-600">{fmtMoney(p.commission_amount)}</td>
+                      )}
                       {subTab === "mine" && (
                         <>
                           <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{paid} 单</td>
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-emerald-600">{fmtMoney(p.total_commission)}</td>
                           <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{clicks} 次</td>
                           <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{conv}%</td>
                         </>
@@ -1040,7 +1052,7 @@ function PosterModal({
   data, type, onClose,
 }: {
   data: any
-  type: "product" | "store"
+  type: "product" | "store" | "invite"
   onClose: () => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1112,7 +1124,11 @@ function PosterModal({
       ctx.font = "bold 34px sans-serif"
       ctx.fillText(truncate(data?.store_name || "精选好物", 16), W / 2, 64)
       ctx.font = "15px sans-serif"
-      ctx.fillText(type === "product" ? "好物推荐 · 扫码即购" : "精选好物 · 专属推荐", W / 2, 96)
+      ctx.fillText(
+        type === "product" ? "好物推荐 · 扫码即购"
+          : type === "invite" ? "邀请好友 · 一起赚钱"
+            : "精选好物 · 专属推荐",
+        W / 2, 96)
 
       if (type === "product") {
         // 商品封面（圆角大图 + 白边 + 爆款角标）
@@ -1239,6 +1255,102 @@ function PosterModal({
         ctx.fillStyle = "#9ca3af"
         ctx.font = "13px sans-serif"
         ctx.fillText(truncate(linkUrl, 60), W / 2, H - 38)
+      } else if (type === "invite") {
+        // 邀请海报：邀请好友加入分销，引导赚钱
+        // 中部大徽章
+        const badgeCX = W / 2
+        const badgeCY = 244
+        const badgeR = 72
+        const badgeGrad = ctx.createLinearGradient(badgeCX - badgeR, badgeCY - badgeR, badgeCX + badgeR, badgeCY + badgeR)
+        badgeGrad.addColorStop(0, "#f97316")
+        badgeGrad.addColorStop(1, "#f43f5e")
+        ctx.save()
+        ctx.beginPath()
+        ctx.arc(badgeCX, badgeCY, badgeR, 0, Math.PI * 2)
+        ctx.fillStyle = badgeGrad
+        ctx.fill()
+        ctx.restore()
+        ctx.fillStyle = "#ffffff"
+        ctx.font = "bold 64px sans-serif"
+        ctx.fillText("邀", badgeCX, badgeCY + 24)
+        // 标题与副标题
+        ctx.fillStyle = "#111827"
+        ctx.font = "bold 34px sans-serif"
+        ctx.fillText("成为分销员，分享赚佣金", W / 2, 376)
+        ctx.fillStyle = "#6b7280"
+        ctx.font = "16px sans-serif"
+        ctx.fillText("自购省钱 · 分享赚钱 · 0 门槛加入", W / 2, 414)
+        // 卖点列表
+        const perks = [
+          "分享商品给好友，成交即得佣金",
+          "佣金实时到账，余额随时提现",
+          "邀请好友加入，还能获取额外抽成",
+        ]
+        ctx.textAlign = "left"
+        perks.forEach((pt, i) => {
+          const py = 478 + i * 54
+          ctx.beginPath()
+          ctx.arc(W / 2 - 152, py - 8, 10, 0, Math.PI * 2)
+          ctx.fillStyle = "#10b981"
+          ctx.fill()
+          ctx.fillStyle = "#ffffff"
+          ctx.font = "bold 13px sans-serif"
+          ctx.fillText("✓", W / 2 - 152, py - 3)
+          ctx.fillStyle = "#374151"
+          ctx.font = "19px sans-serif"
+          ctx.fillText(pt, W / 2 - 124, py)
+        })
+        ctx.textAlign = "center"
+        // 邀请码框（虚线）
+        const codeBoxX = W / 2 - 200
+        const codeBoxY = 662
+        const codeBoxW = 400
+        const codeBoxH = 106
+        ctx.save()
+        ctx.strokeStyle = "#fb923c"
+        ctx.lineWidth = 2.5
+        ctx.setLineDash([8, 6])
+        ctx.beginPath()
+        ctx.roundRect(codeBoxX, codeBoxY, codeBoxW, codeBoxH, 14)
+        ctx.stroke()
+        ctx.restore()
+        ctx.setLineDash([])
+        ctx.fillStyle = "#9ca3af"
+        ctx.font = "15px sans-serif"
+        ctx.fillText("我的邀请码", W / 2, codeBoxY + 32)
+        ctx.fillStyle = "#ea580c"
+        ctx.font = "bold 44px sans-serif"
+        ctx.fillText(truncate(data?.invite_code || "——", 20), W / 2, codeBoxY + 86)
+        // 扫码提示
+        ctx.fillStyle = "#6b7280"
+        ctx.font = "15px sans-serif"
+        ctx.fillText("长按识别下方二维码，输入邀请码即刻加入", W / 2, 810)
+        // 底部号召区：左侧号召行动 + 右侧二维码
+        const ibandY = 838
+        const ibandH = 164
+        const ibandGrad = ctx.createLinearGradient(0, ibandY, W, ibandY)
+        ibandGrad.addColorStop(0, "#f97316")
+        ibandGrad.addColorStop(1, "#f43f5e")
+        ctx.fillStyle = ibandGrad
+        roundRect(0, ibandY, W, ibandH, 0)
+        ctx.fillStyle = "#ffffff"
+        ctx.textAlign = "left"
+        ctx.font = "bold 30px sans-serif"
+        ctx.fillText("扫码加入我的团队", 46, ibandY + 66)
+        ctx.font = "17px sans-serif"
+        ctx.fillText("一起开启赚钱之旅", 46, ibandY + 104)
+        const iq = 120
+        const iqX = W - 46 - iq
+        const iqY = ibandY + (ibandH - iq) / 2
+        ctx.fillStyle = "#ffffff"
+        ctx.fillRect(iqX - 6, iqY - 6, iq + 12, iq + 12)
+        if (qr) {
+          ctx.drawImage(qr, iqX, iqY, iq, iq)
+        }
+        ctx.textAlign = "center"
+        ctx.fillStyle = "#9ca3af"
+        ctx.font = "13px sans-serif"
+        ctx.fillText(truncate(linkUrl, 60), W / 2, H - 20)
       } else {
         // 全店海报：热销商品竖排卡片 + 促销词（不绘制中间大二维码，底部号召区保留唯一二维码）
         ctx.fillStyle = "#111827"
@@ -1249,12 +1361,12 @@ function PosterModal({
         ctx.fillText("为你精选 3 款好物", W / 2, 174)
 
         const hot: any[] = (data?.hot_products || []).slice(0, 3)
-        const cardX = 48
+        const cardX = 44
         const cardW = W - cardX * 2
-        const cardH = 110
-        const cardGap = 14
-        const coverSize = 94
-        const startY = 200
+        const cardH = 152
+        const cardGap = 16
+        const coverSize = 128
+        const startY = 192
         if (hot.length === 0) {
           ctx.fillStyle = "#9ca3af"
           ctx.font = "18px sans-serif"
@@ -1264,8 +1376,8 @@ function PosterModal({
           const y = startY + i * (cardH + cardGap)
           // 卡片底色
           ctx.fillStyle = "#f9fafb"
-          roundRect(cardX, y, cardW, cardH, 14)
-          // 商品封面（左侧圆角图）
+          roundRect(cardX, y, cardW, cardH, 16)
+          // 商品封面（左侧圆角图，放大）
           const img = hp.cover_url ? images[hp.cover_url] : undefined
           if (img) {
             const iw = img.naturalWidth || coverSize
@@ -1275,47 +1387,50 @@ function PosterModal({
             const dh = ih * scale
             ctx.save()
             ctx.beginPath()
-            ctx.roundRect(cardX + 8, y + 8, coverSize, coverSize, 10)
+            ctx.roundRect(cardX + 12, y + 12, coverSize, coverSize, 12)
             ctx.clip()
-            ctx.drawImage(img, cardX + 8 + (coverSize - dw) / 2, y + 8 + (coverSize - dh) / 2, dw, dh)
+            ctx.drawImage(img, cardX + 12 + (coverSize - dw) / 2, y + 12 + (coverSize - dh) / 2, dw, dh)
             ctx.restore()
           } else {
             ctx.fillStyle = "#e5e7eb"
-            ctx.fillRect(cardX + 8, y + 8, coverSize, coverSize)
+            ctx.fillRect(cardX + 12, y + 12, coverSize, coverSize)
           }
-          // 商品名（右侧，最多两行，左对齐）
+          // 商品名（右侧，最多两行，左对齐；名称长自动换行）
+          const nameX = cardX + coverSize + 30
+          const nameMaxW = cardW - coverSize - 70
           ctx.textAlign = "left"
           ctx.fillStyle = "#111827"
-          ctx.font = "bold 16px sans-serif"
-          const nameLines = clampLines(wrapLines(hp.product_title || "", cardW - coverSize - 56), 2)
+          ctx.font = "bold 18px sans-serif"
+          const nameLines = clampLines(wrapLines(hp.product_title || "", nameMaxW), 2)
           nameLines.forEach((l, li) => {
-            ctx.fillText(l, cardX + coverSize + 30, y + 40 + li * 23)
+            ctx.fillText(l, nameX, y + 56 + li * 27)
           })
-          // 价格
+          // 价格（名称两行之后，卡片最右侧）
           ctx.fillStyle = "#ef4444"
-          ctx.font = "bold 20px sans-serif"
-          ctx.fillText(`¥${Number(hp.base_price || 0).toFixed(2)}`, cardX + coverSize + 30, y + 92)
+          ctx.font = "bold 26px sans-serif"
+          ctx.textAlign = "right"
+          ctx.fillText(`¥${Number(hp.base_price || 0).toFixed(2)}`, cardX + cardW - 16, y + cardH - 24)
           // 热销角标
-          const tagW = 44
-          const tagH = 24
-          const tagX = cardX + cardW - tagW - 14
-          const tagY = y + 14
+          const tagW = 48
+          const tagH = 26
+          const tagX = cardX + cardW - tagW - 16
+          const tagY = y + 16
           ctx.save()
           ctx.beginPath()
-          ctx.roundRect(tagX, tagY, tagW, tagH, 12)
+          ctx.roundRect(tagX, tagY, tagW, tagH, 13)
           ctx.fillStyle = "rgba(244,63,94,0.12)"
           ctx.fill()
           ctx.restore()
           ctx.fillStyle = "#f43f5e"
-          ctx.font = "bold 13px sans-serif"
+          ctx.font = "bold 14px sans-serif"
           ctx.textAlign = "center"
-          ctx.fillText(`TOP${i + 1}`, tagX + tagW / 2, tagY + 17)
+          ctx.fillText(`TOP${i + 1}`, tagX + tagW / 2, tagY + 19)
           ctx.textAlign = "left"
         })
         ctx.textAlign = "center"
 
         // 促销词区
-        const promoY = startY + hot.length * (cardH + cardGap) - cardGap + 26
+        const promoY = startY + hot.length * (cardH + cardGap) - cardGap + 22
         if (hot.length > 0) {
           ctx.strokeStyle = "#fde68a"
           ctx.lineWidth = 2
@@ -1328,11 +1443,11 @@ function PosterModal({
           ctx.fillText("爆款直降 · 全场精选", W / 2, promoY + 34)
           ctx.fillStyle = "#6b7280"
           ctx.font = "15px sans-serif"
-          ctx.fillText("扫描下方二维码，解锁你的专属优惠", W / 2, promoY + 68)
+          ctx.fillText("扫描下方二维码，解锁你的专属优惠", W / 2, promoY + 66)
         }
 
         // 底部号召区：左侧号召行动 + 右侧小二维码
-        const bandY = 838
+        const bandY = 806
         const bandH = 164
         const bandGrad = ctx.createLinearGradient(0, bandY, W, bandY)
         bandGrad.addColorStop(0, "#f97316")
@@ -1405,7 +1520,7 @@ function PosterModal({
     try {
       const a = document.createElement("a")
       a.href = canvas.toDataURL("image/png")
-      a.download = `推广海报_${type === "product" ? (data?.product_title || "商品") : "全店"}.png`
+      a.download = `推广海报_${type === "product" ? (data?.product_title || "商品") : type === "invite" ? "邀请" : "全店"}.png`
       a.click()
       toast.success("海报已下载")
     } catch {
@@ -1450,7 +1565,7 @@ function PosterModal({
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="flex items-center gap-2 text-base font-bold text-foreground">
             <ImageIcon className="h-5 w-5 text-primary" />
-            推广海报
+            {type === "invite" ? "邀请海报" : "推广海报"}
           </h2>
           <button
             type="button"
@@ -1634,6 +1749,8 @@ function WithdrawalsTab({ balance }: { balance: number }) {
   // 微信绑定状态
   const [wechat, setWechat] = useState<{ wechat_bound?: boolean; openid?: string | null; nickname?: string | null; bound_at?: string | null } | null>(null)
   const [binding, setBinding] = useState(false)
+  // PC/其他浏览器扫码绑定
+  const [bindQr, setBindQr] = useState<string | null>(null)
   // 公众号关注引导
   const [followInfo, setFollowInfo] = useState<{ configured?: boolean; follow_qr?: string } | null>(null)
 
@@ -1677,10 +1794,15 @@ function WithdrawalsTab({ balance }: { balance: number }) {
     setBinding(true)
     try {
       const r = await distributorApi.getWechatBindUrl()
-      if (r?.bind_url) {
+      if (!r?.bind_url) {
+        toast.error(r?.message || "获取绑定链接失败，请检查支付渠道配置")
+        return
+      }
+      // 微信内直接跳转授权；PC/其他浏览器弹二维码扫码绑定
+      if (/MicroMessenger/i.test(navigator.userAgent)) {
         window.location.href = r.bind_url
       } else {
-        toast.error(r?.message || "获取绑定链接失败，请检查支付渠道配置")
+        setBindQr(r.bind_url)
       }
     } catch (err) {
       toast.error(getApiErrorMessage(err, t))
@@ -1688,6 +1810,11 @@ function WithdrawalsTab({ balance }: { balance: number }) {
       setBinding(false)
     }
   }
+
+  const handleBound = useCallback(() => {
+    setBindQr(null)
+    fetchWechat()
+  }, [fetchWechat])
 
   const handleUnbind = async () => {
     if (!window.confirm("确定解绑微信？解绑后需重新绑定才能申请提现。")) return
@@ -1879,6 +2006,97 @@ function WithdrawalsTab({ balance }: { balance: number }) {
           onSuccess={() => { setModalOpen(false); fetchList() }}
         />
       )}
+
+      {bindQr && <BindWechatModal bindUrl={bindQr} onClose={() => setBindQr(null)} onBound={handleBound} />}
+    </div>
+  )
+}
+
+// ═══════════════════════ 微信扫码绑定弹窗 ═══════════════════════
+
+function BindWechatModal({
+  bindUrl, onClose, onBound,
+}: {
+  bindUrl: string
+  onClose: () => void
+  onBound: () => void
+}) {
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const boundRef = useRef(onBound)
+  boundRef.current = onBound
+
+  useEffect(() => {
+    // 轮询绑定状态，绑定成功后自动关闭并刷新
+    timerRef.current = setInterval(async () => {
+      try {
+        const w = await distributorApi.getWechatStatus()
+        if (w?.wechat_bound) {
+          if (timerRef.current) clearInterval(timerRef.current)
+          toast.success("微信绑定成功")
+          boundRef.current()
+        }
+      } catch {
+        // 忽略轮询过程中的临时错误
+      }
+    }, 2500)
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+  }, [])
+
+  const close = () => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={close} />
+      <div className="relative w-full max-w-xs rounded-xl border border-border bg-card p-5 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-base font-bold text-foreground">
+            <QrCode className="h-5 w-5 text-primary" />
+            微信扫码绑定
+          </h2>
+          <button
+            type="button"
+            onClick={close}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mt-4 flex justify-center rounded-lg bg-white p-3">
+          <img
+            src={`/qr-image?url=${encodeURIComponent(bindUrl)}&size=400`}
+            alt="微信绑定二维码"
+            className="h-52 w-52 rounded-md"
+          />
+        </div>
+        <p className="mt-3 text-center text-sm font-medium text-foreground">请使用微信「扫一扫」扫描上方二维码</p>
+        <p className="mt-1 text-center text-xs text-muted-foreground">
+          扫码后请在手机上确认授权，绑定完成后本页面将自动刷新
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (timerRef.current) clearInterval(timerRef.current)
+              onBound()
+            }}
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-input text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            我已绑定
+          </button>
+          <button
+            type="button"
+            onClick={close}
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-all hover:brightness-110"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1994,12 +2212,17 @@ function WithdrawalModal({
 
 // ═══════════════════════ 我的下级 TAB ═══════════════════════
 
-function SubordinatesTab() {
+function SubordinatesTab({ profile }: { profile: any }) {
   const { t } = useLocale()
   const [list, setList] = useState<any[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [invitePoster, setInvitePoster] = useState<any>(null)
+  const [copying, setCopying] = useState(false)
+
+  const inviteCode = profile?.invite_code || ""
+  const inviteUrl = inviteCode ? `${INVITE_BASE_URL}?invite=${inviteCode}` : ""
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -2017,12 +2240,79 @@ function SubordinatesTab() {
 
   useEffect(() => { fetchList() }, [fetchList])
 
+  const handleInvite = () => {
+    if (!inviteCode) {
+      toast.error("暂未生成邀请码，请刷新后重试")
+      return
+    }
+    setInvitePoster({ invite_code: inviteCode, link_url: inviteUrl })
+  }
+
+  const handleCopyInvite = async () => {
+    if (!inviteUrl) {
+      toast.error("暂未生成邀请链接，请刷新后重试")
+      return
+    }
+    setCopying(true)
+    try {
+      await navigator.clipboard.writeText(inviteUrl)
+      toast.success("邀请链接已复制")
+    } catch {
+      toast.error("复制失败，请手动复制")
+    } finally {
+      setCopying(false)
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
     <div className="flex flex-col gap-4">
+      {/* 邀请下级引导区 */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+            <UserPlus className="h-5 w-5 text-primary" />
+          </span>
+          <div>
+            <p className="font-semibold text-foreground">邀请下级分销员</p>
+            <p className="text-xs text-muted-foreground">
+              分享邀请链接/海报，好友申请成为分销员即成为您的下级，其成交订单您可获取额外抽成
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleCopyInvite}
+            disabled={copying}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-input bg-background px-4 text-sm font-semibold text-foreground transition-all hover:bg-accent disabled:opacity-50"
+          >
+            {copying ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            ) : (
+              <Link2 className="h-4 w-4" />
+            )}
+            复制邀请链接
+          </button>
+          <button
+            type="button"
+            onClick={handleInvite}
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110"
+          >
+            <ImageIcon className="h-4 w-4" />
+            生成邀请海报
+          </button>
+        </div>
+      </div>
+
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">共 {total} 位下级分销员</p>
+        {inviteCode && (
+          <p className="text-xs text-muted-foreground">
+            我的邀请码 <span className="font-mono font-semibold text-primary">{inviteCode}</span>
+          </p>
+        )}
       </div>
 
       {loading ? (
@@ -2046,6 +2336,7 @@ function SubordinatesTab() {
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">客户数</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">成交单数</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">推广销售额</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">已提现</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">我的抽成</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">下级累计佣金</th>
                 </tr>
@@ -2077,6 +2368,7 @@ function SubordinatesTab() {
                       <td className="px-4 py-3 text-muted-foreground">{s.customer_count ?? 0} 人</td>
                       <td className="px-4 py-3 text-muted-foreground">{s.paid_count ?? 0} 单</td>
                       <td className="px-4 py-3 text-muted-foreground">{fmtMoney(s.total_sales)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{fmtMoney(s.withdrawn_amount)}</td>
                       <td className="px-4 py-3 font-medium text-emerald-600">{fmtMoney(s.sub_commission)}</td>
                       <td className="px-4 py-3 text-muted-foreground">{fmtMoney(s.total_commission)}</td>
                     </tr>
@@ -2089,6 +2381,10 @@ function SubordinatesTab() {
       )}
 
       {total > PAGE_SIZE && <Pager page={page} totalPages={totalPages} onChange={setPage} />}
+
+      {invitePoster && (
+        <PosterModal data={invitePoster} type="invite" onClose={() => setInvitePoster(null)} />
+      )}
     </div>
   )
 }

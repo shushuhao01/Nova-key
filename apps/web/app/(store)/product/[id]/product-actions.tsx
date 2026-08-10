@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { Zap, Minus, Plus, ShoppingCart, Package, TrendingUp, Ticket, CheckCircle2, XCircle, Loader2, ChevronDown } from "lucide-react"
+import { Zap, Minus, Plus, ShoppingCart, Package, TrendingUp, Ticket, CheckCircle2, XCircle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale, useAuth, useCart } from "@/lib/context"
 import { orderApi, marketingApi, withMockFallback, getApiErrorMessage, setTurnstileHeaders } from "@/services/api"
@@ -44,9 +44,23 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
   const [couponStatus, setCouponStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle")
   const [couponDiscount, setCouponDiscount] = useState(0)
   const [couponMessage, setCouponMessage] = useState("")
-  // 我的可用优惠券（登录后商品详情页下拉选择，无需手动复制核销码）
+  // 我的可用优惠券（登录后，点击核销码输入框弹出下拉选择；仍可手动输入核销码）
   const [myCoupons, setMyCoupons] = useState<MyCouponItem[]>([])
   const [couponsLoading, setCouponsLoading] = useState(false)
+  const [couponDropdownOpen, setCouponDropdownOpen] = useState(false)
+  const couponWrapRef = useRef<HTMLDivElement>(null)
+
+  // 点击外部关闭优惠券下拉
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (couponWrapRef.current && !couponWrapRef.current.contains(t)) {
+        setCouponDropdownOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [])
 
   const currentPrice = selectedSpec ? selectedSpec.price : product.base_price
   const totalPrice = currentPrice * quantity
@@ -413,21 +427,52 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
             {t("product.coupon")}
           </label>
           <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder={t("product.couponPlaceholder")}
-              value={couponCode}
-              onChange={(e) => {
-                setCouponCode(e.target.value)
-                setCouponStatus("idle")
-                setCouponDiscount(0)
-                setCouponMessage("")
-              }}
-              className={cn(
-                "h-10 flex-1 rounded-lg border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
-                couponStatus === "valid" ? "border-emerald-500" : couponStatus === "invalid" ? "border-destructive" : "border-input"
+            <div ref={couponWrapRef} className="relative min-w-0 flex-1">
+              <input
+                type="text"
+                placeholder={t("product.couponPlaceholder")}
+                value={couponCode}
+                onFocus={() => {
+                  if (isLoggedIn && usableCoupons.length > 0) setCouponDropdownOpen(true)
+                }}
+                onChange={(e) => {
+                  setCouponCode(e.target.value)
+                  setCouponStatus("idle")
+                  setCouponDiscount(0)
+                  setCouponMessage("")
+                  if (isLoggedIn && usableCoupons.length > 0) setCouponDropdownOpen(true)
+                }}
+                className={cn(
+                  "h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
+                  couponStatus === "valid" ? "border-emerald-500" : couponStatus === "invalid" ? "border-destructive" : "border-input"
+                )}
+              />
+              {/* 我的可用优惠券下拉：点击/聚焦输入框弹出，选择后自动核销；仍可手动输入核销码 */}
+              {couponDropdownOpen && isLoggedIn && usableCoupons.length > 0 && (
+                <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+                  <div className="max-h-52 overflow-y-auto">
+                    {usableCoupons
+                      .filter(c => !couponCode.trim() || c.code.toLowerCase().includes(couponCode.trim().toLowerCase()))
+                      .map(c => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            setCouponCode(c.code)
+                            setCouponDropdownOpen(false)
+                            applyCouponCode(c.code)
+                          }}
+                          className="flex w-full items-center gap-2 border-b border-border/50 px-3 py-2 text-left text-xs transition-colors last:border-0 hover:bg-accent"
+                        >
+                          <Ticket className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          <span className="min-w-0 flex-1 truncate text-foreground">{couponLabel(c)}</span>
+                          <span className="shrink-0 font-medium text-primary">{t("product.couponApply")}</span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
               )}
-            />
+            </div>
             <button
               type="button"
               onClick={handleApplyCoupon}
@@ -442,28 +487,6 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
               {couponStatus === "checking" ? t("product.couponChecking") : t("product.couponApply")}
             </button>
           </div>
-          {/* 我的可用优惠券（登录后可选，无需手动复制核销码） */}
-          {isLoggedIn && usableCoupons.length > 0 && (
-            <div className="mt-2">
-              <select
-                value=""
-                onChange={(e) => {
-                  const code = e.target.value
-                  if (!code) return
-                  setCouponCode(code)
-                  setCouponStatus("idle")
-                  applyCouponCode(code)
-                }}
-                className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="" disabled>{t("product.myCouponSelect")}</option>
-                {usableCoupons.map(c => (
-                  <option key={c.id} value={c.code}>{couponLabel(c)}</option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-muted-foreground">{t("product.myCouponHint")}</p>
-            </div>
-          )}
           {couponsLoading && isLoggedIn && (
             <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />

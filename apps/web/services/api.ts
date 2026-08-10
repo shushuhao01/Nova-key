@@ -413,9 +413,27 @@ export const siteApi = {
 // WeChat MP (公众号配置 — 后台管理)
 // ============================================================
 
+export interface MpMessageTemplate {
+  code: string
+  name: string
+  description: string
+  variables: string[]
+  template_id: string
+  enabled: boolean
+}
+
 export const adminWechatMpApi = {
   getConfig: () => request<any>("/admin/wechat-mp/config"),
-  updateConfig: (data: { appid?: string; appsecret?: string; follow_qr?: string; template_id?: string }) =>
+  updateConfig: (data: {
+    appid?: string
+    appsecret?: string
+    follow_qr?: string
+    template_id?: string
+    message_templates?: MpMessageTemplate[]
+    token?: string
+    aes_key?: string
+    encrypt_mode?: string
+  }) =>
     request<void>("/admin/wechat-mp/config", { method: "PUT", body: JSON.stringify(data) }),
   test: () => request<any>("/admin/wechat-mp/test", { method: "POST" }),
 }
@@ -426,6 +444,12 @@ export const adminWechatMpApi = {
 
 export const wechatMpApi = {
   getFollowInfo: () => request<any>("/wechat-mp/follow-info"),
+  /** 生成公众号 OAuth 授权链接（snsapi_base 静默授权取 openid），需登录；state 由服务端生成并返回 */
+  bindUrl: () =>
+    request<{ oauth_url: string; state: string }>("/wechat-mp/bind-url", { method: "POST" }),
+  /** 用微信授权 code 完成公众号账号绑定，需登录 */
+  bind: (code: string, state: string) =>
+    request<{ bound: boolean; openid: string }>("/wechat-mp/bind", { method: "POST", body: JSON.stringify({ code, state }) }),
 }
 
 // ============================================================

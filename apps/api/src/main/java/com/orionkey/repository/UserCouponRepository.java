@@ -24,6 +24,12 @@ public interface UserCouponRepository extends JpaRepository<UserCoupon, UUID> {
 
     long countByCampaignIdAndStatus(UUID campaignId, String status);
 
+    /** 某用户在某活动下已领取数量（每人限领校验） */
+    long countByCampaignIdAndUserId(UUID campaignId, UUID userId);
+
+    /** 某邮箱在某活动下已领取数量（每人限领校验，未登录邮箱领取场景） */
+    long countByCampaignIdAndEmail(UUID campaignId, String email);
+
     List<UserCoupon> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
     /** 个人中心优惠券分页：按状态过滤（CLAIMED/USED/ALL） */

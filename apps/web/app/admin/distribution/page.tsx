@@ -17,7 +17,7 @@ const ITEMS_PER_PAGE = 10
 type Tab = "overview" | "distributors" | "products" | "commissions" | "withdrawals" | "rules"
 
 type DistributorStatus = "PENDING" | "APPROVED" | "REJECTED" | "DISABLED"
-type CommissionStatus = "PENDING" | "SETTLED" | "CANCELED"
+type CommissionStatus = "PENDING" | "SETTLED" | "CANCELLED"
 type WithdrawalStatus = "PENDING" | "APPROVED" | "REJECTED" | "PROCESSING" | "SUCCESS" | "FAILED"
 
 interface OverviewCard {
@@ -140,12 +140,14 @@ interface CommissionRecord {
   id: string
   distributor_id: string
   distributor_name: string
+  distributor_code: string | null
   order_id: string
   order_no: string
   product_id: string
   product_title: string
-  amount: number
-  rate: number
+  order_amount: number
+  commission_rate: number
+  commission_amount: number
   status: CommissionStatus
   created_at: string
   settled_at: string | null
@@ -164,7 +166,7 @@ interface Withdrawal {
   out_bill_no: string | null
   transfer_bill_no: string | null
   created_at: string
-  processed_at: string | null
+  approved_at: string | null
   transferred_at: string | null
   completed_at: string | null
 }
@@ -906,7 +908,7 @@ function ProductsTab() {
   // 汇总统计（默认本月，支持快捷日期）
   const [statsRange, setStatsRange] = useState<RangeKey>("thisMonth")
   const [stats, setStats] = useState<{ clicks: StatItem; paid_count: StatItem; conversion_rate: StatItem; commission_amount: StatItem } | null>(null)
-  const [statsLoading, setStatsLoading] = useState(false)
+  const [statsLoading, setStatsLoading] = useState(true)
 
   // 推广员排行弹窗
   const [promoterProduct, setPromoterProduct] = useState<DistributionProduct | null>(null)
@@ -979,11 +981,11 @@ function ProductsTab() {
     return ((total - prev) / prev) * 100
   }
 
-  const statCards: { key: "clicks" | "paid_count" | "conversion_rate" | "commission_amount"; label: string; render: (item: StatItem) => string }[] = [
-    { key: "clicks", label: "点击率", render: (i) => `${Number(i.total || 0).toLocaleString()} 次` },
-    { key: "paid_count", label: "下单数量", render: (i) => `${Number(i.total || 0).toLocaleString()} 单` },
-    { key: "conversion_rate", label: "转化率", render: (i) => `${Number(i.total || 0).toFixed(2)}%` },
-    { key: "commission_amount", label: "佣金金额", render: (i) => fmtMoney(Number(i.total || 0)) },
+  const statCards: { key: "clicks" | "paid_count" | "conversion_rate" | "commission_amount"; label: string; render: (item: StatItem | undefined) => string }[] = [
+    { key: "clicks", label: "点击率", render: (i) => `${Number(i?.total || 0).toLocaleString()} 次` },
+    { key: "paid_count", label: "下单数量", render: (i) => `${Number(i?.total || 0).toLocaleString()} 单` },
+    { key: "conversion_rate", label: "转化率", render: (i) => `${Number(i?.total || 0).toFixed(2)}%` },
+    { key: "commission_amount", label: "佣金金额", render: (i) => fmtMoney(Number(i?.total || 0)) },
   ]
 
   return (
@@ -1596,7 +1598,7 @@ function AddDistributionProductModal({ onClose, onSaved }: {
 const commissionStatusMap: Record<CommissionStatus, { label: string; cls: string }> = {
   PENDING: { label: "待结算", cls: "bg-amber-500/10 text-amber-600" },
   SETTLED: { label: "已结算", cls: "bg-emerald-500/10 text-emerald-600" },
-  CANCELED: { label: "已取消", cls: "bg-red-500/10 text-red-500" },
+  CANCELLED: { label: "已取消", cls: "bg-red-500/10 text-red-500" },
 }
 
 function CommissionsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; dateTo?: string; dateVersion: number }) {
@@ -1606,7 +1608,7 @@ function CommissionsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
   const [distributorId, setDistributorId] = useState("")
   const [statusFilter, setStatusFilter] = useState<CommissionStatus | "">("")
   const [currentPage, setCurrentPage] = useState(1)
-  const [stats, setStats] = useState<{ total_amount: number; pending_amount: number; settled_amount: number; canceled_amount: number } | null>(null)
+  const [stats, setStats] = useState<{ total_commission: number; pending_commission: number; settled_commission: number; cancelled_commission: number } | null>(null)
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -1655,19 +1657,19 @@ function CommissionsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-muted-foreground">佣金总额</p>
-            <p className="mt-1 text-xl font-bold text-foreground">{fmtMoney(stats.total_amount)}</p>
+            <p className="mt-1 text-xl font-bold text-foreground">{fmtMoney(stats.total_commission)}</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-amber-600">待结算</p>
-            <p className="mt-1 text-xl font-bold text-amber-600">{fmtMoney(stats.pending_amount)}</p>
+            <p className="mt-1 text-xl font-bold text-amber-600">{fmtMoney(stats.pending_commission)}</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-emerald-600">已结算</p>
-            <p className="mt-1 text-xl font-bold text-emerald-600">{fmtMoney(stats.settled_amount)}</p>
+            <p className="mt-1 text-xl font-bold text-emerald-600">{fmtMoney(stats.settled_commission)}</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-red-500">已取消</p>
-            <p className="mt-1 text-xl font-bold text-red-500">{fmtMoney(stats.canceled_amount)}</p>
+            <p className="mt-1 text-xl font-bold text-red-500">{fmtMoney(stats.cancelled_commission)}</p>
           </div>
         </div>
       )}
@@ -1692,7 +1694,7 @@ function CommissionsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
             <option value="">全部状态</option>
             <option value="PENDING">待结算</option>
             <option value="SETTLED">已结算</option>
-            <option value="CANCELED">已取消</option>
+            <option value="CANCELLED">已取消</option>
           </select>
         </div>
         <button
@@ -1732,8 +1734,8 @@ function CommissionsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
                     <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex flex-col">
-                          <span className="font-medium text-foreground">{c.distributor_name || "—"}</span>
-                          <span className="text-xs text-muted-foreground">ID: {c.distributor_id}</span>
+                          <span className="font-medium text-foreground">{c.distributor_name || c.distributor_code || "—"}</span>
+                          <span className="text-xs text-muted-foreground">{c.distributor_code || c.distributor_id}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-foreground">{c.order_no || c.order_id}</td>
@@ -1741,8 +1743,8 @@ function CommissionsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
                         <ShoppingBag className="mr-1 inline h-3 w-3" />
                         {c.product_title || "—"}
                       </td>
-                      <td className="px-4 py-3 font-medium text-emerald-600">{fmtMoney(c.amount)}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{(Number(c.rate) || 0).toFixed(2)}%</td>
+                      <td className="px-4 py-3 font-medium text-emerald-600">{fmtMoney(c.commission_amount)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{(Number(c.commission_rate) || 0).toFixed(2)}%</td>
                       <td className="px-4 py-3">
                         <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
                           {st.label}
@@ -1896,7 +1898,7 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(w.created_at)}</td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(w.processed_at)}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(w.completed_at || w.transferred_at || w.approved_at)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
                           {w.status === "PENDING" && (

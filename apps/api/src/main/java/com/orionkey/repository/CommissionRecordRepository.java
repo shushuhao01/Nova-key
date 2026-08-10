@@ -19,22 +19,35 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
 
     List<CommissionRecord> findByOrderId(UUID orderId);
 
-    @Query("SELECT cr FROM CommissionRecord cr WHERE " +
-            "(:distributorId IS NULL OR cr.distributorId = :distributorId) " +
-            "AND (:status IS NULL OR cr.status = :status) " +
-            "AND (:from IS NULL OR cr.createdAt >= :from) " +
-            "AND (:to IS NULL OR cr.createdAt < :to) " +
-            "ORDER BY cr.createdAt DESC")
+    /**
+     * 管理后台佣金记录列表。原生 SQL + status::text 显式转文本比较，
+     * 兼容 status 列为 varchar 或早期 PG 原生枚举（USER-DEFINED）两种情形，
+     * 避免 System error 500（详见 DistributorRepository.findAdminList）。
+     */
+    @Query(value = "SELECT * FROM commission_records WHERE " +
+            "(:distributorId IS NULL OR distributor_id = :distributorId) " +
+            "AND (:status IS NULL OR status::text = :status) " +
+            "AND (:from IS NULL OR created_at >= :from) " +
+            "AND (:to IS NULL OR created_at < :to) " +
+            "ORDER BY created_at DESC",
+            countQuery = "SELECT COUNT(*) FROM commission_records WHERE " +
+            "(:distributorId IS NULL OR distributor_id = :distributorId) " +
+            "AND (:status IS NULL OR status::text = :status) " +
+            "AND (:from IS NULL OR created_at >= :from) " +
+            "AND (:to IS NULL OR created_at < :to)",
+            nativeQuery = true)
     Page<CommissionRecord> findAdminList(@Param("distributorId") UUID distributorId,
-                                         @Param("status") CommissionStatus status,
+                                         @Param("status") String status,
                                          @Param("from") LocalDateTime from,
                                          @Param("to") LocalDateTime to,
                                          Pageable pageable);
 
-    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
-            "WHERE cr.distributorId = :distributorId AND cr.status = :status")
+    /** 分销员指定状态佣金合计（status::text 兼容枚举/varchar 列） */
+    @Query(value = "SELECT COALESCE(SUM(commission_amount), 0) FROM commission_records " +
+            "WHERE distributor_id = :distributorId AND status::text = :status",
+            nativeQuery = true)
     BigDecimal sumByDistributorAndStatus(@Param("distributorId") UUID distributorId,
-                                         @Param("status") CommissionStatus status);
+                                         @Param("status") String status);
 
     /** 区间内佣金总额（不含已取消，按佣金创建时间） */
     @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +

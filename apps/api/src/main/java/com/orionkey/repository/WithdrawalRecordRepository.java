@@ -1,6 +1,5 @@
 package com.orionkey.repository;
 
-import com.orionkey.constant.WithdrawalStatus;
 import com.orionkey.entity.WithdrawalRecord;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,12 +16,22 @@ public interface WithdrawalRecordRepository extends JpaRepository<WithdrawalReco
 
     Page<WithdrawalRecord> findByDistributorIdOrderByCreatedAtDesc(UUID distributorId, Pageable pageable);
 
-    @Query("SELECT wr FROM WithdrawalRecord wr WHERE " +
-            "(:status IS NULL OR wr.status = :status) " +
-            "AND (:from IS NULL OR wr.createdAt >= :from) " +
-            "AND (:to IS NULL OR wr.createdAt < :to) " +
-            "ORDER BY wr.createdAt DESC")
-    Page<WithdrawalRecord> findAdminList(@Param("status") WithdrawalStatus status,
+    /**
+     * 管理后台提现记录列表。原生 SQL + status::text 显式转文本比较，
+     * 兼容 status 列为 varchar 或早期 PG 原生枚举（USER-DEFINED）两种情形，
+     * 避免 System error 500（详见 DistributorRepository.findAdminList）。
+     */
+    @Query(value = "SELECT * FROM withdrawal_records WHERE " +
+            "(:status IS NULL OR status::text = :status) " +
+            "AND (:from IS NULL OR created_at >= :from) " +
+            "AND (:to IS NULL OR created_at < :to) " +
+            "ORDER BY created_at DESC",
+            countQuery = "SELECT COUNT(*) FROM withdrawal_records WHERE " +
+            "(:status IS NULL OR status::text = :status) " +
+            "AND (:from IS NULL OR created_at >= :from) " +
+            "AND (:to IS NULL OR created_at < :to)",
+            nativeQuery = true)
+    Page<WithdrawalRecord> findAdminList(@Param("status") String status,
                                          @Param("from") java.time.LocalDateTime from,
                                          @Param("to") java.time.LocalDateTime to,
                                          Pageable pageable);

@@ -100,7 +100,7 @@ public class DistributionScheduler {
             try {
                 // 理论已结算佣金
                 BigDecimal settledCommission = commissionRecordRepository
-                        .sumByDistributorAndStatus(d.getId(), CommissionStatus.SETTLED);
+                        .sumByDistributorAndStatus(d.getId(), CommissionStatus.SETTLED.name());
                 if (settledCommission == null) settledCommission = BigDecimal.ZERO;
 
                 // 理论可提现 = 已结算佣金 - 已提现金额

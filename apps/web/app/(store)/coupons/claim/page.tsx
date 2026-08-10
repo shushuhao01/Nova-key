@@ -141,7 +141,7 @@ function ClaimContent() {
                   {info.coupon_quantity > 0 && (
                     <p className="flex items-center gap-2 text-muted-foreground">
                       <Ticket className="h-4 w-4 shrink-0" />
-                      {t("admin.couponQuantity")}:{" "}
+                      {t("claim.claimedIssue")}:{" "}
                       <span className="text-foreground">{info.coupon_claimed} / {info.coupon_quantity}</span>
                     </p>
                   )}
