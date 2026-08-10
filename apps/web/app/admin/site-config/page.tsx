@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send, Bell, Webhook, CheckCircle2, XCircle, Plus, ChevronLeft, ChevronRight } from "lucide-react"
+import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send, Bell, Webhook, CheckCircle2, XCircle, Plus, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { adminConfigApi, adminProductApi, adminNotificationApi, withMockFallback } from "@/services/api"

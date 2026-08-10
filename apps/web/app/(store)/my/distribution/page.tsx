@@ -1,12 +1,13 @@
 "use client"
 
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import {
   TrendingUp, Wallet, Coins, BarChart3, ArrowDownToLine, Share2,
   Link2, Copy, Check, X, Clock, Ban, Users2, Package, RefreshCw,
   ChevronLeft, ChevronRight, AlertCircle, UserPlus, Store, QrCode,
   ShoppingBag, ChevronRight as ChevronRightIcon, ScrollText, Percent,
-  Layers, Users, HandCoins, ShieldCheck,
+  Layers, Users, HandCoins, ShieldCheck, Shield, Download,
+  Image as ImageIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale } from "@/lib/context"
@@ -20,7 +21,7 @@ const PAGE_SIZE = 10
 type Tab = "overview" | "products" | "commissions" | "withdrawals" | "subordinates"
 type DistributorStatus = "PENDING" | "APPROVED" | "REJECTED" | "DISABLED"
 type CommissionStatus = "PENDING" | "SETTLED" | "CANCELED"
-type WithdrawalStatus = "PENDING" | "APPROVED" | "REJECTED" | "PAID"
+type WithdrawalStatus = "PENDING" | "APPROVED" | "REJECTED" | "PROCESSING" | "SUCCESS" | "FAILED"
 
 const fmtMoney = (n: number | null | undefined) => `¥${(Number(n) || 0).toFixed(2)}`
 const fmtDate = (s: string | null | undefined) => (s ? new Date(s).toLocaleString() : "—")
@@ -40,9 +41,11 @@ const commissionStatusMap: Record<CommissionStatus, { label: string; cls: string
 
 const withdrawalStatusMap: Record<WithdrawalStatus, { label: string; cls: string }> = {
   PENDING: { label: "审核中", cls: "bg-amber-500/10 text-amber-600" },
-  APPROVED: { label: "已通过", cls: "bg-blue-500/10 text-blue-600" },
+  APPROVED: { label: "待打款", cls: "bg-blue-500/10 text-blue-600" },
   REJECTED: { label: "已拒绝", cls: "bg-red-500/10 text-red-500" },
-  PAID: { label: "已打款", cls: "bg-emerald-500/10 text-emerald-600" },
+  PROCESSING: { label: "转账中", cls: "bg-blue-500/10 text-blue-600" },
+  SUCCESS: { label: "已到账", cls: "bg-emerald-500/10 text-emerald-600" },
+  FAILED: { label: "已失败", cls: "bg-red-500/10 text-red-500" },
 }
 
 export default function DistributionPage() {
@@ -558,6 +561,10 @@ function ProductsTab({ profile }: { profile: any }) {
   const [linkModal, setLinkModal] = useState<{ productName: string; linkUrl: string } | null>(null)
   const [storeLinkModal, setStoreLinkModal] = useState<string | null>(null)
   const [generatingStore, setGeneratingStore] = useState(false)
+  const [storePoster, setStorePoster] = useState<any>(null)
+  const [productPoster, setProductPoster] = useState<any>(null)
+  const [generatingStorePoster, setGeneratingStorePoster] = useState(false)
+  const [generatingPosterId, setGeneratingPosterId] = useState<string | null>(null)
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -612,35 +619,76 @@ function ProductsTab({ profile }: { profile: any }) {
     }
   }
 
+  const handleGenerateStorePoster = async () => {
+    setGeneratingStorePoster(true)
+    try {
+      const res = await distributorApi.generateStorePoster()
+      setStorePoster(res)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "生成海报失败")
+    } finally {
+      setGeneratingStorePoster(false)
+    }
+  }
+
+  const handleGeneratePoster = async (p: any) => {
+    const pid = p.product_id || p.id
+    if (!pid) return
+    setGeneratingPosterId(pid)
+    try {
+      const res = await distributorApi.generateProductPoster(String(pid))
+      setProductPoster(res)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "生成海报失败")
+    } finally {
+      setGeneratingPosterId(null)
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const effectiveRate = (p: any) => ((p.custom_rate ?? p.default_rate) || 0)
 
   return (
     <div className="flex flex-col gap-4">
       {/* 店铺推广 */}
-      <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
             <Store className="h-5 w-5 text-primary" />
           </span>
           <div>
             <p className="font-semibold text-foreground">推广整个店铺</p>
-            <p className="text-xs text-muted-foreground">生成店铺专属推广链接，覆盖全部商品</p>
+            <p className="text-xs text-muted-foreground">生成店铺专属推广链接 / 海报，覆盖全部商品</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={handleGenerateStoreLink}
-          disabled={generatingStore}
-          className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
-        >
-          {generatingStore ? (
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-          ) : (
-            <Link2 className="h-4 w-4" />
-          )}
-          生成链接
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleGenerateStoreLink}
+            disabled={generatingStore}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-input bg-background px-4 text-sm font-semibold text-foreground transition-all hover:bg-accent disabled:opacity-50"
+          >
+            {generatingStore ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            ) : (
+              <Link2 className="h-4 w-4" />
+            )}
+            生成链接
+          </button>
+          <button
+            type="button"
+            onClick={handleGenerateStorePoster}
+            disabled={generatingStorePoster}
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
+          >
+            {generatingStorePoster ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+            ) : (
+              <ImageIcon className="h-4 w-4" />
+            )}
+            生成海报
+          </button>
+        </div>
       </div>
 
       {/* 子 Tab */}
@@ -678,29 +726,57 @@ function ProductsTab({ profile }: { profile: any }) {
           {list.map((p) => (
             <div key={p.id || p.product_id} className="flex flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
               <div className="flex gap-3">
-                {p.cover_image ? (
-                  <img src={p.cover_image} alt="" className="h-14 w-14 shrink-0 rounded-md object-cover" />
+                {p.cover_url || p.cover_image ? (
+                  <img
+                    src={p.cover_url || p.cover_image}
+                    alt=""
+                    loading="lazy"
+                    className="h-14 w-14 shrink-0 rounded-md object-cover"
+                  />
                 ) : (
                   <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-muted">
                     <Package className="h-6 w-6 text-muted-foreground" />
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="line-clamp-2 text-sm font-medium text-foreground">{p.title}</p>
+                  <p className="line-clamp-2 text-sm font-medium text-foreground">{p.product_title || p.title}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                    <span>售价 {fmtMoney(p.price)}</span>
+                    <span>售价 {fmtMoney(p.base_price ?? p.price)}</span>
                     <span>佣金 {effectiveRate(p).toFixed(2)}%</span>
                   </div>
+                  {subTab === "mine" && (
+                    <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                      <span>点击 {p.click_count ?? 0} 次</span>
+                      <span>成交 {p.paid_count ?? 0} 单</span>
+                      <span>销售额 {fmtMoney(p.total_sales)}</span>
+                      <span>佣金 {fmtMoney(p.total_commission)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => handleGenerateLink(p)}
-                className="mt-3 inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-primary/10 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
-              >
-                <Link2 className="h-4 w-4" />
-                生成推广链接
-              </button>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleGenerateLink(p)}
+                  className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-lg bg-primary/10 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
+                >
+                  <Link2 className="h-4 w-4" />
+                  生成推广链接
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleGeneratePoster(p)}
+                  disabled={generatingPosterId === (p.product_id || p.id)}
+                  className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-input text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  {generatingPosterId === (p.product_id || p.id) ? (
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  ) : (
+                    <ImageIcon className="h-4 w-4" />
+                  )}
+                  生成海报
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -727,6 +803,16 @@ function ProductsTab({ profile }: { profile: any }) {
           linkUrl={storeLinkModal}
           onClose={() => setStoreLinkModal(null)}
         />
+      )}
+
+      {/* 店铺推广海报弹窗 */}
+      {storePoster && (
+        <PosterModal data={storePoster} type="store" onClose={() => setStorePoster(null)} />
+      )}
+
+      {/* 商品推广海报弹窗 */}
+      {productPoster && (
+        <PosterModal data={productPoster} type="product" onClose={() => setProductPoster(null)} />
       )}
     </div>
   )
@@ -798,6 +884,262 @@ function LinkResultModal({
         </div>
 
         <p className="mt-3 text-center text-xs text-muted-foreground">扫描二维码或复制链接分享给好友</p>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════ 推广海报弹窗（Canvas 合成） ═══════════════════════
+
+function PosterModal({
+  data, type, onClose,
+}: {
+  data: any
+  type: "product" | "store"
+  onClose: () => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [drawing, setDrawing] = useState(true)
+  const [fallback, setFallback] = useState(false)
+
+  const linkUrl: string = data?.link_url || ""
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    let cancelled = false
+    const W = 600
+    const H = type === "product" ? 880 : 820
+    canvas.width = W
+    canvas.height = H
+
+    const truncate = (s: string, n: number) => (s && s.length > n ? `${s.slice(0, n)}…` : s || "")
+
+    const paint = (cover: HTMLImageElement | null) => {
+      if (cancelled) return
+      ctx.fillStyle = "#ffffff"
+      ctx.fillRect(0, 0, W, H)
+
+      // 顶部品牌条
+      ctx.fillStyle = "#f97316"
+      ctx.fillRect(0, 0, W, 118)
+      ctx.fillStyle = "#ffffff"
+      ctx.textAlign = "center"
+      ctx.font = "bold 32px sans-serif"
+      ctx.fillText(truncate(data?.store_name || (type === "product" ? "精选好物" : "全店推广"), 14), W / 2, 60)
+      ctx.font = "17px sans-serif"
+      ctx.fillText(`推广员 ${data?.distributor_code || ""}`, W / 2, 92)
+
+      let y = 160
+      if (type === "product") {
+        // 商品主图
+        if (cover) {
+          const iw = cover.naturalWidth || W
+          const ih = cover.naturalHeight || W
+          const size = 320
+          const scale = Math.max(size / iw, size / ih)
+          const dw = iw * scale
+          const dh = ih * scale
+          ctx.drawImage(cover, (W - dw) / 2, y, dw, dh)
+          y += size + 22
+        } else {
+          y += 26
+          ctx.fillStyle = "#9ca3af"
+          ctx.font = "18px sans-serif"
+          ctx.fillText("（商品图片缺失）", W / 2, y)
+          y += 44
+        }
+        // 商品标题
+        ctx.fillStyle = "#111827"
+        ctx.font = "bold 28px sans-serif"
+        ctx.fillText(truncate(data?.product_title || "", 18), W / 2, y)
+        y += 52
+        // 价格 + 佣金
+        ctx.fillStyle = "#ef4444"
+        ctx.font = "bold 36px sans-serif"
+        ctx.fillText(`¥${Number(data?.base_price || 0).toFixed(2)}`, W / 2, y + 20)
+        y += 62
+        ctx.fillStyle = "#f97316"
+        ctx.font = "19px sans-serif"
+        ctx.fillText(
+          `推广佣金 ${Number(data?.commission_rate || 0).toFixed(2)}%（约赚 ¥${Number(data?.commission_amount || 0).toFixed(2)}）`,
+          W / 2, y
+        )
+        y += 70
+      } else {
+        // 全店海报：店铺 logo / 名称
+        if (cover) {
+          const size = 150
+          ctx.drawImage(cover, (W - size) / 2, y, size, size)
+          y += size + 28
+        } else {
+          y += 40
+        }
+        ctx.fillStyle = "#111827"
+        ctx.font = "bold 34px sans-serif"
+        ctx.fillText("精选好物 · 全场推广", W / 2, y)
+        y += 56
+        ctx.fillStyle = "#6b7280"
+        ctx.font = "22px sans-serif"
+        ctx.fillText(`全场商品佣金比例 ${Number(data?.default_rate || 0).toFixed(2)}%`, W / 2, y)
+        y += 64
+        ctx.fillStyle = "#111827"
+        ctx.font = "bold 26px sans-serif"
+        ctx.fillText("扫码进入商城", W / 2, y)
+        y += 56
+      }
+
+      // 底部二维码
+      const qsize = 240
+      const qx = (W - qsize) / 2
+      const qy = H - qsize - 128
+      // 二维码白底
+      ctx.fillStyle = "#ffffff"
+      ctx.strokeStyle = "#e5e7eb"
+      ctx.lineWidth = 2
+      ctx.strokeRect(qx - 10, qy - 10, qsize + 20, qsize + 20)
+
+      const qr = new Image()
+      qr.crossOrigin = "anonymous"
+      qr.onload = () => {
+        if (cancelled) return
+        ctx.drawImage(qr, qx, qy, qsize, qsize)
+        ctx.fillStyle = "#4b5563"
+        ctx.font = "18px sans-serif"
+        ctx.fillText("长按识别二维码", W / 2, H - 100)
+        ctx.fillStyle = "#9ca3af"
+        ctx.font = "14px sans-serif"
+        ctx.fillText("分享海报给好友，好友扫码下单即可获得佣金", W / 2, H - 72)
+        setDrawing(false)
+      }
+      qr.onerror = () => {
+        if (!cancelled) setDrawing(false)
+      }
+      qr.src = `/qr-image?url=${encodeURIComponent(linkUrl)}&size=400`
+    }
+
+    // 加载封面图（跨域失败时降级为纯文字海报）
+    const coverUrl = type === "product" ? data?.cover_url : data?.store_logo
+    if (coverUrl) {
+      const img = new Image()
+      img.crossOrigin = "anonymous"
+      img.onload = () => { try { paint(img) } catch { setFallback(true); setDrawing(false) } }
+      img.onerror = () => paint(null)
+      img.src = coverUrl
+    } else {
+      paint(null)
+    }
+    return () => { cancelled = true }
+  }, [data, type, linkUrl])
+
+  const downloadPoster = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    try {
+      const a = document.createElement("a")
+      a.href = canvas.toDataURL("image/png")
+      a.download = `推广海报_${type === "product" ? (data?.product_title || "商品") : "全店"}.png`
+      a.click()
+      toast.success("海报已下载")
+    } catch {
+      toast.error("海报图片跨域受限，导出失败，请使用「复制链接」分享")
+    }
+  }
+
+  const sharePoster = async () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    try {
+      const blob: Blob | null = await new Promise((res) => canvas.toBlob(res, "image/png"))
+      if (!blob) return
+      const file = new File([blob], "poster.png", { type: "image/png" })
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: "推广海报" })
+      } else {
+        const a = document.createElement("a")
+        a.href = URL.createObjectURL(blob)
+        a.download = "推广海报.png"
+        a.click()
+        toast.success("海报已下载")
+      }
+    } catch {
+      toast.error("分享失败")
+    }
+  }
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(linkUrl)
+      toast.success("推广链接已复制")
+    } catch {
+      toast.error("复制失败，请手动复制")
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex max-h-[92vh] w-full max-w-sm flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="flex items-center gap-2 text-base font-bold text-foreground">
+            <ImageIcon className="h-5 w-5 text-primary" />
+            推广海报
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="relative flex justify-center rounded-lg bg-white">
+            {drawing && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            )}
+            <canvas ref={canvasRef} className="max-h-[56vh] w-auto max-w-full rounded-lg" />
+          </div>
+          {fallback && (
+            <p className="mt-2 text-center text-xs text-amber-600">部分图片加载失败，海报已降级为文字版</p>
+          )}
+          <p className="mt-2 truncate text-center font-mono text-[11px] text-muted-foreground" title={linkUrl}>
+            {linkUrl}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 border-t border-border p-4">
+          <button
+            type="button"
+            onClick={downloadPoster}
+            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-all hover:brightness-110"
+          >
+            <Download className="h-4 w-4" />
+            下载海报
+          </button>
+          <button
+            type="button"
+            onClick={sharePoster}
+            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-input text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            <Share2 className="h-4 w-4" />
+            分享
+          </button>
+          <button
+            type="button"
+            onClick={copyLink}
+            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-input text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            <Copy className="h-4 w-4" />
+            复制链接
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -917,6 +1259,9 @@ function WithdrawalsTab({ balance }: { balance: number }) {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  // 微信绑定状态
+  const [wechat, setWechat] = useState<{ wechat_bound?: boolean; openid?: string | null; nickname?: string | null; bound_at?: string | null } | null>(null)
+  const [binding, setBinding] = useState(false)
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -932,7 +1277,65 @@ function WithdrawalsTab({ balance }: { balance: number }) {
     }
   }, [page])
 
+  const fetchWechat = useCallback(async () => {
+    try {
+      const w = await distributorApi.getWechatStatus()
+      setWechat(w)
+    } catch {
+      setWechat(null)
+    }
+  }, [])
+
   useEffect(() => { fetchList() }, [fetchList])
+  useEffect(() => { fetchWechat() }, [fetchWechat])
+
+  const handleBind = async () => {
+    setBinding(true)
+    try {
+      const r = await distributorApi.getWechatBindUrl()
+      if (r?.bind_url) {
+        window.location.href = r.bind_url
+      } else {
+        toast.error(r?.message || "获取绑定链接失败，请检查支付渠道配置")
+      }
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, t))
+    } finally {
+      setBinding(false)
+    }
+  }
+
+  const handleUnbind = async () => {
+    if (!window.confirm("确定解绑微信？解绑后需重新绑定才能申请提现。")) return
+    try {
+      await distributorApi.unbindWechat()
+      toast.success("已解绑微信")
+      fetchWechat()
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, t))
+    }
+  }
+
+  // 微信转账中：拉起确认收款（仅微信内有效）
+  const confirmWithdrawal = (w: any) => {
+    if (!w.package_info) {
+      toast.error("缺少收款确认信息，请稍后重试")
+      return
+    }
+    const bridge = (window as any).WeixinJSBridge
+    if (bridge && typeof bridge.invoke === "function") {
+      bridge.invoke(
+        "requestPayment",
+        { package: w.package_info },
+        () => {
+          toast.success("收款确认已提交，等待到账")
+          setTimeout(fetchList, 2000)
+        }
+      )
+    } else {
+      toast.error("请在微信内打开此页面确认收款")
+    }
+  }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -952,6 +1355,64 @@ function WithdrawalsTab({ balance }: { balance: number }) {
           <ArrowDownToLine className="h-4 w-4" />
           申请提现
         </button>
+      </div>
+
+      {/* 微信绑定状态 */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <span
+            className={cn(
+              "flex h-10 w-10 items-center justify-center rounded-lg",
+              wechat?.wechat_bound ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"
+            )}
+          >
+            {wechat?.wechat_bound ? <ShieldCheck className="h-5 w-5" /> : <Shield className="h-5 w-5" />}
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-foreground">
+              {wechat?.wechat_bound ? "微信已绑定" : "未绑定微信"}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {wechat?.wechat_bound
+                ? `提现收款账号 ${wechat.nickname || wechat.openid || "已绑定"}${wechat.bound_at ? ` · ${fmtDate(wechat.bound_at)}` : ""}`
+                : "绑定微信后，审核通过的提现将由平台转账至您的微信零钱"}
+            </p>
+          </div>
+        </div>
+        {wechat?.wechat_bound ? (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleUnbind}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Ban className="h-4 w-4" />
+              解绑
+            </button>
+            <button
+              type="button"
+              onClick={handleBind}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              <RefreshCw className="h-4 w-4" />
+              重新绑定
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={handleBind}
+            disabled={binding}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
+          >
+            {binding ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+            ) : (
+              <ShieldCheck className="h-4 w-4" />
+            )}
+            绑定微信
+          </button>
+        )}
       </div>
 
       {/* 列表 */}
@@ -983,9 +1444,20 @@ function WithdrawalsTab({ balance }: { balance: number }) {
                       <p className="mt-0.5 text-xs text-red-500">原因：{w.reason}</p>
                     )}
                   </div>
-                  <span className={cn("inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
-                    {st.label}
-                  </span>
+                  <div className="shrink-0 text-right">
+                    <span className={cn("inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
+                      {st.label}
+                    </span>
+                    {w.status === "PROCESSING" && w.package_info && (
+                      <button
+                        type="button"
+                        onClick={() => confirmWithdrawal(w)}
+                        className="mt-1.5 block w-full rounded-lg bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/20"
+                      >
+                        确认收款
+                      </button>
+                    )}
+                  </div>
                 </div>
               )
             })}
@@ -998,6 +1470,7 @@ function WithdrawalsTab({ balance }: { balance: number }) {
       {modalOpen && (
         <WithdrawalModal
           balance={balance}
+          wechatBound={!!wechat?.wechat_bound}
           onClose={() => setModalOpen(false)}
           onSuccess={() => { setModalOpen(false); fetchList() }}
         />
@@ -1007,9 +1480,10 @@ function WithdrawalsTab({ balance }: { balance: number }) {
 }
 
 function WithdrawalModal({
-  balance, onClose, onSuccess,
+  balance, wechatBound, onClose, onSuccess,
 }: {
   balance: number
+  wechatBound: boolean
   onClose: () => void
   onSuccess: () => void
 }) {
@@ -1019,6 +1493,10 @@ function WithdrawalModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!wechatBound) {
+      toast.error("请先在分销中心绑定微信后再申请提现")
+      return
+    }
     const v = parseFloat(amount)
     if (Number.isNaN(v) || v <= 0) {
       toast.error("请输入有效的提现金额")
@@ -1075,7 +1553,13 @@ function WithdrawalModal({
               required
             />
           </div>
-          <p className="mt-1.5 text-xs text-muted-foreground">提现申请提交后，平台将审核并打款</p>
+          {!wechatBound && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>尚未绑定微信。提现需转账至微信零钱，请先关闭弹窗并在页面中完成绑定微信。</p>
+            </div>
+          )}
+          <p className="mt-1.5 text-xs text-muted-foreground">提现申请提交后，平台将审核并转账至您绑定的微信零钱</p>
 
           <div className="mt-6 flex justify-end gap-3">
             <button

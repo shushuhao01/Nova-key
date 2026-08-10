@@ -72,6 +72,40 @@ public class DistributorController {
         return ApiResponse.success(distributionService.generateStoreLink(RequestContext.getUserId()));
     }
 
+    // ── 推广海报 ──
+    @PostMapping("/products/{productId}/poster")
+    public ApiResponse<?> generateProductPoster(@PathVariable UUID productId) {
+        return ApiResponse.success(distributionService.generateProductPoster(RequestContext.getUserId(), productId));
+    }
+
+    @PostMapping("/store/poster")
+    public ApiResponse<?> generateStorePoster() {
+        return ApiResponse.success(distributionService.generateStorePoster(RequestContext.getUserId()));
+    }
+
+    // ── 微信绑定（提现收款） ──
+    @GetMapping("/wechat/bind-url")
+    public ApiResponse<?> getWechatBindUrl() {
+        return ApiResponse.success(distributionService.getWechatBindUrl(RequestContext.getUserId()));
+    }
+
+    @GetMapping("/wechat/callback")
+    public ApiResponse<?> wechatCallback(@RequestParam(required = false) String code,
+                                         @RequestParam(required = false) String state) {
+        return ApiResponse.success(distributionService.wechatCallback(code, state));
+    }
+
+    @PostMapping("/wechat/unbind")
+    public ApiResponse<?> unbindWechat() {
+        distributionService.unbindWechat(RequestContext.getUserId());
+        return ApiResponse.success(null);
+    }
+
+    @GetMapping("/wechat/status")
+    public ApiResponse<?> wechatStatus() {
+        return ApiResponse.success(distributionService.wechatStatus(RequestContext.getUserId()));
+    }
+
     // ── 我的推广链接 ──
     @GetMapping("/links")
     public ApiResponse<?> listMyLinks(

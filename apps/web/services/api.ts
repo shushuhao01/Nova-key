@@ -893,6 +893,16 @@ export const distributorApi = {
     request<any>(`/distributor/products/${productId}/link`, { method: "POST" }),
   generateStoreLink: () =>
     request<any>("/distributor/store/link", { method: "POST" }),
+  generateProductPoster: (productId: string) =>
+    request<any>(`/distributor/products/${productId}/poster`, { method: "POST" }),
+  generateStorePoster: () =>
+    request<any>("/distributor/store/poster", { method: "POST" }),
+  getWechatBindUrl: () => request<any>("/distributor/wechat/bind-url"),
+  wechatCallback: (code: string, state: string) =>
+    request<any>(`/distributor/wechat/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`),
+  unbindWechat: () =>
+    request<void>("/distributor/wechat/unbind", { method: "POST" }),
+  getWechatStatus: () => request<any>("/distributor/wechat/status"),
   listLinks: (params: { page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/distributor/links?${qs}`)

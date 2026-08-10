@@ -119,10 +119,13 @@ interface Distributor {
 interface DistributionProduct {
   product_id: string
   product_title: string
+  cover_url: string | null
   base_price: number
   enabled: boolean
   default_rate: number
   custom_rate: number | null
+  /** 是否存在 product_commission 配置记录（false = 从未添加，默认不分销） */
+  commission_set: boolean
   excluded: boolean
 }
 
@@ -199,8 +202,8 @@ export default function AdminDistributionPage() {
   const [tab, setTab] = useState<Tab>("overview")
   const [rulesOpen, setRulesOpen] = useState(false)
 
-  // 日期筛选（概览卡片 + 各列表联动）
-  const [range, setRange] = useState<RangeKey>("all")
+  // 日期筛选（概览卡片 + 各列表联动），默认本月
+  const [range, setRange] = useState<RangeKey>("thisMonth")
   const [customFrom, setCustomFrom] = useState("")
   const [customTo, setCustomTo] = useState("")
   const [dateVersion, setDateVersion] = useState(0)
@@ -916,9 +919,11 @@ function ProductsTab() {
   const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
 
   const handleToggleExcluded = async (p: DistributionProduct) => {
+    // 新语义：默认不分销。未添加过 / 已排除 → 纳入分销；已开启 → 排除
+    const inDistribution = p.commission_set && !p.excluded
     try {
-      await adminDistributionApi.updateProductCommission(p.product_id, p.custom_rate, !p.excluded)
-      toast.success(p.excluded ? "已纳入分销" : "已排除分销")
+      await adminDistributionApi.updateProductCommission(p.product_id, p.custom_rate, inDistribution)
+      toast.success(inDistribution ? "已排除分销" : "已纳入分销")
       fetchList()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "操作失败")
@@ -990,9 +995,19 @@ function ProductsTab() {
                     <tr key={p.product_id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted">
-                            <Package className="h-5 w-5 text-muted-foreground" />
-                          </div>
+                          {p.cover_url ? (
+                            <img
+                              src={p.cover_url}
+                              alt={p.product_title}
+                              className="h-10 w-10 shrink-0 rounded-md border border-border object-cover"
+                              loading="lazy"
+                              onError={(e) => { (e.currentTarget.style.display = "none") }}
+                            />
+                          ) : (
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted">
+                              <Package className="h-5 w-5 text-muted-foreground" />
+                            </div>
+                          )}
                           <div className="flex flex-col">
                             <span className="font-medium text-foreground line-clamp-1">{p.product_title}</span>
                             <span className="text-xs text-muted-foreground">ID: {p.product_id}</span>
@@ -1012,7 +1027,12 @@ function ProductsTab() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {p.excluded ? (
+                        {!p.commission_set ? (
+                          <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                            <Package className="mr-1 h-3 w-3" />
+                            未分销
+                          </span>
+                        ) : p.excluded ? (
                           <span className="inline-flex items-center rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-medium text-red-500">
                             <Ban className="mr-1 h-3 w-3" />
                             已排除
@@ -1034,14 +1054,14 @@ function ProductsTab() {
                             onClick={() => handleToggleExcluded(p)}
                             className={cn(
                               "flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium",
-                              p.excluded
-                                ? "text-emerald-600 hover:bg-emerald-500/10"
-                                : "text-red-500 hover:bg-red-500/10"
+                              p.commission_set && !p.excluded
+                                ? "text-red-500 hover:bg-red-500/10"
+                                : "text-emerald-600 hover:bg-emerald-500/10"
                             )}
-                            title={p.excluded ? "纳入分销" : "排除分销"}
+                            title={p.commission_set && !p.excluded ? "排除分销" : "纳入分销"}
                           >
-                            {p.excluded ? <Check className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
-                            {p.excluded ? "纳入" : "排除"}
+                            {p.commission_set && !p.excluded ? <Ban className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+                            {p.commission_set && !p.excluded ? "排除" : "纳入"}
                           </button>
                         </div>
                       </td>
@@ -1215,10 +1235,8 @@ function AddDistributionProductModal({ onClose, onSaved }: {
   const handleAdd = async (p: DistributionProduct) => {
     setSubmitting(p.product_id)
     try {
-      // 排除状态的商品纳入分销；已可分销的商品保持原状
-      if (p.excluded) {
-        await adminDistributionApi.updateProductCommission(p.product_id, p.custom_rate, false)
-      }
+      // 默认不分销：只有未开启 / 已排除的商品才需要「添加」（创建/恢复为可分销记录）
+      await adminDistributionApi.updateProductCommission(p.product_id, p.custom_rate, false)
       toast.success("已添加为分销商品")
       onSaved()
     } catch (err) {
@@ -1264,14 +1282,24 @@ function AddDistributionProductModal({ onClose, onSaved }: {
               {list.map(p => (
                 <div key={p.product_id} className="flex items-center justify-between rounded-lg border border-border p-3 transition-colors hover:bg-muted/20">
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted">
-                      <Package className="h-5 w-5 text-muted-foreground" />
-                    </div>
+                    {p.cover_url ? (
+                      <img
+                        src={p.cover_url}
+                        alt={p.product_title}
+                        className="h-10 w-10 shrink-0 rounded-md border border-border object-cover"
+                        loading="lazy"
+                        onError={(e) => { (e.currentTarget.style.display = "none") }}
+                      />
+                    ) : (
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted">
+                        <Package className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                    )}
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-foreground">{p.product_title}</p>
                       <p className="text-xs text-muted-foreground">
                         {fmtMoney(p.base_price)} · 默认比例 {p.default_rate.toFixed(2)}%
-                        {p.excluded && (
+                        {p.commission_set && p.excluded && (
                           <span className="ml-1.5 rounded bg-red-500/10 px-1.5 py-0.5 text-[11px] font-medium text-red-500">已排除</span>
                         )}
                       </p>
@@ -1279,17 +1307,17 @@ function AddDistributionProductModal({ onClose, onSaved }: {
                   </div>
                   <button
                     type="button"
-                    disabled={submitting === p.product_id || !p.excluded}
+                    disabled={submitting === p.product_id || (p.commission_set && !p.excluded)}
                     onClick={() => handleAdd(p)}
                     className={cn(
                       "ml-3 inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors",
-                      p.excluded
-                        ? "bg-primary text-primary-foreground hover:brightness-110 disabled:opacity-50"
-                        : "bg-muted text-muted-foreground cursor-default"
+                      p.commission_set && !p.excluded
+                        ? "bg-muted text-muted-foreground cursor-default"
+                        : "bg-primary text-primary-foreground hover:brightness-110 disabled:opacity-50"
                     )}
                   >
                     {submitting === p.product_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                    {p.excluded ? "添加" : "已添加"}
+                    {p.commission_set && !p.excluded ? "已添加" : "添加"}
                   </button>
                 </div>
               ))}

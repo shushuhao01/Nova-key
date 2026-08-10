@@ -21,9 +21,12 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -55,6 +58,9 @@ public class DistributionServiceImpl implements DistributionService {
     private final PaymentChannelRepository paymentChannelRepository;
     private final WxpayService wxpayService;
     private final PaymentServiceImpl paymentServiceImpl;
+    private final SiteConfigRepository siteConfigRepository;
+    private final RestTemplate restTemplate;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @Value("${app.base-url:https://noepay.cn}")
     private String baseUrl;
@@ -366,9 +372,11 @@ public class DistributionServiceImpl implements DistributionService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("product_id", p.getId());
             m.put("product_title", p.getTitle());
+            m.put("cover_url", p.getCoverUrl());
             m.put("base_price", p.getBasePrice());
             m.put("enabled", p.isEnabled());
             ProductCommission pc = productCommissionRepository.findByProductId(p.getId()).orElse(null);
+            m.put("commission_set", pc != null);
             m.put("custom_rate", rateToPercent(pc != null ? pc.getCustomRate() : null));
             m.put("excluded", pc != null && pc.isExcluded());
             m.put("default_rate", rateToPercent(defaultRate));
@@ -791,10 +799,13 @@ public class DistributionServiceImpl implements DistributionService {
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> listPromotionProducts(int page, int pageSize) {
-        Pageable pageable = toPageable(page, pageSize);
-        Page<Product> pp = productRepository.findPublicProducts(null, pageable);
         DistributionRule rule = getOrCreateRule();
-        List<Map<String, Object>> items = pp.getContent().stream().map(p -> {
+        List<Product> all = productRepository.findPublicProducts(null, Pageable.unpaged()).getContent();
+        // 仅展示已开启分销（存在 product_commission 且未排除）的商品
+        List<Product> distributable = all.stream()
+                .filter(p -> isProductDistributable(p.getId()))
+                .toList();
+        List<Map<String, Object>> items = paginate(distributable, page, pageSize).stream().map(p -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("product_id", p.getId());
             m.put("product_title", p.getTitle());
@@ -802,22 +813,23 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("base_price", p.getBasePrice());
             m.put("default_rate", rateToPercent(rule.getDefaultRate()));
             ProductCommission pc = productCommissionRepository.findByProductId(p.getId()).orElse(null);
-            m.put("excluded", pc != null && pc.isExcluded());
+            m.put("excluded", false);
             m.put("custom_rate", rateToPercent(pc != null ? pc.getCustomRate() : null));
             return m;
         }).toList();
-        return pageResult(items, pp.getTotalElements(), page, pageSize);
+        return pageResult(items, distributable.size(), page, pageSize);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> listMyPromotionProducts(UUID userId, int page, int pageSize) {
         Distributor d = requireDistributorByUserId(userId);
-        Pageable pageable = toPageable(page, pageSize);
-        Page<PromotionLink> lp = promotionLinkRepository.findByDistributorId(d.getId(), pageable);
+        Page<PromotionLink> lp = promotionLinkRepository.findByDistributorId(d.getId(), Pageable.unpaged());
 
-        List<Map<String, Object>> items = lp.getContent().stream()
+        List<Map<String, Object>> all = lp.getContent().stream()
                 .filter(pl -> pl.getProductId() != null)
+                // 仅展示仍在分销的商品（已取消分销的推广商品不再可见）
+                .filter(pl -> isProductDistributable(pl.getProductId()))
                 .map(pl -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("link_id", pl.getId());
@@ -834,7 +846,8 @@ public class DistributionServiceImpl implements DistributionService {
                     });
                     return m;
                 }).toList();
-        return pageResult(items, lp.getTotalElements(), page, pageSize);
+        List<Map<String, Object>> items = paginate(all, page, pageSize);
+        return pageResult(items, all.size(), page, pageSize);
     }
 
     @Override
@@ -843,6 +856,9 @@ public class DistributionServiceImpl implements DistributionService {
         Distributor d = requireDistributorByUserId(userId);
         if (d.getStatus() != DistributorStatus.APPROVED) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "分销员未审核通过");
+        }
+        if (!isProductDistributable(productId)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "该商品未开启分销，无法生成推广链接");
         }
         PromotionLink link = promotionLinkRepository.findByDistributorIdAndProductId(d.getId(), productId).orElse(null);
         if (link == null) {
@@ -896,6 +912,186 @@ public class DistributionServiceImpl implements DistributionService {
     }
 
     // ════════════════════════════════════════════════════════════════
+    //  ── 前台：推广海报（返回海报绘制所需数据，前端 canvas 合成） ──
+    // ════════════════════════════════════════════════════════════════
+
+    @Override
+    @Transactional
+    public Map<String, Object> generateProductPoster(UUID userId, UUID productId) {
+        Distributor d = requireDistributorByUserId(userId);
+        if (d.getStatus() != DistributorStatus.APPROVED) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "分销员未审核通过");
+        }
+        if (!isProductDistributable(productId)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "该商品未开启分销，无法生成海报");
+        }
+        Product p = productRepository.findById(productId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在"));
+        // 复用推广链接：海报二维码必须可识别
+        PromotionLink link = promotionLinkRepository.findByDistributorIdAndProductId(d.getId(), productId).orElse(null);
+        if (link == null) {
+            link = new PromotionLink();
+            link.setDistributorId(d.getId());
+            link.setProductId(productId);
+            link.setLinkCode(generateUniqueLinkCode());
+            link.setClickCount(0);
+            link.setUniqueClickCount(0);
+            link.setPaidCount(0);
+            link.setTotalSales(BigDecimal.ZERO);
+            link.setTotalCommission(BigDecimal.ZERO);
+            promotionLinkRepository.save(link);
+            log.info("Promotion link auto-created for poster: distributor={}, product={}", d.getId(), productId);
+        }
+        DistributionRule rule = getOrCreateRule();
+        ProductCommission pc = productCommissionRepository.findByProductId(productId).orElse(null);
+        BigDecimal rate = pc != null && pc.getCustomRate() != null ? pc.getCustomRate() : rule.getDefaultRate();
+        String linkUrl = buildPromotionUrl(link.getLinkCode());
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("product_id", p.getId());
+        m.put("product_title", p.getTitle());
+        m.put("cover_url", p.getCoverUrl());
+        m.put("base_price", p.getBasePrice());
+        m.put("commission_rate", rateToPercent(rate));
+        m.put("commission_amount", p.getBasePrice().multiply(rate).setScale(2, RoundingMode.HALF_UP));
+        m.put("link_url", linkUrl);
+        m.put("qr_url", buildQrUrl(linkUrl));
+        m.put("distributor_code", d.getDistributorCode());
+        m.put("store_name", siteName());
+        m.put("store_logo", siteLogo());
+        return m;
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> generateStorePoster(UUID userId) {
+        Distributor d = requireDistributorByUserId(userId);
+        if (d.getStatus() != DistributorStatus.APPROVED) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "分销员未审核通过");
+        }
+        PromotionLink link = promotionLinkRepository.findByDistributorIdAndProductId(d.getId(), null).orElse(null);
+        if (link == null) {
+            link = new PromotionLink();
+            link.setDistributorId(d.getId());
+            link.setProductId(null);
+            link.setLinkCode(generateUniqueLinkCode());
+            link.setClickCount(0);
+            link.setUniqueClickCount(0);
+            link.setPaidCount(0);
+            link.setTotalSales(BigDecimal.ZERO);
+            link.setTotalCommission(BigDecimal.ZERO);
+            promotionLinkRepository.save(link);
+            log.info("Store promotion link auto-created for poster: distributor={}", d.getId());
+        }
+        String linkUrl = buildPromotionUrl(link.getLinkCode());
+        DistributionRule rule = getOrCreateRule();
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("link_url", linkUrl);
+        m.put("qr_url", buildQrUrl(linkUrl));
+        m.put("distributor_code", d.getDistributorCode());
+        m.put("store_name", siteName());
+        m.put("store_logo", siteLogo());
+        m.put("default_rate", rateToPercent(rule.getDefaultRate()));
+        return m;
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  ── 前台：微信绑定（提现到微信零钱收款） ──
+    // ════════════════════════════════════════════════════════════════
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> getWechatBindUrl(UUID userId) {
+        Distributor d = requireDistributorByUserId(userId);
+        WechatOauthConfig cfg = findWechatOauthConfig();
+        if (cfg == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "微信支付渠道未配置公众号 AppSecret，无法绑定微信（请在支付渠道配置中补充）");
+        }
+        String callbackUrl = trimTrailingSlash(baseUrl) + "/my/distribution/bind-wechat/callback";
+        String redirect = URLEncoder.encode(callbackUrl, StandardCharsets.UTF_8);
+        String bindUrl = "https://open.weixin.qq.com/connect/oauth2/authorize?appid=" + cfg.appid()
+                + "&redirect_uri=" + redirect
+                + "&response_type=code&scope=snsapi_base"
+                + "&state=" + d.getId() + "#wechat_redirect";
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("bind_url", bindUrl);
+        m.put("appid", cfg.appid());
+        m.put("callback_url", callbackUrl);
+        m.put("wechat_bound", d.getWechatOpenid() != null && !d.getWechatOpenid().isBlank());
+        return m;
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> wechatCallback(String code, String state) {
+        if (code == null || code.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "微信授权失败：缺少 code");
+        }
+        Distributor d = distributorRepository.findById(UUID.fromString(state))
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "分销员不存在"));
+        WechatOauthConfig cfg = findWechatOauthConfig();
+        if (cfg == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "微信支付渠道未配置公众号 AppSecret，无法绑定微信");
+        }
+        String url = "https://api.weixin.qq.com/sns/oauth2/access_token?appid=" + cfg.appid()
+                + "&secret=" + cfg.secret() + "&code=" + code + "&grant_type=authorization_code";
+        try {
+            String body = restTemplate.getForObject(url, String.class);
+            String openid = extractJsonField(body, "openid");
+            String errMsg = extractJsonField(body, "errmsg");
+            if (openid == null || openid.isBlank()) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST,
+                        "微信授权失败：" + (errMsg != null ? errMsg : "无效的授权码"));
+            }
+            d.setWechatOpenid(openid);
+            String nickname = extractJsonField(body, "nickname");
+            if (nickname != null && !nickname.isBlank()) {
+                d.setWechatNickname(nickname);
+            }
+            d.setWechatBoundAt(LocalDateTime.now());
+            distributorRepository.save(d);
+            log.info("Distributor {} bound wechat openid={}", d.getId(), openid);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Wechat oauth failed for state={}", state, e);
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "微信授权失败，请重试");
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("wechat_bound", true);
+        m.put("openid", d.getWechatOpenid());
+        return m;
+    }
+
+    @Override
+    @Transactional
+    public void unbindWechat(UUID userId) {
+        Distributor d = requireDistributorByUserId(userId);
+        d.setWechatOpenid(null);
+        d.setWechatUnionid(null);
+        d.setWechatNickname(null);
+        d.setWechatBoundAt(null);
+        distributorRepository.save(d);
+        log.info("Distributor {} unbound wechat", d.getId());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> wechatStatus(UUID userId) {
+        Distributor d = requireDistributorByUserId(userId);
+        boolean bound = d.getWechatOpenid() != null && !d.getWechatOpenid().isBlank();
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("wechat_bound", bound);
+        m.put("openid", bound ? maskOpenid(d.getWechatOpenid()) : null);
+        m.put("nickname", d.getWechatNickname());
+        m.put("bound_at", d.getWechatBoundAt());
+        return m;
+    }
+
+    // ════════════════════════════════════════════════════════════════
     //  ── 前台：佣金明细 ──
     // ════════════════════════════════════════════════════════════════
 
@@ -926,6 +1122,10 @@ public class DistributionServiceImpl implements DistributionService {
         Distributor d = requireDistributorByUserId(userId);
         if (d.getStatus() != DistributorStatus.APPROVED) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "分销员未审核通过");
+        }
+        // 提现必须已绑定微信（提现通过微信支付商家转账到零钱，需收款 openid）
+        if (d.getWechatOpenid() == null || d.getWechatOpenid().isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "请先在分销中心绑定微信后再申请提现");
         }
         // S7: 悲观行锁 — 防止并发提现超扣余额（余额检查→扣减必须原子化）
         Distributor locked = distributorRepository.findByIdWithLock(d.getId()).orElse(d);
@@ -1118,11 +1318,13 @@ public class DistributionServiceImpl implements DistributionService {
     @Transactional(readOnly = true)
     public Map<String, Object> commissionPreview(UUID userId, List<UUID> productIds) {
         DistributionRule rule = getOrCreateRule();
+        boolean distEnabled = rule.isEnabled();
+        Map<String, Object> result = new LinkedHashMap<>();
         if (productIds == null || productIds.isEmpty()) {
-            Map<String, Object> empty = new LinkedHashMap<>();
-            empty.put("items", List.of());
-            empty.put("total_commission", BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
-            return empty;
+            result.put("items", List.of());
+            result.put("total_commission", BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            result.put("is_distribution_enabled", distEnabled);
+            return result;
         }
 
         // 查找当前用户分销员身份
@@ -1139,7 +1341,8 @@ public class DistributionServiceImpl implements DistributionService {
             if (p == null) continue;
 
             ProductCommission pc = productCommissionRepository.findByProductId(pid).orElse(null);
-            boolean excluded = pc != null && pc.isExcluded();
+            // 新语义：未开启分销（无记录）或已排除 → 不参与分销
+            boolean excluded = !isProductDistributable(pid);
 
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("product_id", p.getId());
@@ -1147,10 +1350,12 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("base_price", p.getBasePrice());
             m.put("is_excluded", excluded);
 
-            if (excluded) {
-                m.put("commission_rate", BigDecimal.ZERO);
+            if (excluded || !distEnabled) {
+                m.put("commission_rate", BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP));
                 m.put("commission_amount", BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
-                m.put("max_commission_rate", BigDecimal.ZERO);
+                m.put("commission_preview", BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+                m.put("max_commission_rate", BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP));
+                m.put("max_commission", BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
                 items.add(m);
                 continue;
             }
@@ -1174,17 +1379,20 @@ public class DistributionServiceImpl implements DistributionService {
             }
 
             BigDecimal commissionAmount = p.getBasePrice().multiply(rate).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal maxAmount = p.getBasePrice().multiply(maxRate).setScale(2, RoundingMode.HALF_UP);
             totalCommission = totalCommission.add(commissionAmount);
 
-            m.put("commission_rate", rate);
+            m.put("commission_rate", rateToPercent(rate));
             m.put("commission_amount", commissionAmount);
-            m.put("max_commission_rate", maxRate);
+            m.put("commission_preview", commissionAmount);
+            m.put("max_commission_rate", rateToPercent(maxRate));
+            m.put("max_commission", maxAmount);
             items.add(m);
         }
 
-        Map<String, Object> result = new LinkedHashMap<>();
         result.put("items", items);
         result.put("total_commission", totalCommission.setScale(2, RoundingMode.HALF_UP));
+        result.put("is_distribution_enabled", distEnabled);
         return result;
     }
 
@@ -1651,9 +1859,20 @@ public class DistributionServiceImpl implements DistributionService {
         return rule.getDefaultRate();
     }
 
+    /**
+     * 商品是否参与分销（新语义：默认不分销）。
+     * 只有存在 product_commission 记录且未被排除（is_excluded=false）的商品才参与分销。
+     */
     private boolean isProductExcluded(UUID productId) {
         return productCommissionRepository.findByProductId(productId)
-                .map(ProductCommission::isExcluded)
+                .map(pc -> pc.isExcluded())
+                .orElse(true);
+    }
+
+    /** 商品是否已开启分销（存在 product_commission 记录且未被排除） */
+    private boolean isProductDistributable(UUID productId) {
+        return productCommissionRepository.findByProductId(productId)
+                .map(pc -> !pc.isExcluded())
                 .orElse(false);
     }
 
@@ -1717,11 +1936,20 @@ public class DistributionServiceImpl implements DistributionService {
 
     private String buildPromotionUrl(String linkCode) {
         String base = baseUrl != null && !baseUrl.isBlank() ? baseUrl : "https://noepay.cn";
-        return base + (base.endsWith("/") ? "" : "/") + "?ref=" + linkCode;
+        return base + (base.endsWith("/") ? "" : "/") + "p/" + linkCode;
     }
 
     private Pageable toPageable(int page, int pageSize) {
         return PageRequest.of(Math.max(page - 1, 0), Math.min(Math.max(pageSize, 1), 100));
+    }
+
+    /** 内存分页辅助（用于已过滤的集合列表） */
+    private <T> List<T> paginate(List<T> all, int page, int pageSize) {
+        if (all == null || all.isEmpty()) return List.of();
+        int size = Math.min(Math.max(pageSize, 1), 100);
+        int start = Math.max(page - 1, 0) * size;
+        if (start >= all.size()) return List.of();
+        return all.subList(start, Math.min(start + size, all.size()));
     }
 
     /** 快捷日期区间解析：返回 [from, toExclusive)，null 表示"全部" */
@@ -1864,6 +2092,99 @@ public class DistributionServiceImpl implements DistributionService {
         }
     }
 
+    // ── 微信 OAuth 配置 ──
+
+    /** 微信网页授权（公众号）配置：appid + app_secret */
+    private record WechatOauthConfig(String appid, String secret) {
+    }
+
+    /**
+     * 从原生微信支付渠道（native_wxpay）读取公众号 AppID / AppSecret，
+     * 用于分销员绑定微信（OAuth snsapi_base 换取 openid）。
+     * 渠道未配置或缺少 app_secret 时返回 null。
+     */
+    private WechatOauthConfig findWechatOauthConfig() {
+        try {
+            PaymentChannel channel = paymentChannelRepository
+                    .findByChannelCodeAndIsDeleted("native_wxpay", 0).orElse(null);
+            if (channel == null) return null;
+            Map<String, String> cfg = parseConfigData(channel.getConfigData());
+            String appid = cfg.get("appid");
+            String secret = cfg.get("app_secret");
+            if (appid == null || appid.isBlank() || secret == null || secret.isBlank()) {
+                return null;
+            }
+            return new WechatOauthConfig(appid, secret);
+        } catch (Exception e) {
+            log.warn("Failed to load wechat oauth config: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private Map<String, String> parseConfigData(String configData) {
+        if (configData == null || configData.isBlank()) return Map.of();
+        try {
+            Map<String, Object> raw = objectMapper.readValue(configData,
+                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+            Map<String, String> out = new LinkedHashMap<>();
+            raw.forEach((k, v) -> out.put(k, v == null ? null : String.valueOf(v)));
+            return out;
+        } catch (Exception e) {
+            log.warn("Failed to parse channel config_data: {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
+    /** 站点名称（用于海报展示） */
+    private String siteName() {
+        return siteConfigRepository.findByConfigKey("site_name")
+                .map(c -> c.getConfigValue())
+                .filter(v -> v != null && !v.isBlank())
+                .orElse("Nova Key");
+    }
+
+    /** 站点 Logo 完整 URL（用于海报展示） */
+    private String siteLogo() {
+        String logo = siteConfigRepository.findByConfigKey("site_logo")
+                .map(c -> c.getConfigValue())
+                .filter(v -> v != null && !v.isBlank())
+                .orElse("");
+        if (logo.isBlank()) return "";
+        if (logo.startsWith("http://") || logo.startsWith("https://")) return logo;
+        return trimTrailingSlash(baseUrl) + (logo.startsWith("/") ? "" : "/") + logo;
+    }
+
+    /** 海报二维码图片 URL（复用前端 /qr-image 路由生成 PNG，支持微信长按识别） */
+    private String buildQrUrl(String linkUrl) {
+        return trimTrailingSlash(baseUrl) + "/qr-image?url=" + URLEncoder.encode(linkUrl, StandardCharsets.UTF_8)
+                + "&size=400";
+    }
+
+    private static String trimTrailingSlash(String url) {
+        if (url == null || url.isBlank()) return url;
+        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
+    }
+
+    /** 从微信 API 返回的 JSON 中提取指定字段值 */
+    private String extractJsonField(String body, String field) {
+        if (body == null || body.isBlank()) return null;
+        try {
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(body);
+            com.fasterxml.jackson.databind.JsonNode v = node.get(field);
+            return v == null || v.isNull() ? null : v.asText();
+        } catch (Exception e) {
+            log.warn("Failed to parse wechat json field {}: {}", field, e.getMessage());
+            return null;
+        }
+    }
+
+    /** 脱敏 openid：保留前 6 位与后 4 位，中间省略 */
+    private static String maskOpenid(String openid) {
+        if (openid == null || openid.isBlank()) return null;
+        if (openid.length() <= 12) return openid.substring(0, 3) + "****";
+        return openid.substring(0, 6) + "****" + openid.substring(openid.length() - 4);
+    }
+
     // ── Map 转换 ──
 
     private Map<String, Object> distributorToMap(Distributor d, User user) {
@@ -1955,6 +2276,8 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("fail_reason", wr.getFailReason());
         m.put("out_bill_no", wr.getOutBillNo());
         m.put("transfer_bill_no", wr.getTransferBillNo());
+        // 转账中时返回 package_info，供分销员在微信内拉起确认收款（设计文档 8.3）
+        m.put("package_info", wr.getPackageInfo());
         m.put("applied_at", wr.getAppliedAt());
         m.put("approved_at", wr.getApprovedAt());
         m.put("transferred_at", wr.getTransferredAt());

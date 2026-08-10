@@ -50,6 +50,16 @@ public interface DistributionService {
     Map<String, Object> generateStoreLink(UUID userId);
     Map<String, Object> listMyLinks(UUID userId, int page, int pageSize);
 
+    // ── 前台：推广海报 ──
+    Map<String, Object> generateProductPoster(UUID userId, UUID productId);
+    Map<String, Object> generateStorePoster(UUID userId);
+
+    // ── 前台：微信绑定（提现收款） ──
+    Map<String, Object> getWechatBindUrl(UUID userId);
+    Map<String, Object> wechatCallback(String code, String state);
+    void unbindWechat(UUID userId);
+    Map<String, Object> wechatStatus(UUID userId);
+
     // ── 前台：佣金明细 ──
     Map<String, Object> listMyCommissions(UUID userId, String status, int page, int pageSize);
 

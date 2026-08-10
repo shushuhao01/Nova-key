@@ -66,6 +66,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/visit/track").permitAll()
                         // Distribution public endpoints
                         .requestMatchers(HttpMethod.GET, "/distribution/resolve/**", "/distribution/commission-preview").permitAll()
+                        // 微信 OAuth 回调（浏览器重定向访问，无 JWT）
+                        .requestMatchers(HttpMethod.GET, "/distributor/wechat/callback").permitAll()
                         // Distributor endpoints (authenticated)
                         .requestMatchers("/distributor/**").authenticated()
                         // User messages (authenticated)

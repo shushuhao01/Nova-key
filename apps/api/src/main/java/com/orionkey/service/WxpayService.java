@@ -21,10 +21,11 @@ public interface WxpayService {
      * @param notifyUrl  异步回调地址
      * @param gatewayUrl API 网关地址（默认 https://api.mch.weixin.qq.com）
      * @param transferSceneId 商家转账场景ID（如 1005=佣金报酬），用于分销提现
+     * @param appSecret  公众号 AppSecret（微信网页授权换取 openid 用，分销员绑定微信）
      */
     record WxpayConfig(String appid, String mchid, String apiV3Key, String serialNo,
                        String privateKey, String notifyUrl, String gatewayUrl,
-                       String transferSceneId) {
+                       String transferSceneId, String appSecret) {
     }
 
     record WxpayPaymentResult(String codeUrl, String h5Url) {
