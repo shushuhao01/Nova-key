@@ -97,7 +97,8 @@ ADMIN_HEADERS=(-H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: applica
 # ═══════════════════════════════════════════════════════════════
 if [ "$MODE" = "settle" ]; then
   echo -e "\n${ARROW} [结算+提现模式] 定位最近一批测试数据..."
-  O_IDS=$(psql_run "SELECT string_agg(id::text, ',') FROM (SELECT id FROM orders WHERE email LIKE '%@dist.test' ORDER BY created_at DESC LIMIT 6) t")
+  # 注意：UUID 必须带单引号（裸 UUID 会被 PG 当标识符解析导致 SQL 报错静默失败）
+  O_IDS=$(psql_run "SELECT string_agg('''' || id::text || '''', ',') FROM (SELECT id FROM orders WHERE email LIKE '%@dist.test' ORDER BY created_at DESC LIMIT 6) t")
   if [ -z "$O_IDS" ]; then
     echo -e "  ${FAIL} 未找到测试订单，请先运行 bash test-distribution-flow.sh 生成测试数据"; exit 1
   fi
@@ -109,8 +110,17 @@ if [ "$MODE" = "settle" ]; then
   echo -e "  ${OK} 测试订单: $O_IDS"
   echo -e "  ${OK} 分销员 A=$A_DIST_ID  B=$B_DIST_ID"
 
-  echo -e "\n${ARROW} [结算验证] 测试佣金 backdate 8 天，调用手动结算接口..."
+  echo -e "\n${ARROW} [结算验证] 结算前置处理..."
+  # 结算真实条件：订单 COMPLETED 且 completed_at 超过结算延迟期（findPendingSettlement），
+  # 测试订单仅 mark-paid（PAID），必须置 COMPLETED 并 backdate 完成时间
+  psql_run "UPDATE orders SET status='COMPLETED', completed_at=now()-interval '8 days' WHERE id IN ($O_IDS)" >/dev/null
+  echo -e "  ${OK} 测试订单已置 COMPLETED（completed_at backdate 8 天）"
   psql_run "UPDATE commission_records SET created_at=now()-interval '8 days' WHERE order_id IN ($O_IDS)" >/dev/null
+  echo -e "  ${OK} 佣金已 backdate 8 天"
+  echo ""
+  echo "  结算前佣金状态:"
+  psql_run "SELECT status, count(*), sum(commission_amount) FROM commission_records WHERE order_id IN ($O_IDS) GROUP BY status" | sed 's/^/    /'
+  echo -e "${ARROW} 调用手动结算接口..."
   SETTLE_RESP=$(curl -s -X POST "$BASE_URL/admin/distribution/commissions/settle" "${ADMIN_HEADERS[@]}")
   echo -e "  ${OK} 结算接口响应: $(jget "$SETTLE_RESP" code)"
   sleep 1
