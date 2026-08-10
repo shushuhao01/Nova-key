@@ -82,10 +82,10 @@ ADMIN_HEADERS=(-H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: applica
 # ── 检查可分销商品 ──
 echo -e "${ARROW} 查找可分销商品..."
 # 优先取已开启分销的商品；否则为第一个启用商品开启分销（默认比例）
-PID=$(psql_run "SELECT pc.product_id::text FROM product_commissions pc JOIN products p ON p.id=pc.product_id WHERE p.is_deleted=0 AND p.enabled=true AND pc.excluded=false ORDER BY p.created_at LIMIT 1")
+PID=$(psql_run "SELECT pc.product_id::text FROM product_commissions pc JOIN products p ON p.id=pc.product_id WHERE p.is_deleted=0 AND p.is_enabled=true AND pc.excluded=false ORDER BY p.created_at LIMIT 1")
 if [ -z "$PID" ]; then
   echo -e "  ${WARN} 无可分销商品，为第一个启用商品开启分销..."
-  PID=$(psql_run "SELECT id::text FROM products WHERE is_deleted=0 AND enabled=true ORDER BY created_at LIMIT 1")
+  PID=$(psql_run "SELECT id::text FROM products WHERE is_deleted=0 AND is_enabled=true ORDER BY created_at LIMIT 1")
   if [ -z "$PID" ]; then
     echo -e "  ${FAIL} 无可用商品，测试终止"; exit 1
   fi
@@ -100,7 +100,7 @@ PRICE=$(psql_run "SELECT base_price::text FROM products WHERE id='$PID'")
 echo -e "  ${ARROW} 商品单价: $PRICE 元"
 
 # 取一个启用的支付渠道
-PAY_METHOD=$(psql_run "SELECT channel_code FROM payment_channels WHERE is_deleted=0 AND enabled=true ORDER BY created_at LIMIT 1")
+PAY_METHOD=$(psql_run "SELECT channel_code FROM payment_channels WHERE is_deleted=0 AND is_enabled=true ORDER BY created_at LIMIT 1")
 [ -z "$PAY_METHOD" ] && { echo -e "  ${FAIL} 无启用支付渠道"; exit 1; }
 echo -e "  ${ARROW} 支付渠道: $PAY_METHOD"
 
