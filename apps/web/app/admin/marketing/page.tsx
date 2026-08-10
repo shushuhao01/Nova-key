@@ -996,7 +996,7 @@ function RecipientsModal({ campaignId, title, onClose }: { campaignId: string; t
 
   useEffect(() => {
     setLoading(true)
-    adminMarketingApi.recipients(campaignId, { page, page_size: 10 })
+    adminMarketingApi.recipients(campaignId, { page, page_size: 5 })
       .then(setData)
       .catch((err) => toast.error(err instanceof Error ? err.message : "加载失败"))
       .finally(() => setLoading(false))
@@ -1103,7 +1103,7 @@ function EmailDetailModal({ id, onClose }: { id: string; onClose: () => void }) 
   // 加载送达用户
   useEffect(() => {
     setLoadingRecipients(true)
-    adminMarketingApi.recipients(id, { page, page_size: 10 })
+    adminMarketingApi.recipients(id, { page, page_size: 5 })
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoadingRecipients(false))
