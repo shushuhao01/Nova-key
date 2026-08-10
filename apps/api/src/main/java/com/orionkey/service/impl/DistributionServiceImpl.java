@@ -907,8 +907,8 @@ public class DistributionServiceImpl implements DistributionService {
         CommissionStatus statusEnum = parseCommissionStatus(status);
         Page<CommissionRecord> cp;
         if (statusEnum != null) {
-            // 复用 admin 查询（distributorId + status）
-            cp = commissionRecordRepository.findAdminList(d.getId(), statusEnum, pageable);
+            // 复用 admin 查询（distributorId + status，无时间范围限制）
+            cp = commissionRecordRepository.findAdminList(d.getId(), statusEnum, null, null, pageable);
         } else {
             cp = commissionRecordRepository.findByDistributorIdOrderByCreatedAtDesc(d.getId(), pageable);
         }
