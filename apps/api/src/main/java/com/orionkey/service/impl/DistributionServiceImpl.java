@@ -210,7 +210,8 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListDistributors(String status, String keyword, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         DistributorStatus statusEnum = parseStatus(status);
-        Page<Distributor> dp = distributorRepository.findAdminList(statusEnum != null ? statusEnum.name() : null,
+        // 项目约定：String 参数传空字符串而非 null，避免 PG 原生 SQL 对 null 参数无法推断类型
+        Page<Distributor> dp = distributorRepository.findAdminList(statusEnum != null ? statusEnum.name() : "",
                 keyword != null ? keyword : "",
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
@@ -524,8 +525,9 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListCommissions(UUID distributorId, String status, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         CommissionStatus statusEnum = parseCommissionStatus(status);
+        // 项目约定：String 参数传空字符串而非 null，避免 PG 原生 SQL 对 null 参数无法推断类型
         Page<CommissionRecord> cp = commissionRecordRepository.findAdminList(distributorId,
-                statusEnum != null ? statusEnum.name() : null,
+                statusEnum != null ? statusEnum.name() : "",
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
                 pageable);
@@ -590,7 +592,8 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListWithdrawals(String status, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         WithdrawalStatus statusEnum = parseWithdrawalStatus(status);
-        Page<WithdrawalRecord> wp = withdrawalRecordRepository.findAdminList(statusEnum != null ? statusEnum.name() : null,
+        // 项目约定：String 参数传空字符串而非 null，避免 PG 原生 SQL 对 null 参数无法推断类型
+        Page<WithdrawalRecord> wp = withdrawalRecordRepository.findAdminList(statusEnum != null ? statusEnum.name() : "",
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
                 pageable);
