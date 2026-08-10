@@ -108,6 +108,12 @@ public class AdminMarketingController {
         return ApiResponse.success(marketingService.campaignRecipients(id, page, pageSize));
     }
 
+    /** 受众建议：注册用户用户名 + 匿名订购邮箱（新建邮件时预填受众） */
+    @GetMapping("/emails/audience-suggestions")
+    public ApiResponse<?> audienceSuggestions() {
+        return ApiResponse.success(marketingService.audienceSuggestions());
+    }
+
     // ═══════════ 兼容旧版 /admin/marketing/campaigns 路由（委托给营销邮件） ═══════════
 
     @Deprecated

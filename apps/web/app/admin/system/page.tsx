@@ -34,7 +34,7 @@ const emptyRoleForm: RoleForm = { code: "", name: "", description: "", permissio
 
 export default function AdminSystemPage() {
   const { t } = useLocale()
-  const { user: me } = useAuth()
+  const { user: me, logout } = useAuth()
 
   const [tab, setTab] = useState<Tab>("users")
   const [staffList, setStaffList] = useState<SystemStaffItem[]>([])
@@ -243,6 +243,10 @@ export default function AdminSystemPage() {
       toast.success(t("admin.resetPassword"))
       setResetOpen(null)
       setNewPassword("")
+      // 若重置的是自己的密码：后端已递增密码版本，旧 token 立即失效，需退出后用新密码重新登录
+      if (resetOpen.id === me?.id) {
+        logout()
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "重置失败")
     } finally {

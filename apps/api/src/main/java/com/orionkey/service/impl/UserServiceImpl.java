@@ -51,6 +51,8 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ErrorCode.OLD_PASSWORD_WRONG, "原密码错误");
         }
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        // 密码版本 +1：已签发的旧 JWT 立即失效（需重新登录）
+        user.setPasswordVersion(user.getPasswordVersion() + 1);
         userRepository.save(user);
     }
 

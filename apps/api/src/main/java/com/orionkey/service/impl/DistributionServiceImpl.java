@@ -102,11 +102,11 @@ public class DistributionServiceImpl implements DistributionService {
         d.setInviteCode(generateUniqueInviteCode());
         d.setSubRate(rule.getDefaultSubRate());
 
-        // 上级分销员
+        // 上级分销员（仅绑定已审核通过的分销员，防止绑定无效/被禁用上级）
         if (inviteCode != null && !inviteCode.isBlank()) {
-            distributorRepository.findByInviteCode(inviteCode.trim()).ifPresent(parent -> {
-                d.setParentId(parent.getId());
-            });
+            distributorRepository.findByInviteCode(inviteCode.trim())
+                    .filter(parent -> parent.getStatus() == DistributorStatus.APPROVED)
+                    .ifPresent(parent -> d.setParentId(parent.getId()));
         }
 
         boolean autoApprove = rule.isAutoApprove();
@@ -310,6 +310,13 @@ public class DistributionServiceImpl implements DistributionService {
             d.setCustomRate(percentToRate(customRate));
         }
         if (subRate != null) {
+            // 抽成比例不能 >= 100%，否则下级实得 0
+            if (subRate.compareTo(BigDecimal.valueOf(100)) >= 0) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "下级抽成比例必须小于 100%");
+            }
+            if (subRate.compareTo(BigDecimal.ZERO) < 0) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "下级抽成比例不能为负数");
+            }
             d.setSubRate(percentToRate(subRate));
         }
         distributorRepository.save(d);
@@ -1787,6 +1794,11 @@ public class DistributionServiceImpl implements DistributionService {
                     log.info("Customer {} already bound to distributor {} (protection period), reassign from {}",
                             email, activeBinding.getDistributorId(), distId);
                     order.setReferralDistributorId(activeBinding.getDistributorId());
+                    // 佣金归属已改为原推广员，该成交不再计入新推广员的推广链接统计（避免链接统计与佣金不一致）
+                    if (order.getPromotionLinkId() != null) {
+                        log.info("Order {} promotionLink {} discarded due to protection reassignment", orderId, order.getPromotionLinkId());
+                        order.setPromotionLinkId(null);
+                    }
                     distId = activeBinding.getDistributorId();
                 }
             }

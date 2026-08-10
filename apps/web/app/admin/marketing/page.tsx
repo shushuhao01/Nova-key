@@ -1269,9 +1269,41 @@ function EmailFormModal({ form, setForm, coupons, saving, onClose, onSave }: {
   const upd = <K extends keyof EmailFormState>(k: K, v: EmailFormState[K]) => setForm({ ...form, [k]: v })
   const [preview, setPreview] = useState(false)
   const [htmlMode, setHtmlMode] = useState(false)
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
 
   const insertPlaceholder = (ph: string) => {
     upd("content", form.content + ph)
+  }
+
+  // 受众建议：指定用户 → 系统注册用户；指定邮箱 → 匿名订购邮箱
+  const loadSuggestions = async (type: AudienceType, overwrite: boolean) => {
+    setLoadingSuggestions(true)
+    try {
+      const s = await adminMarketingApi.audienceSuggestions()
+      const lines = type === "USER_IDS" ? s.registered_usernames : s.anonymous_emails
+      const text = lines.join("\n")
+      setForm({
+        ...form,
+        targets: (overwrite || !form.targets.trim()) ? text : form.targets,
+      })
+      if (lines.length === 0) {
+        toast.info(type === "USER_IDS" ? t("admin.noRegisteredUsers") : t("admin.noAnonymousEmails"))
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "加载失败")
+    } finally {
+      setLoadingSuggestions(false)
+    }
+  }
+
+  const handleAudienceChange = (v: AudienceType) => {
+    const isNew = !form.id
+    const wasEmpty = !form.targets.trim()
+    upd("audience_type", v)
+    // 新建邮件首次切换受众时自动加载系统数据（可清空后手动输入）
+    if (isNew && wasEmpty && v !== "ALL_USERS") {
+      loadSuggestions(v, true)
+    }
   }
 
   const previewHtml = useMemo(() => {
@@ -1377,7 +1409,7 @@ function EmailFormModal({ form, setForm, coupons, saving, onClose, onSave }: {
                 <button
                   key={opt.v}
                   type="button"
-                  onClick={() => upd("audience_type", opt.v)}
+                  onClick={() => handleAudienceChange(opt.v)}
                   className={cn(
                     "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
                     form.audience_type === opt.v ? "border-primary bg-primary/10 text-primary" : "border-border text-foreground hover:border-primary/30"
@@ -1395,6 +1427,20 @@ function EmailFormModal({ form, setForm, coupons, saving, onClose, onSave }: {
                   placeholder={form.audience_type === "USER_IDS" ? t("admin.targetUsersHint") : t("admin.targetEmailsHint")}
                   className="h-24 w-full rounded-lg border border-input bg-background p-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 />
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => loadSuggestions(form.audience_type, true)}
+                    disabled={loadingSuggestions}
+                    className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary disabled:opacity-60"
+                  >
+                    <Users className="h-3 w-3" />
+                    {loadingSuggestions
+                      ? t("common.loading")
+                      : (form.audience_type === "USER_IDS" ? t("admin.loadAllUsers") : t("admin.loadAllAnonymous"))}
+                  </button>
+                  <span className="text-xs text-muted-foreground">{t("admin.suggestionsHint")}</span>
+                </div>
               </div>
             )}
           </div>

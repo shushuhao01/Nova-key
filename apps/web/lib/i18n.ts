@@ -391,6 +391,7 @@ const zh = {
   "footer.police": "公安备案",
   "floating.scanHint": "长按识别二维码",
   "floating.longPressHint": "长按二维码 → 识别图中二维码 → 添加客服",
+  "floating.wechatKefuHint": "点击直达微信客服",
 
   // Not Found
   "notFound.title": "页面不存在",
@@ -679,6 +680,11 @@ const zh = {
   "admin.audienceEmails": "指定邮箱（含匿名客户）",
   "admin.targetUsersHint": "输入用户名或邮箱，逗号或换行分隔，仅限注册用户",
   "admin.targetEmailsHint": "输入邮箱，逗号或换行分隔，可包含未注册的查询邮箱",
+  "admin.loadAllUsers": "加载全部注册用户",
+  "admin.loadAllAnonymous": "加载全部匿名邮箱",
+  "admin.suggestionsHint": "已自动加载系统数据，不需要可清空后手动输入",
+  "admin.noRegisteredUsers": "暂无注册用户",
+  "admin.noAnonymousEmails": "暂无匿名订购邮箱",
   "admin.couponConfig": "优惠券配置（选填，不填则仅发营销邮件）",
   "admin.couponType": "优惠券类型",
   "admin.couponAmount": "立减金额",
@@ -1342,6 +1348,7 @@ const en: Record<keyof typeof zh, string> = {
   "footer.police": "Public Security Filing",
   "floating.scanHint": "Long press to scan",
   "floating.longPressHint": "Long press the QR code to scan & contact",
+  "floating.wechatKefuHint": "Click to chat in WeChat",
 
   // Not Found
   "notFound.title": "Page Not Found",
@@ -1630,6 +1637,11 @@ const en: Record<keyof typeof zh, string> = {
   "admin.audienceEmails": "Specific emails (incl. anonymous)",
   "admin.targetUsersHint": "Enter username or email, separated by comma or newline. Registered users only",
   "admin.targetEmailsHint": "Enter emails, separated by comma or newline. Anonymous query emails allowed",
+  "admin.loadAllUsers": "Load all registered users",
+  "admin.loadAllAnonymous": "Load all anonymous emails",
+  "admin.suggestionsHint": "Loaded system data automatically; clear and type manually if not needed",
+  "admin.noRegisteredUsers": "No registered users",
+  "admin.noAnonymousEmails": "No anonymous order emails",
   "admin.couponConfig": "Coupon Config (optional, email only if empty)",
   "admin.couponType": "Coupon Type",
   "admin.couponAmount": "Fixed Amount Off",

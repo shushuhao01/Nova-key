@@ -306,9 +306,13 @@ public class MarketingServiceImpl implements MarketingService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public Map<String, Object> campaignRecipients(UUID id, int page, int pageSize) {
-        requireEmailCampaign(id);
+        MarketingCampaign c = requireEmailCampaign(id);
+        // 兼容历史数据：邮件已发送（SENT）但无收件人快照（旧版本发送时未落库）→ 按受众重建
+        if ("SENT".equals(c.getStatus()) && recipientRepository.countByCampaignId(id) == 0) {
+            backfillRecipients(c);
+        }
         Pageable pageable = PageRequest.of(Math.max(page - 1, 0), Math.min(Math.max(pageSize, 1), 100));
         Page<MarketingRecipient> p = recipientRepository.findByCampaignIdOrderByCreatedAtDesc(id, pageable);
         List<Map<String, Object>> list = p.getContent().stream().map(r -> {
@@ -364,6 +368,48 @@ public class MarketingServiceImpl implements MarketingService {
         // 异步逐封发送（占位符按收件人替换）
         mailSender.sendAsync(c.getId(), coupon, recipients, codeByEmail, recipientIds);
         return recipients.size();
+    }
+
+    /** 历史邮件回填收件人快照：按当前受众重新解析收件人并落库（送达=1，发送时间用记录 sendAt） */
+    private void backfillRecipients(MarketingCampaign c) {
+        List<Recipient> recipients = resolveRecipients(c);
+        if (recipients.isEmpty()) {
+            return;
+        }
+        LocalDateTime sentAt = c.getSendAt() != null ? c.getSendAt() : c.getCreatedAt();
+        for (Recipient r : recipients) {
+            MarketingRecipient mr = new MarketingRecipient();
+            mr.setCampaignId(c.getId());
+            mr.setUserId(r.userId());
+            mr.setEmail(r.email());
+            mr.setUsername(r.username());
+            mr.setDelivered(1);
+            mr.setSentAt(sentAt);
+            recipientRepository.save(mr);
+        }
+        if (c.getSentCount() <= 0) {
+            c.setSentCount(recipients.size());
+            campaignRepository.save(c);
+        }
+        log.info("Backfilled {} recipients for campaign {}", recipients.size(), c.getId());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> audienceSuggestions() {
+        Map<String, Object> res = new LinkedHashMap<>();
+        // 注册用户（有邮箱且未删除）的用户名列表，供"指定用户"受众预填
+        List<String> registered = userRepository.findAll().stream()
+                .filter(u -> u.getIsDeleted() == 0 && u.getEmail() != null && !u.getEmail().isBlank())
+                .map(User::getUsername)
+                .filter(u -> u != null && !u.isBlank())
+                .sorted()
+                .distinct()
+                .toList();
+        res.put("registered_usernames", registered);
+        // 未注册用户订购时填写的邮箱，供"指定邮箱/匿名用户"受众预填
+        res.put("anonymous_emails", orderRepository.findDistinctAnonymousEmails());
+        return res;
     }
 
     /** 定时任务：到点自动发送 SCHEDULED 邮件 */

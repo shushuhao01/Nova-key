@@ -220,6 +220,8 @@ public class AdminSystemServiceImpl implements AdminSystemService {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "密码至少 6 位");
         }
         u.setPasswordHash(passwordEncoder.encode(password));
+        // 密码版本 +1：已签发的旧 JWT 立即失效（需重新登录）
+        u.setPasswordVersion(u.getPasswordVersion() + 1);
         // 重置后清除锁定与失败计数
         u.setFailedLoginAttempts(0);
         u.setLockUntil(null);

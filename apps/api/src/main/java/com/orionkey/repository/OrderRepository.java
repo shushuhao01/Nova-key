@@ -27,6 +27,10 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     List<Order> findByEmailOrderByCreatedAtDesc(String email);
 
+    /** 未注册用户订购时填写的邮箱（匿名客户，营销邮件受众建议用） */
+    @Query("SELECT DISTINCT o.email FROM Order o WHERE o.userId IS NULL AND o.email IS NOT NULL AND o.email <> '' ORDER BY o.email")
+    List<String> findDistinctAnonymousEmails();
+
     long countByUserId(UUID userId);
 
     // ── 分销推广：分销订单（推广链接成交）统计与列表 ──

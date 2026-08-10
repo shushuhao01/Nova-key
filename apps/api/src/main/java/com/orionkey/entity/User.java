@@ -44,6 +44,9 @@ public class User extends BaseEntity {
     /** 账户锁定截止时间（null 表示未锁定） */
     private LocalDateTime lockUntil;
 
+    /** 密码版本号：修改密码时 +1，用于让已签发的旧 JWT 立即失效（前端需重新登录） */
+    private int passwordVersion = 0;
+
     /** 公众号 openid（微信服务号绑定，用于接收服务通知） */
     @Column(length = 64)
     private String mpOpenid;

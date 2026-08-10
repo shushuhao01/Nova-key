@@ -50,6 +50,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     UUID userId = UUID.fromString(claims.getSubject());
                     String username = claims.get("username", String.class);
                     String role = claims.get("role", String.class);
+                    Integer pwdVer = claims.get("pwdVer", Integer.class);
 
                     // 后台请求（ADMIN/STAFF）：必须校验数据库中用户状态和角色，并按角色注入动态权限码（RBAC）
                     // /api/upload 上传接口（商品图/邮件图/支付证书）同样需要 BACKEND_ACCESS 等后台权限
@@ -65,6 +66,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             rejectRequest(response, "身份验证失败，请重新登录");
                             return;
                         }
+                        // 密码版本校验：修改/重置密码后，旧 token 立即失效（pwdVer 为 null 表示升级前签发的旧 token，兼容放行）
+                        if (pwdVer != null && user.getPasswordVersion() != pwdVer) {
+                            log.warn("Backend JWT password version mismatch: userId={}, tokenVer={}, dbVer={}",
+                                    userId, pwdVer, user.getPasswordVersion());
+                            rejectRequest(response, "密码已修改，请重新登录");
+                            return;
+                        }
                         List<SimpleGrantedAuthority> authorities = new ArrayList<>();
                         authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
                         permissionResolver.resolve(user)
@@ -74,6 +82,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                 new UsernamePasswordAuthenticationToken(userId, null, authorities));
                         filterChain.doFilter(request, response);
                         return;
+                    }
+
+                    // 前台等普通请求：带密码版本号的 token 需比对，确保修改密码后旧会话立即失效
+                    if (pwdVer != null) {
+                        User user = userRepository.findById(userId).orElse(null);
+                        if (user == null || user.getIsDeleted() == 1 || user.getPasswordVersion() != pwdVer) {
+                            log.warn("JWT password version mismatch: userId={}, tokenVer={}, dbVer={}",
+                                    userId, pwdVer, user != null ? user.getPasswordVersion() : "N/A");
+                            rejectRequest(response, "身份验证失败，请重新登录");
+                            return;
+                        }
+                        // 使用数据库最新信息，避免旧 token 中的陈旧用户名/角色
+                        username = user.getUsername();
+                        role = user.getRole().name();
                     }
 
                     RequestContext.set(new RequestContext.UserInfo(userId, username, role));

@@ -89,7 +89,7 @@ public class AuthServiceImpl implements AuthService {
             }
         }
 
-        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name());
+        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name(), user.getPasswordVersion());
         return new AuthResponse(token, UserProfileResponse.from(user, permissionResolver.resolve(user)));
     }
 
@@ -151,7 +151,7 @@ public class AuthServiceImpl implements AuthService {
             mergeCart(sessionToken, user.getId());
         }
 
-        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name());
+        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name(), user.getPasswordVersion());
         return new AuthResponse(token, UserProfileResponse.from(user, permissionResolver.resolve(user)));
     }
 

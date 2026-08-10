@@ -46,6 +46,9 @@ public interface MarketingService {
     /** 营销邮件收件人分页列表（发送用户超链接弹窗用，默认 10 条/页，含送达统计） */
     Map<String, Object> campaignRecipients(UUID id, int page, int pageSize);
 
+    /** 营销邮件受众建议：注册用户用户名列表 + 匿名订购邮箱列表（新建邮件时预填受众用） */
+    Map<String, Object> audienceSuggestions();
+
     // ═══════════ 前台：优惠券领取 / 我的优惠券 / 核销校验 ═══════════
 
     /** 领取优惠券（登录用户绑定 userId，匿名需传 email）。已领取时幂等返回成功。 */

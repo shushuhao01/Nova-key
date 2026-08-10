@@ -137,15 +137,18 @@ export function FloatingContact() {
               )}
               {/* 微信客服链接 */}
               {config?.wechat_kefu_link && (
-                <a
-                  href={config.wechat_kefu_link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  <MessageCircle className="h-4 w-4 shrink-0" />
-                  {t("footer.wechatKefu")}
-                </a>
+                <div className="flex flex-col gap-1">
+                  <a
+                    href={config.wechat_kefu_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                  >
+                    <MessageCircle className="h-4 w-4 shrink-0" />
+                    {t("footer.wechatKefu")}
+                  </a>
+                  <p className="text-center text-xs text-muted-foreground">{t("floating.wechatKefuHint")}</p>
+                </div>
               )}
               {/* 微信二维码 */}
               {config?.wechat_qrcode && (

@@ -697,6 +697,8 @@ export const adminMarketingApi = {
     const qs = buildQuery(params)
     return request<import("@/types").RecipientsResult>(`/admin/marketing/emails/${id}/recipients?${qs}`)
   },
+  audienceSuggestions: () =>
+    request<{ registered_usernames: string[]; anonymous_emails: string[] }>("/admin/marketing/emails/audience-suggestions"),
 }
 
 // ============================================================
