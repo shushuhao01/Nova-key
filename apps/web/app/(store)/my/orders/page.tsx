@@ -58,7 +58,10 @@ export default function MyOrdersPage() {
     PENDING: "status.PENDING",
     PAID: "status.PAID",
     DELIVERED: "status.DELIVERED",
+    COMPLETED: "status.COMPLETED",
     EXPIRED: "status.EXPIRED",
+    REFUNDED: "status.REFUNDED",
+    PARTIALLY_REFUNDED: "status.PARTIALLY_REFUNDED",
   }
 
   const getFilterLabel = (s: OrderStatus | "ALL") => {

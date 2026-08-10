@@ -360,6 +360,78 @@ public class WxpayServiceImpl implements WxpayService {
     }
 
     @Override
+    public WxpayRefundResult createRefund(WxpayConfig config, String outTradeNo, String outRefundNo,
+                                          BigDecimal refundAmount, BigDecimal totalAmount,
+                                          String reason, String notifyUrl) {
+        String canonicalPath = "/v3/refund/domestic/refunds";
+        String gateway = trimSlash(config.gatewayUrl());
+
+        int refundCents = refundAmount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        int totalCents = totalAmount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        if (refundCents <= 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "退款金额必须大于 0");
+        }
+        if (refundCents > totalCents) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "退款金额不能超过订单实付金额");
+        }
+        if (outTradeNo == null || outTradeNo.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "原商户订单号不能为空");
+        }
+        if (outRefundNo == null || outRefundNo.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "商户退款单号不能为空");
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("out_trade_no", outTradeNo);
+        body.put("out_refund_no", outRefundNo);
+        if (reason != null && !reason.isBlank()) {
+            body.put("reason", reason.length() > 80 ? reason.substring(0, 80) : reason);
+        }
+        if (notifyUrl != null && !notifyUrl.isBlank()) {
+            body.put("notify_url", notifyUrl);
+        }
+        Map<String, Object> amountMap = new LinkedHashMap<>();
+        amountMap.put("refund", refundCents);
+        amountMap.put("total", totalCents);
+        amountMap.put("currency", "CNY");
+        body.put("amount", amountMap);
+
+        try {
+            String jsonBody = objectMapper.writeValueAsString(body);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    gateway + canonicalPath, HttpMethod.POST,
+                    new HttpEntity<>(jsonBody, apiV3Headers(config, "POST", canonicalPath, jsonBody)),
+                    String.class);
+            Map<String, Object> resp = objectMapper.readValue(response.getBody(), new TypeReference<>() {
+            });
+            String refundId = resp.get("refund_id") != null ? resp.get("refund_id").toString() : null;
+            String refundNo = resp.get("out_refund_no") != null ? resp.get("out_refund_no").toString() : null;
+            String status = resp.get("status") != null ? resp.get("status").toString() : null;
+            if (refundId == null && refundNo == null) {
+                log.error("Wxpay refund failed: outTradeNo={}, outRefundNo={}, resp={}", outTradeNo, outRefundNo, response.getBody());
+                throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信退款失败：" + response.getBody());
+            }
+            // 微信退款受理但已关闭/异常（余额不足等）时直接报错，避免本地误标退款成功
+            if ("CLOSED".equals(status) || "ABNORMAL".equals(status)) {
+                log.error("Wxpay refund rejected: outTradeNo={}, status={}, resp={}", outTradeNo, status, response.getBody());
+                throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信退款未受理（" + status + "）：" + response.getBody());
+            }
+            log.info("Wxpay refund created: outTradeNo={}, outRefundNo={}, status={}, refundId={}",
+                    outTradeNo, refundNo, status, refundId);
+            return new WxpayRefundResult(refundId, refundNo, status);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (HttpClientErrorException e) {
+            String detail = extractWxErrorDetail(e);
+            log.error("Wxpay refund API error: outTradeNo={}, status={}, detail={}", outTradeNo, e.getStatusCode().value(), detail);
+            throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信退款失败：" + detail);
+        } catch (Exception e) {
+            log.error("Wxpay refund API error: outTradeNo={}, error={}", outTradeNo, e.getMessage());
+            throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信退款失败：网络错误");
+        }
+    }
+
+    @Override
     public WxpayTransferResult createTransfer(WxpayConfig config, String outBillNo, String openid,
                                               BigDecimal amount, String remark, String notifyUrl) {
         String canonicalPath = "/v3/transfer/batches";

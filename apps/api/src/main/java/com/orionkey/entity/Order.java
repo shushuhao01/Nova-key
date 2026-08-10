@@ -58,6 +58,26 @@ public class Order extends BaseEntity {
 
     private LocalDateTime deliveredAt;
 
+    /** 订单完成时间（已发货订单 24h 后自动置为已完成时设置） */
+    private LocalDateTime completedAt;
+
+    /** 已退款金额（0 = 未退款） */
+    @Column(precision = 10, scale = 2)
+    private BigDecimal refundedAmount = BigDecimal.ZERO;
+
+    /** 退款原因 */
+    @Column(columnDefinition = "TEXT")
+    private String refundReason;
+
+    /** 商户退款单号（out_refund_no） */
+    private String outRefundNo;
+
+    /** 微信退款单号（refund_id） */
+    private String wxRefundId;
+
+    /** 退款时间 */
+    private LocalDateTime refundedAt;
+
     @Column(unique = true)
     private String idempotencyKey;
 

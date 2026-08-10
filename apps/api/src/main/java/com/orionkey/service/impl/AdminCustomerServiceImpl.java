@@ -205,7 +205,7 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
 
     private boolean isPaid(Order o) {
         return o.getStatus() != null && switch (o.getStatus()) {
-            case PAID, DELIVERED -> true;
+            case PAID, DELIVERED, COMPLETED -> true;
             default -> false;
         };
     }

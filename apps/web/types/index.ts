@@ -143,7 +143,7 @@ export interface Cart {
 // Order
 // ============================================================
 
-export type OrderStatus = 'PENDING' | 'PAID' | 'DELIVERED' | 'EXPIRED'
+export type OrderStatus = 'PENDING' | 'PAID' | 'DELIVERED' | 'COMPLETED' | 'EXPIRED' | 'REFUNDED' | 'PARTIALLY_REFUNDED'
 
 export type OrderType = 'DIRECT' | 'CART'
 
@@ -770,6 +770,11 @@ export interface AdminOrderItem extends OrderDetail {
   user_id: string | null
   username: string | null
   is_risk_flagged: boolean
+  // 订单完成 / 退款信息
+  completed_at?: string | null
+  refunded_amount?: number
+  refund_reason?: string | null
+  refunded_at?: string | null
 }
 
 // ============================================================

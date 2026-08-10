@@ -4,5 +4,8 @@ public enum OrderStatus {
     PENDING,
     PAID,
     DELIVERED,
-    EXPIRED
+    COMPLETED,
+    EXPIRED,
+    REFUNDED,
+    PARTIALLY_REFUNDED
 }

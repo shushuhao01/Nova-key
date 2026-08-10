@@ -329,8 +329,10 @@ const zh = {
   "status.PENDING": "待支付",
   "status.PAID": "已支付",
   "status.DELIVERED": "已发货",
+  "status.COMPLETED": "已完成",
   "status.EXPIRED": "已过期",
   "status.REFUNDED": "已退款",
+  "status.PARTIALLY_REFUNDED": "部分退款",
 
   // Common
   "common.loading": "加载中...",
@@ -1246,8 +1248,10 @@ const en: Record<keyof typeof zh, string> = {
   "status.PENDING": "Pending",
   "status.PAID": "Paid",
   "status.DELIVERED": "Delivered",
+  "status.COMPLETED": "Completed",
   "status.EXPIRED": "Expired",
   "status.REFUNDED": "Refunded",
+  "status.PARTIALLY_REFUNDED": "Partially Refunded",
 
   // Common
   "common.loading": "Loading...",

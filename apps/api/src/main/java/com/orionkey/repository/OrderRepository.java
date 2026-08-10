@@ -31,20 +31,20 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     // ── 客户管理（注册用户 / 匿名邮箱统计） ──
 
-    /** 注册用户成交订单数（已支付） */
-    @Query("SELECT COUNT(o) FROM Order o WHERE o.userId = :userId AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED)")
+    /** 注册用户成交订单数（已支付/已发货/已完成） */
+    @Query("SELECT COUNT(o) FROM Order o WHERE o.userId = :userId AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED)")
     long countPaidByUserId(@Param("userId") UUID userId);
 
-    /** 注册用户累计消费金额（已支付） */
-    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE o.userId = :userId AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED)")
+    /** 注册用户累计消费金额（已支付/已发货/已完成） */
+    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE o.userId = :userId AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED)")
     BigDecimal sumPaidByUserId(@Param("userId") UUID userId);
 
     /** 成交注册客户数 */
-    @Query("SELECT COUNT(DISTINCT o.userId) FROM Order o WHERE o.userId IS NOT NULL AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED)")
+    @Query("SELECT COUNT(DISTINCT o.userId) FROM Order o WHERE o.userId IS NOT NULL AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED)")
     long countPaidRegisteredCustomers();
 
     /** 成交匿名客户数（按邮箱去重） */
-    @Query("SELECT COUNT(DISTINCT o.email) FROM Order o WHERE o.userId IS NULL AND o.email IS NOT NULL AND o.email <> '' AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED)")
+    @Query("SELECT COUNT(DISTINCT o.email) FROM Order o WHERE o.userId IS NULL AND o.email IS NOT NULL AND o.email <> '' AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED)")
     long countPaidAnonymousCustomers();
 
     /** 匿名客户总数（orders.user_id IS NULL 的邮箱去重） */
@@ -96,31 +96,37 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     @Query("SELECT o FROM Order o WHERE o.id = :id")
     Optional<Order> findByIdForUpdate(@Param("id") UUID id);
 
+    /** 自动完成：已发货（DELIVERED）且发货时间超过 24 小时的订单 */
+    @Query("SELECT o FROM Order o WHERE o.status = com.orionkey.constant.OrderStatus.DELIVERED AND o.deliveredAt IS NOT NULL AND o.deliveredAt < :cutoff")
+    List<Order> findAutoCompleteOrders(@Param("cutoff") LocalDateTime cutoff);
+
     @Query("SELECT o FROM Order o WHERE o.riskFlagged = true ORDER BY o.createdAt DESC")
     Page<Order> findRiskFlaggedOrders(Pageable pageable);
 
     // Dashboard aggregate queries
-    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED) AND o.paidAt >= :since")
+    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) AND o.paidAt >= :since")
     BigDecimal sumSalesSince(@Param("since") LocalDateTime since);
 
-    @Query("SELECT COUNT(o) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED) AND o.paidAt >= :since")
+    @Query("SELECT COUNT(o) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) AND o.paidAt >= :since")
     long countPaidOrdersSince(@Param("since") LocalDateTime since);
 
     // 报表通知：区间统计（paidAt ∈ [from, to)）
-    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED) AND o.paidAt >= :from AND o.paidAt < :to")
+    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) AND o.paidAt >= :from AND o.paidAt < :to")
     BigDecimal sumSalesBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 
-    @Query("SELECT COUNT(o) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED) AND o.paidAt >= :from AND o.paidAt < :to")
+    @Query("SELECT COUNT(o) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) AND o.paidAt >= :from AND o.paidAt < :to")
     long countPaidOrdersBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 
-    @Query("SELECT COUNT(o) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED)")
+    @Query("SELECT COUNT(o) FROM Order o WHERE (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED)")
     long countTotalPaidOrders();
 
     long count();
 
     // 管理后台订单列表 — 无搜索词
+    // status=REFUNDED 时同时匹配全额退款（REFUNDED）与部分退款（PARTIALLY_REFUNDED）
     @Query("SELECT o FROM Order o WHERE " +
-            "(:status IS NULL OR o.status = :status) " +
+            "(:status IS NULL OR o.status = :status " +
+            " OR (:status = com.orionkey.constant.OrderStatus.REFUNDED AND o.status = com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED)) " +
             "AND (:orderType IS NULL OR o.orderType = :orderType) " +
             "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o.paymentMethod = :paymentMethod) " +
             "AND (:isRiskFlagged IS NULL OR o.riskFlagged = :isRiskFlagged) " +
@@ -133,7 +139,8 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     // 管理后台订单列表 — 带搜索词（按订单ID、邮箱或商品名称搜索，keyword 保证非 null）
     @Query("SELECT DISTINCT o FROM Order o LEFT JOIN OrderItem oi ON oi.orderId = o.id WHERE " +
-            "(:status IS NULL OR o.status = :status) " +
+            "(:status IS NULL OR o.status = :status " +
+            " OR (:status = com.orionkey.constant.OrderStatus.REFUNDED AND o.status = com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED)) " +
             "AND (:orderType IS NULL OR o.orderType = :orderType) " +
             "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o.paymentMethod = :paymentMethod) " +
             "AND (:isRiskFlagged IS NULL OR o.riskFlagged = :isRiskFlagged) " +

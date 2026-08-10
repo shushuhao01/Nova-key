@@ -31,7 +31,14 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
     BigDecimal sumByDistributorAndStatus(@Param("distributorId") UUID distributorId,
                                          @Param("status") CommissionStatus status);
 
-    @Query("SELECT cr FROM CommissionRecord cr WHERE cr.status = 'PENDING' " +
-            "AND cr.createdAt < :before ORDER BY cr.createdAt ASC")
+    /**
+     * 待结算佣金：订单已完成（COMPLETED）且完成时间超过结算延迟期。
+     * 即"订单完成 + N 天"后佣金才可结算提现，防止退款套佣（退款会走 cancelCommissions 取消佣金）。
+     */
+    @Query("SELECT cr FROM CommissionRecord cr JOIN Order o ON o.id = cr.orderId " +
+            "WHERE cr.status = 'PENDING' " +
+            "AND o.status = com.orionkey.constant.OrderStatus.COMPLETED " +
+            "AND o.completedAt IS NOT NULL AND o.completedAt < :before " +
+            "ORDER BY cr.createdAt ASC")
     List<CommissionRecord> findPendingSettlement(@Param("before") java.time.LocalDateTime before);
 }

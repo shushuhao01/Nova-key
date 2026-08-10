@@ -5,7 +5,8 @@ import {
   TrendingUp, Wallet, Coins, BarChart3, ArrowDownToLine, Share2,
   Link2, Copy, Check, X, Clock, Ban, Users2, Package, RefreshCw,
   ChevronLeft, ChevronRight, AlertCircle, UserPlus, Store, QrCode,
-  ShoppingBag, ChevronRight as ChevronRightIcon,
+  ShoppingBag, ChevronRight as ChevronRightIcon, ScrollText, Percent,
+  Layers, Users, HandCoins, ShieldCheck,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale } from "@/lib/context"
@@ -51,6 +52,7 @@ export default function DistributionPage() {
   const [loading, setLoading] = useState(true)
   const [notDistributor, setNotDistributor] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>("overview")
+  const [rulesOpen, setRulesOpen] = useState(false)
 
   const fetchProfile = useCallback(async () => {
     setLoading(true)
@@ -175,14 +177,24 @@ export default function DistributionPage() {
             </span>
           </p>
         </div>
-        <button
-          type="button"
-          onClick={fetchProfile}
-          className="inline-flex h-9 items-center gap-2 rounded-lg border border-input px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <RefreshCw className="h-4 w-4" />
-          刷新
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setRulesOpen(true)}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-input px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <ScrollText className="h-4 w-4" />
+            规则
+          </button>
+          <button
+            type="button"
+            onClick={fetchProfile}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-input px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <RefreshCw className="h-4 w-4" />
+            刷新
+          </button>
+        </div>
       </div>
 
       {/* Tab 导航 */}
@@ -210,6 +222,9 @@ export default function DistributionPage() {
       {activeTab === "commissions" && <CommissionsTab />}
       {activeTab === "withdrawals" && <WithdrawalsTab balance={profile.available_balance} />}
       {activeTab === "subordinates" && <SubordinatesTab />}
+
+      {/* 分销规则弹窗 */}
+      <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
     </div>
   )
 }
@@ -1162,6 +1177,278 @@ function SubordinatesTab() {
       {total > PAGE_SIZE && <Pager page={page} totalPages={totalPages} onChange={setPage} />}
     </div>
   )
+}
+
+// ═══════════════════════ 分销规则弹窗 ═══════════════════════
+
+interface RulesData {
+  default_rate?: number
+  default_sub_rate?: number
+  settle_delay_days?: number
+  min_withdraw_amount?: number
+  withdraw_fee_rate?: number
+  binding_protection_days?: number
+  tier_enabled?: boolean
+  sub_distribution_enabled?: boolean
+  tiers?: { tier_order: number; rate: number; enabled?: boolean }[]
+}
+
+/** 系数（0.10）→ 百分比文案（10%） */
+const fmtRate = (n: number | null | undefined) => {
+  const v = ((Number(n) || 0) * 100)
+  return `${Number.isInteger(v) ? v : v.toFixed(1)}%`
+}
+
+function RulesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [rules, setRules] = useState<RulesData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!open) return
+    setLoading(true)
+    distributorApi
+      .getRules()
+      .then((r) => setRules(r as RulesData))
+      .catch(() => setRules(null))
+      .finally(() => setLoading(false))
+  }, [open])
+
+  if (!open) return null
+
+  const enabledTiers = (rules?.tiers || []).filter((t) => t.enabled !== false)
+  const tierText = enabledTiers.length > 0
+    ? enabledTiers.map((t) => ({ order: t.tier_order, pct: `${t.rate}%` }))
+    : null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex max-h-[86vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+        {/* 头部 */}
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
+            <ScrollText className="h-5 w-5 text-primary" />
+            分销推广规则
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* 内容 */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          ) : !rules ? (
+            <div className="py-16 text-center text-sm text-muted-foreground">
+              规则加载失败，请关闭后重试
+            </div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              {/* 介绍 */}
+              <div className="rounded-xl border border-primary/20 bg-primary/5 px-5 py-4">
+                <p className="text-sm leading-relaxed text-foreground">
+                  分享好物，赚取佣金。成为分销员后，通过专属推广链接分享商品，好友下单付款即可获得佣金。
+                  佣金可在订单完成后结算提现至微信零钱。
+                </p>
+              </div>
+
+              {/* 一、如何赚取佣金 */}
+              <RuleSection icon={<Share2 className="h-4 w-4" />} title="一、如何赚取佣金">
+                <ol className="flex list-decimal flex-col gap-2 pl-5">
+                  <Step text="申请成为分销员，审核通过后获得专属推广员ID" />
+                  <Step text="在「推广商品」页为单个商品或整个店铺生成专属推广链接 / 二维码" />
+                  <Step text="将链接分享给好友，好友通过链接进入店铺并下单付款" />
+                  <Step text="好友付款后产生佣金记录；订单完成并经过结算期后，佣金进入可提现余额" />
+                  <Step text="在「提现记录」中申请提现，审核通过后打款至微信零钱" />
+                </ol>
+              </RuleSection>
+
+              {/* 二、佣金计算 */}
+              <RuleSection icon={<Percent className="h-4 w-4" />} title="二、佣金比例与计算">
+                <ul className="flex flex-col gap-2 text-sm text-foreground">
+                  <li>
+                    <span className="font-medium">佣金 = 实际付款金额 × 佣金比例</span>
+                  </li>
+                  <li className="text-muted-foreground">
+                    默认佣金比例为 <span className="font-semibold text-primary">{fmtRate(rules.default_rate)}</span>
+                    ，部分商品或分销员可配置更高的专属比例
+                  </li>
+                  <li className="text-muted-foreground">
+                    实际付款金额指扣除优惠券、积分抵扣后的实付金额
+                  </li>
+                  <li className="text-muted-foreground">
+                    仅<span className="font-medium text-foreground">已付款</span>订单产生佣金，未付款订单不产生佣金
+                  </li>
+                </ul>
+              </RuleSection>
+
+              {/* 三、二级分销 */}
+              <RuleSection icon={<Users className="h-4 w-4" />} title="三、二级分销（邀请下级）">
+                <ul className="flex flex-col gap-2 text-sm">
+                  <li className="text-foreground">
+                    通过邀请码 / 邀请链接邀请好友加入分销，好友审核通过后成为你的下级分销员
+                  </li>
+                  {rules.sub_distribution_enabled ? (
+                    <>
+                      <li className="text-muted-foreground">
+                        下级分销员每笔佣金，你将获得
+                        <span className="font-semibold text-primary"> {fmtRate(rules.default_sub_rate)} </span>
+                        的抽成
+                      </li>
+                      <li className="text-muted-foreground">
+                        层级最多两级：下级佣金抽成给上级，不存在三级及以上抽成
+                      </li>
+                    </>
+                  ) : (
+                    <li className="text-muted-foreground">当前未开放二级分销（不邀请下级）</li>
+                  )}
+                </ul>
+              </RuleSection>
+
+              {/* 四、佣金结算 */}
+              <RuleSection icon={<Coins className="h-4 w-4" />} title="四、佣金结算">
+                <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+                  <li>
+                    订单付款后即生成佣金记录，状态为「待结算」
+                  </li>
+                  <li>
+                    订单发货后 <span className="font-medium text-foreground">24 小时</span>
+                    无其他操作自动完成
+                  </li>
+                  <li>
+                    订单完成 <span className="font-medium text-primary">{rules.settle_delay_days} 天</span>
+                    后，佣金自动结算进入可提现余额，无需手动操作
+                  </li>
+                  <li>
+                    订单发生退款时，对应佣金自动取消，已结算的将从余额中扣回
+                  </li>
+                </ul>
+              </RuleSection>
+
+              {/* 五、提现规则 */}
+              <RuleSection icon={<Wallet className="h-4 w-4" />} title="五、佣金提现">
+                <ul className="flex flex-col gap-2 text-sm">
+                  <li className="text-foreground">
+                    结算后可提现余额达到
+                    <span className="font-semibold text-primary"> ¥{Number(rules.min_withdraw_amount || 0).toFixed(2)}</span>
+                    ，即可在「提现记录」中申请提现
+                    {Number(rules.withdraw_fee_rate || 0) > 0 && (
+                      <>，提现手续费 {fmtRate(rules.withdraw_fee_rate)}</>
+                    )}
+                    {Number(rules.withdraw_fee_rate || 0) === 0 && <span>，提现免手续费</span>}
+                  </li>
+                  <li className="text-muted-foreground">
+                    提现前需先绑定本人微信（用于收款），提交申请后由平台审核，审核通过后打款至微信零钱
+                  </li>
+                  <li className="text-muted-foreground">
+                    单笔提现上限 ¥20,000.00，如需大额可分批申请
+                  </li>
+                </ul>
+              </RuleSection>
+
+              {/* 六、客户绑定与保护期 */}
+              <RuleSection icon={<HandCoins className="h-4 w-4" />} title="六、客户绑定与保护期">
+                <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+                  <li>
+                    客户首次通过你的推广链接进入，即绑定为你名下客户
+                  </li>
+                  <li>
+                    保护期 <span className="font-medium text-primary">{rules.binding_protection_days} 天</span>
+                    内，该客户的所有订单均计入你的佣金
+                  </li>
+                  <li>
+                    保护期过后，客户若通过其他推广员链接进入，可重新绑定归属
+                  </li>
+                </ul>
+              </RuleSection>
+
+              {/* 七、阶梯佣金 */}
+              <RuleSection icon={<Layers className="h-4 w-4" />} title="七、阶梯佣金">
+                {rules.tier_enabled && tierText && tierText.length > 0 ? (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-sm text-muted-foreground">
+                      同一客户在你名下多次购买时，按购买次数匹配对应的佣金比例：
+                    </p>
+                    <div className="overflow-hidden rounded-lg border border-border">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/30 text-left text-xs text-muted-foreground">
+                            <th className="px-4 py-2 font-medium">购买次数</th>
+                            <th className="px-4 py-2 font-medium">佣金比例</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tierText.map((t) => (
+                            <tr key={t.order} className="border-b border-border/50 last:border-0">
+                              <td className="px-4 py-2 text-foreground">第 {t.order} 次</td>
+                              <td className="px-4 py-2 font-medium text-primary">{t.pct}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      超过最高档次的购买不再返佣（以平台配置为准）
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    当前未启用阶梯佣金，同一客户每次购买均按标准比例计算佣金
+                  </p>
+                )}
+              </RuleSection>
+
+              {/* 七、推广注意 */}
+              <RuleSection icon={<ShieldCheck className="h-4 w-4" />} title="七、推广注意">
+                <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+                  <li>
+                    请通过正规渠道推广，严禁恶意刷单、自买自卖、违规推广等行为，一经发现将取消佣金并可能禁用分销账号
+                  </li>
+                  <li>
+                    推广内容需真实合规，不得虚假宣传、夸大收益
+                  </li>
+                  <li>
+                    规则如有调整，以分销中心最新公示为准
+                  </li>
+                </ul>
+              </RuleSection>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RuleSection({
+  icon, title, children,
+}: {
+  icon: React.ReactNode
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-xl border border-border bg-background p-5">
+      <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-foreground">
+        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+          {icon}
+        </span>
+        {title}
+      </h3>
+      {children}
+    </section>
+  )
+}
+
+function Step({ text }: { text: string }) {
+  return <li className="text-sm text-foreground">{text}</li>
 }
 
 // ═══════════════════════ 分页器 ═══════════════════════

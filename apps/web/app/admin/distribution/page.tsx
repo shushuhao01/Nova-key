@@ -5,7 +5,7 @@ import {
   Users2, Search, Check, X, Ban, Pencil, ChevronLeft, ChevronRight,
   Package, Coins, Wallet, Settings, Plus, Trash2, Save, TrendingUp,
   Clock, CheckCircle2, UserCheck, UserX, Percent, RefreshCw, ShoppingBag,
-  HandCoins, Loader2,
+  HandCoins, Loader2, ScrollText, ShieldCheck, Layers,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -132,6 +132,7 @@ const fmtDate = (s: string | null | undefined) => (s ? new Date(s).toLocaleStrin
 
 export default function AdminDistributionPage() {
   const [tab, setTab] = useState<Tab>("overview")
+  const [rulesOpen, setRulesOpen] = useState(false)
 
   return (
     <div className="flex flex-col gap-6">
@@ -141,7 +142,17 @@ export default function AdminDistributionPage() {
           <h1 className="text-2xl font-bold text-foreground">分销推广管理</h1>
           <p className="text-sm text-muted-foreground">管理分销员、商品佣金、提现申请与分销规则</p>
         </div>
-        <TabSwitch tab={tab} setTab={setTab} />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setRulesOpen(true)}
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-input bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            <ScrollText className="h-4 w-4" />
+            分销规则
+          </button>
+          <TabSwitch tab={tab} setTab={setTab} />
+        </div>
       </div>
 
       {tab === "overview" && <OverviewTab />}
@@ -150,6 +161,9 @@ export default function AdminDistributionPage() {
       {tab === "commissions" && <CommissionsTab />}
       {tab === "withdrawals" && <WithdrawalsTab />}
       {tab === "rules" && <RulesTab />}
+
+      {/* 管理员版分销规则弹窗 */}
+      <AdminRulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
     </div>
   )
 }
@@ -1812,5 +1826,157 @@ function Pager({ page, totalPages, onChange }: { page: number; totalPages: numbe
         <ChevronRight className="h-4 w-4" />
       </button>
     </div>
+  )
+}
+
+// ═══════════════════════ 管理员版分销规则说明 ═══════════════════════
+
+function AdminRulesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex max-h-[86vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+        {/* 头部 */}
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
+            <ScrollText className="h-5 w-5 text-primary" />
+            分销推广规则（管理员版）
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* 内容 */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="flex flex-col gap-5">
+            <AdminSection icon={<TrendingUp className="h-4 w-4" />} title="一、分销体系概览">
+              <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+                <li>分销模型：一级分销（推广赚佣）+ 二级分销（下级佣金抽成），层级最多两级</li>
+                <li>参与角色：管理员 / 一级分销员（可邀请下级并抽成）/ 二级分销员 / 普通购买用户</li>
+                <li>佣金基数 = 订单实际付款金额（扣除优惠券、积分抵扣后的实付金额）</li>
+                <li>推广链路：推广链接 → 点击追踪 → 客户绑定 → 下单付款 → 佣金记录 → 结算 → 提现</li>
+              </ul>
+            </AdminSection>
+
+            <AdminSection icon={<Percent className="h-4 w-4" />} title="二、佣金比例体系（优先级）">
+              <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
+                <li>分销员自定义比例（custom_rate）</li>
+                <li>商品专属配置（product_commission.custom_rate，未配置则跳过）</li>
+                <li>全局默认比例（default_rate）</li>
+              </ol>
+              <p className="mt-3 rounded-lg bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                二级抽成：一级分销员按 sub_rate 从下级每笔佣金中抽取，上级抽成金额单列一条佣金记录。
+                下级实得 = 佣金 − 上级抽成，平台总支出不超过原佣金金额。
+              </p>
+            </AdminSection>
+
+            <AdminSection icon={<Coins className="h-4 w-4" />} title="三、佣金记录与状态">
+              <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+                <li>订单付款（PAID）时按订单项逐条创建佣金记录；上级抽成单独创建记录</li>
+                <li>状态机：PENDING（待结算）→ SETTLED（已结算）→ CANCELED（退款/违规取消）</li>
+                <li>记录含：订单号、商品、购买次数（阶梯用）、比例、佣金金额、上下级关系</li>
+                <li>佣金明细可在「佣金记录」Tab 中按分销员 / 状态 / 时间筛选查看</li>
+              </ul>
+            </AdminSection>
+
+            <AdminSection icon={<Clock className="h-4 w-4" />} title="四、佣金结算机制">
+              <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+                <li>订单状态机：PAID → DELIVERED（发货）→ COMPLETED（已完成）</li>
+                <li>发货后 24 小时无其他操作的订单由定时任务自动置为 COMPLETED（每 5 分钟）</li>
+                <li>结算条件：订单 COMPLETED 且 completedAt 早于当前时间 − settle_delay_days（定时任务每小时）</li>
+                <li>结算动作：佣金 PENDING → SETTLED，金额计入分销员可提现余额</li>
+              </ul>
+            </AdminSection>
+
+            <AdminSection icon={<X className="h-4 w-4" />} title="五、退款与佣金取消">
+              <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+                <li>管理后台可对已支付 / 已发货 / 已完成的微信支付订单发起全额或部分退款（原路退回）</li>
+                <li>退款金额不超过订单实付金额，可多次部分退款，累计不超过实付金额</li>
+                <li>退款时自动取消该订单全部佣金：PENDING 直接置为 CANCELED</li>
+                <li>已 SETTLED 的佣金从分销员余额扣回；已提现的标记待追回，从后续佣金中扣除</li>
+                <li>三道防线防退款套佣：24h 自动完成 + 结算延迟期 + 退款扣佣金</li>
+              </ul>
+            </AdminSection>
+
+            <AdminSection icon={<Wallet className="h-4 w-4" />} title="六、提现流程">
+              <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
+                <li>分销员申请提现 → 余额冻结（available → frozen）</li>
+                <li>管理员审核通过（「提现管理」Tab）→ 发起微信商家转账到零钱</li>
+                <li>用户在微信内确认收款 → 状态置为 SUCCESS，frozen → withdrawn</li>
+                <li>审核拒绝 / 转账失败 → 冻结余额退回 available</li>
+              </ol>
+              <p className="mt-3 rounded-lg bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                兜底机制：定时查询 PROCESSING 状态的转账（每 5 分钟）；超 24 小时未确认收款自动撤销并退回余额。
+                单笔金额受微信渠道限制（最低 / 最高），提现需分销员绑定本人微信。
+              </p>
+            </AdminSection>
+
+            <AdminSection icon={<ShieldCheck className="h-4 w-4" />} title="七、资金安全">
+              <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+                <li>余额对账（每日）：校验 SUM(佣金) = available + frozen + withdrawn，不一致报警日志</li>
+                <li>提现幂等：以 out_bill_no 保证不重复转账</li>
+                <li>余额扣减使用数据库行锁，防止并发超提</li>
+                <li>佣金取消导致余额为负时标记待追回，从后续佣金中优先扣除</li>
+              </ul>
+            </AdminSection>
+
+            <AdminSection icon={<Users2 className="h-4 w-4" />} title="八、客户绑定与保护期">
+              <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+                <li>客户首次通过推广链接进入即绑定到对应分销员（匿名用户按邮箱绑定）</li>
+                <li>保护期（binding_protection_days）内该客户所有订单归属原分销员</li>
+                <li>保护期过后客户通过其他推广链接进入可重新绑定</li>
+                <li>客户绑定关系可在「客户管理」中查看</li>
+              </ul>
+            </AdminSection>
+
+            <AdminSection icon={<Layers className="h-4 w-4" />} title="九、阶梯佣金">
+              <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+                <li>开启（tier_enabled）后，同一客户第 N 次购买按对应档位比例计算佣金</li>
+                <li>档位 rate 为占标准佣金的比例（如 100% / 60% / 30%）</li>
+                <li>购买次数超过最高档位后不再返佣；档位在「规则」Tab 中配置</li>
+                <li>购买次数按客户绑定（purchase_count）累计，跨商品通用</li>
+              </ul>
+            </AdminSection>
+
+            <AdminSection icon={<Settings className="h-4 w-4" />} title="十、管理操作指引">
+              <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+                <li>推广员管理：审核 / 拒绝 / 禁用 / 解禁分销员，设置自定义佣金比例与下级抽成比例</li>
+                <li>商品佣金：默认全部参与分销，可排除指定商品或设置商品专属比例</li>
+                <li>规则配置：在「规则」Tab 中设置总开关、默认比例、结算延迟、提现门槛、保护期、阶梯佣金等</li>
+                <li>提现管理：审核提现申请、发起微信转账、查询转账状态、手动标记完成</li>
+                <li>所有分销操作均记录操作日志，便于追溯</li>
+              </ul>
+            </AdminSection>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AdminSection({
+  icon, title, children,
+}: {
+  icon: React.ReactNode
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-xl border border-border bg-background p-5">
+      <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-foreground">
+        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+          {icon}
+        </span>
+        {title}
+      </h3>
+      {children}
+    </section>
   )
 }

@@ -6,14 +6,18 @@ import com.orionkey.constant.OrderStatus;
 import com.orionkey.constant.OrderType;
 import com.orionkey.entity.Order;
 import com.orionkey.entity.OrderItem;
+import com.orionkey.entity.PaymentChannel;
 import com.orionkey.entity.User;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.OrderItemRepository;
 import com.orionkey.repository.OrderRepository;
+import com.orionkey.repository.PaymentChannelRepository;
 import com.orionkey.repository.UserRepository;
 import com.orionkey.service.AdminOrderService;
 import com.orionkey.service.DistributionService;
 import com.orionkey.service.NotificationService;
+import com.orionkey.service.UserMessageService;
+import com.orionkey.service.WxpayService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -24,17 +28,25 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AdminOrderServiceImpl implements AdminOrderService {
 
+    /** 微信支付退款渠道编码 */
+    private static final String WXPAY_CHANNEL = "native_wxpay";
+
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final DistributionService distributionService;
+    private final WxpayService wxpayService;
+    private final PaymentChannelRepository paymentChannelRepository;
+    private final PaymentServiceImpl paymentServiceImpl;
+    private final UserMessageService userMessageService;
 
     @Override
     public PageResult<?> listOrders(String status, String orderType, String paymentMethod,
@@ -96,6 +108,101 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         }
     }
 
+    @Override
+    @Transactional
+    public Map<String, Object> refund(UUID id, BigDecimal amount, String reason) {
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
+
+        // 1. 仅支付后状态（已支付/已发货/已完成）可退款
+        OrderStatus status = order.getStatus();
+        if (status != OrderStatus.PAID && status != OrderStatus.DELIVERED && status != OrderStatus.COMPLETED) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "仅已支付/已发货/已完成状态的订单可退款");
+        }
+        // 2. 仅微信支付支持原路退回
+        if (!WXPAY_CHANNEL.equals(order.getPaymentMethod())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "仅微信支付订单支持在线退款");
+        }
+        // 3. 校验退款金额
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "退款金额必须大于 0");
+        }
+        BigDecimal actualAmount = order.getActualAmount() != null ? order.getActualAmount() : BigDecimal.ZERO;
+        if (actualAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "订单实付金额为 0，无法退款");
+        }
+        BigDecimal alreadyRefunded = order.getRefundedAmount() != null ? order.getRefundedAmount() : BigDecimal.ZERO;
+        BigDecimal refundable = actualAmount.subtract(alreadyRefunded);
+        if (amount.compareTo(refundable) > 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "退款金额不能超过订单可退金额（" + refundable.toPlainString() + " 元）");
+        }
+        // 4. 退款原因必填
+        String refundReason = reason == null ? "" : reason.trim();
+        if (refundReason.isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "请填写退款原因");
+        }
+        if (refundReason.length() > 200) {
+            refundReason = refundReason.substring(0, 200);
+        }
+
+        // 5. 读取微信支付渠道配置并发起退款
+        PaymentChannel channel = paymentChannelRepository.findByChannelCodeAndIsDeleted(WXPAY_CHANNEL, 0)
+                .filter(PaymentChannel::isEnabled)
+                .orElseThrow(() -> new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE, "微信支付渠道未启用，无法退款"));
+        WxpayService.WxpayConfig config = paymentServiceImpl.buildWxpayConfig(channel);
+
+        String outRefundNo = "RF" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(1000, 10000);
+        WxpayService.WxpayRefundResult result = wxpayService.createRefund(
+                config, PaymentServiceImpl.formatOutTradeNo(order.getId()), outRefundNo,
+                amount, actualAmount, refundReason, null);
+
+        // 6. 更新订单退款信息（微信受理即视为退款成功）
+        boolean fullRefund = amount.compareTo(actualAmount) >= 0;
+        order.setRefundedAmount(alreadyRefunded.add(amount).setScale(2, java.math.RoundingMode.HALF_UP));
+        order.setRefundReason(refundReason);
+        order.setOutRefundNo(outRefundNo);
+        order.setWxRefundId(result.refundId());
+        order.setRefundedAt(LocalDateTime.now());
+        order.setStatus(fullRefund ? OrderStatus.REFUNDED : OrderStatus.PARTIALLY_REFUNDED);
+        orderRepository.save(order);
+
+        // 7. 取消该订单的分销佣金（含已结算的余额扣回）
+        try {
+            distributionService.cancelCommissions(order.getId());
+        } catch (Exception e) {
+            log.error("Failed to cancel commissions for refunded order {}: {}", order.getId(), e.getMessage());
+        }
+
+        // 8. 通知：用户消息 + 管理员
+        try {
+            Map<String, Object> vars = new LinkedHashMap<>();
+            vars.put("order_no", order.getId().toString().substring(0, 8));
+            vars.put("amount", amount.toPlainString());
+            vars.put("reason", refundReason);
+            userMessageService.sendUserMessage(order.getUserId(), order.getEmail(), "ORDER_REFUNDED", vars);
+        } catch (Exception e) {
+            log.warn("Failed to send refund user message: {}", e.getMessage());
+        }
+        try {
+            notificationService.sendTemplate("ORDER_REFUNDED", Map.of(
+                    "order_no", order.getId().toString().substring(0, 8),
+                    "amount", amount.toPlainString(),
+                    "reason", refundReason));
+        } catch (Exception e) {
+            log.warn("Failed to notify admin for order refund: {}", e.getMessage());
+        }
+
+        log.info("Order {} refunded: amount={}, fullRefund={}, status={}, outRefundNo={}",
+                order.getId(), amount, fullRefund, order.getStatus(), outRefundNo);
+
+        Map<String, Object> resultMap = new LinkedHashMap<>();
+        resultMap.put("refunded_amount", order.getRefundedAmount());
+        resultMap.put("out_refund_no", outRefundNo);
+        resultMap.put("wx_refund_id", result.refundId());
+        resultMap.put("status", order.getStatus().name());
+        return resultMap;
+    }
+
     private static String paymentMethodLabel(String method) {
         if (method == null || method.isBlank()) return "";
         return switch (method) {
@@ -122,6 +229,10 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         map.put("expires_at", o.getExpiresAt());
         map.put("paid_at", o.getPaidAt());
         map.put("delivered_at", o.getDeliveredAt());
+        map.put("completed_at", o.getCompletedAt());
+        map.put("refunded_amount", o.getRefundedAmount() != null ? o.getRefundedAmount() : BigDecimal.ZERO);
+        map.put("refund_reason", o.getRefundReason());
+        map.put("refunded_at", o.getRefundedAt());
         map.put("user_id", o.getUserId());
         map.put("is_risk_flagged", o.isRiskFlagged());
 

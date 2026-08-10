@@ -82,6 +82,16 @@ public interface WxpayService {
     }
 
     /**
+     * 微信支付退款结果。
+     *
+     * @param refundId    微信退款单号（refund_id）
+     * @param outRefundNo 商户退款单号（out_refund_no）
+     * @param status      退款状态（SUCCESS=退款成功 / PROCESSING=退款处理中 / CLOSED=退款关闭 / ABNORMAL=退款异常）
+     */
+    record WxpayRefundResult(String refundId, String outRefundNo, String status) {
+    }
+
+    /**
      * Native 扫码下单，返回 code_url（用户扫码支付链接）。
      */
     WxpayPaymentResult createNativePayment(WxpayConfig config, String outTradeNo, String description,
@@ -98,6 +108,25 @@ public interface WxpayService {
      * 主动查询订单状态。查询失败（网络/网关错误）返回 null。
      */
     WxpayOrderQueryResult queryOrder(WxpayConfig config, String outTradeNo);
+
+    /**
+     * 微信支付退款（POST /v3/refund/domestic/refunds），原路退回用户。
+     * <p>
+     * 用于管理后台订单退款：对已支付（PAID/DELIVERED/COMPLETED）的微信支付订单发起全额或部分退款。
+     * 退款金额（refundAmount）不能超过原订单实付金额（totalAmount），均以元为单位。
+     *
+     * @param config        微信支付配置
+     * @param outTradeNo    原商户订单号（与下单时一致）
+     * @param outRefundNo   商户退款单号（唯一，幂等键）
+     * @param refundAmount  退款金额（元）
+     * @param totalAmount   原订单实付金额（元）
+     * @param reason        退款原因（≤80 字符，选填但建议填写）
+     * @param notifyUrl     退款结果异步回调地址（可空，空则不传）
+     * @return 退款结果（含微信退款单号与受理状态）
+     */
+    WxpayRefundResult createRefund(WxpayConfig config, String outTradeNo, String outRefundNo,
+                                   BigDecimal refundAmount, BigDecimal totalAmount,
+                                   String reason, String notifyUrl);
 
     /**
      * 商家转账到零钱（POST /v3/transfer/batches）。

@@ -32,6 +32,14 @@ public class DistributorController {
         return ApiResponse.success(distributionService.getDistributorProfile(RequestContext.getUserId()));
     }
 
+    // ── 分销规则（前台查看，含阶梯佣金配置） ──
+    @GetMapping("/rules")
+    public ApiResponse<?> getRules() {
+        Map<String, Object> rules = distributionService.getRules();
+        rules.put("tiers", distributionService.listCommissionTiers());
+        return ApiResponse.success(rules);
+    }
+
     // ── 统计数据 ──
     @GetMapping("/stats")
     public ApiResponse<?> getStats() {

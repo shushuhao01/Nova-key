@@ -81,7 +81,7 @@ public class DashboardServiceImpl implements DashboardService {
         LocalDateTime endDt = end.plusDays(1).atStartOfDay();
 
         List<Order> orders = orderRepository.findAll().stream()
-                .filter(o -> (o.getStatus() == OrderStatus.PAID || o.getStatus() == OrderStatus.DELIVERED) && o.getPaidAt() != null)
+                .filter(o -> (o.getStatus() == OrderStatus.PAID || o.getStatus() == OrderStatus.DELIVERED || o.getStatus() == OrderStatus.COMPLETED) && o.getPaidAt() != null)
                 .filter(o -> !o.getPaidAt().isBefore(startDt) && o.getPaidAt().isBefore(endDt))
                 .toList();
 

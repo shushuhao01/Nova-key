@@ -552,6 +552,11 @@ export const adminOrderApi = {
     request<AdminOrderItem>(`/admin/orders/${id}`),
   markPaid: (id: string) =>
     request<null>(`/admin/orders/${id}/mark-paid`, { method: "POST" }),
+  refund: (id: string, data: { amount: number; reason: string }) =>
+    request<{ refunded_amount: number; out_refund_no: string; wx_refund_id: string; status: string }>(
+      `/admin/orders/${id}/refund`,
+      { method: "POST", body: JSON.stringify(data) }
+    ),
 }
 
 // ============================================================
@@ -854,6 +859,7 @@ export const distributorApi = {
   apply: (invite_code?: string) =>
     request<any>("/distributor/apply", { method: "POST", body: JSON.stringify({ invite_code }) }),
   getProfile: () => request<any>("/distributor/profile"),
+  getRules: () => request<any>("/distributor/rules"),
   getStats: () => request<any>("/distributor/stats"),
   listProducts: (params: { page?: number; page_size?: number }) => {
     const qs = buildQuery(params)

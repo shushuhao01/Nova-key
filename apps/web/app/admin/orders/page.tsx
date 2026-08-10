@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Search, ChevronDown, Eye, Download, ChevronLeft, ChevronRight, X, CheckCircle } from "lucide-react"
+import { Search, ChevronDown, Eye, Download, ChevronLeft, ChevronRight, X, CheckCircle, Undo2, Loader2 } from "lucide-react"
 import { cn, stripInvisible } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
 import { toast } from "sonner"
@@ -52,6 +52,60 @@ export default function AdminOrdersPage() {
 
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [markPaidConfirm, setMarkPaidConfirm] = useState<string | null>(null)
+
+  // ── 退款状态 ──
+  const [refundTarget, setRefundTarget] = useState<AdminOrderItem | null>(null)
+  const [refundMode, setRefundMode] = useState<"full" | "partial">("full")
+  const [refundAmount, setRefundAmount] = useState("")
+  const [refundReason, setRefundReason] = useState("")
+  const [refundSubmitting, setRefundSubmitting] = useState(false)
+
+  const openRefund = (order: AdminOrderItem) => {
+    setRefundTarget(order)
+    setRefundMode("full")
+    setRefundAmount(order.actual_amount.toFixed(2))
+    setRefundReason("")
+  }
+
+  const closeRefund = () => {
+    if (refundSubmitting) return
+    setRefundTarget(null)
+    setRefundMode("full")
+    setRefundAmount("")
+    setRefundReason("")
+  }
+
+  const handleRefund = async () => {
+    if (!refundTarget) return
+    const maxAmount = refundTarget.actual_amount
+    const amount = parseFloat(refundAmount)
+    if (isNaN(amount) || amount <= 0) {
+      toast.error("请输入有效的退款金额")
+      return
+    }
+    if (amount > maxAmount) {
+      toast.error(`退款金额不能超过订单实付金额 ¥${maxAmount.toFixed(2)}`)
+      return
+    }
+    if (!refundReason.trim()) {
+      toast.error("请填写退款原因")
+      return
+    }
+    setRefundSubmitting(true)
+    try {
+      const res = await withMockFallback(
+        () => adminOrderApi.refund(refundTarget.id, { amount, reason: refundReason.trim() }),
+        () => null
+      )
+      toast.success(res ? `退款成功，已退 ¥${res.refunded_amount.toFixed(2)}` : "退款成功")
+      closeRefund()
+      await fetchOrders()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "退款失败")
+    } finally {
+      setRefundSubmitting(false)
+    }
+  }
 
   const fetchOrders = async () => {
     setLoading(true)
@@ -169,7 +223,9 @@ export default function AdminOrdersPage() {
             <option value="PENDING">待支付</option>
             <option value="PAID">已支付</option>
             <option value="DELIVERED">已发货</option>
+            <option value="COMPLETED">已完成</option>
             <option value="EXPIRED">已过期</option>
+            <option value="REFUNDED">已退款</option>
           </select>
           <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         </div>
@@ -271,7 +327,14 @@ export default function AdminOrdersPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="font-medium text-foreground">¥{order.actual_amount.toFixed(2)}</span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium text-foreground">¥{order.actual_amount.toFixed(2)}</span>
+                        {(order.refunded_amount ?? 0) > 0 && (
+                          <span className="text-xs text-red-500">
+                            已退 ¥{order.refunded_amount!.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <span className={cn(
@@ -313,6 +376,17 @@ export default function AdminOrdersPage() {
                             title={t("admin.markPaid")}
                           >
                             <CheckCircle className="h-4 w-4" />
+                          </button>
+                        )}
+                        {order.payment_method === "native_wxpay" &&
+                          (order.status === "PAID" || order.status === "DELIVERED" || order.status === "COMPLETED") && (
+                          <button
+                            type="button"
+                            onClick={() => openRefund(order)}
+                            className="rounded-md p-1.5 text-muted-foreground hover:bg-red-500/10 hover:text-red-500 transition-colors"
+                            title="退款"
+                          >
+                            <Undo2 className="h-4 w-4" />
                           </button>
                         )}
                       </div>
@@ -414,6 +488,9 @@ export default function AdminOrdersPage() {
                 <div className="flex flex-col gap-1">
                   <span className="text-xs text-muted-foreground">支付金额</span>
                   <span className="text-sm font-medium text-foreground">¥{showDetail.actual_amount.toFixed(2)}</span>
+                  {(showDetail.refunded_amount ?? 0) > 0 && (
+                    <span className="text-xs font-medium text-red-500">已退 ¥{showDetail.refunded_amount!.toFixed(2)}</span>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1">
                   <span className="text-xs text-muted-foreground">支付方式</span>
@@ -529,6 +606,132 @@ export default function AdminOrdersPage() {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Refund Modal */}
+      <Modal open={refundTarget !== null} onClose={closeRefund} className="max-w-md">
+        {refundTarget && (
+          <>
+            <div className="border-b border-border px-6 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">订单退款</h2>
+                <p className="font-mono text-xs text-muted-foreground">{refundTarget.id}</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeRefund}
+                className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex flex-col gap-5 p-6">
+              {/* 订单信息 */}
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">订单实付金额</span>
+                  <span className="font-medium text-foreground">¥{refundTarget.actual_amount.toFixed(2)}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-muted-foreground">支付方式</span>
+                  <span className="text-foreground">{getPaymentLabel(refundTarget.payment_method)}</span>
+                </div>
+                {(refundTarget.refunded_amount ?? 0) > 0 && (
+                  <div className="mt-1 flex items-center justify-between">
+                    <span className="text-muted-foreground">已退款金额</span>
+                    <span className="font-medium text-red-500">¥{refundTarget.refunded_amount!.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 退款方式 */}
+              <div>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">退款方式</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRefundMode("full")
+                      setRefundAmount(refundTarget.actual_amount.toFixed(2))
+                    }}
+                    className={cn(
+                      "rounded-lg border px-4 py-3 text-sm font-medium transition-colors",
+                      refundMode === "full"
+                        ? "border-red-500/50 bg-red-500/10 text-red-600"
+                        : "border-input text-foreground hover:bg-accent"
+                    )}
+                  >
+                    全额退款
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRefundMode("partial")}
+                    className={cn(
+                      "rounded-lg border px-4 py-3 text-sm font-medium transition-colors",
+                      refundMode === "partial"
+                        ? "border-red-500/50 bg-red-500/10 text-red-600"
+                        : "border-input text-foreground hover:bg-accent"
+                    )}
+                  >
+                    部分退款
+                  </button>
+                </div>
+              </div>
+
+              {/* 退款金额 */}
+              <div>
+                <label className="mb-2 block text-xs font-medium text-muted-foreground">
+                  退款金额（元）
+                </label>
+                <input
+                  type="number"
+                  min={0.01}
+                  max={refundTarget.actual_amount}
+                  step="0.01"
+                  value={refundAmount}
+                  disabled={refundMode === "full"}
+                  onChange={(e) => setRefundAmount(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  可退金额 ¥{refundTarget.actual_amount.toFixed(2)}，退款将原路退回用户微信
+                </p>
+              </div>
+
+              {/* 退款原因 */}
+              <div>
+                <label className="mb-2 block text-xs font-medium text-muted-foreground">
+                  退款原因 <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={refundReason}
+                  onChange={(e) => setRefundReason(e.target.value)}
+                  rows={3}
+                  placeholder="请填写退款原因（必填）"
+                  className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 border-t border-border px-6 py-4">
+              <button
+                type="button"
+                className="rounded-lg border border-input bg-transparent px-4 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors"
+                onClick={closeRefund}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                disabled={refundSubmitting}
+                onClick={handleRefund}
+                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition-colors disabled:opacity-60"
+              >
+                {refundSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                确认退款
+              </button>
+            </div>
+          </>
+        )}
       </Modal>
     </div>
   )

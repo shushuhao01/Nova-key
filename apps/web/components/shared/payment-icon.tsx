@@ -26,6 +26,8 @@ function getLogoSrc(method: string): string | null {
 const BRAND_COLORS: Record<string, string> = {
   alipay: "#1677FF",
   wechat: "#07C160",
+  native_wxpay: "#07C160",
+  native_alipay: "#1677FF",
   usdt: "#26A17B",
   usdt_trc20: "#26A17B",
   usdt_bsc: "#26A17B",
@@ -39,6 +41,8 @@ export function getPaymentBrandColor(method: string): string | undefined {
 const PAYMENT_LABELS: Record<string, string> = {
   alipay: "支付宝",
   wechat: "微信支付",
+  native_wxpay: "微信支付",
+  native_alipay: "支付宝",
   usdt_trc20: "USDT (TRC-20)",
   usdt_erc20: "USDT (ERC-20)",
   usdt_bep20: "USDT (BEP-20)",
