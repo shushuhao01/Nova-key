@@ -1236,10 +1236,11 @@ public class DistributionServiceImpl implements DistributionService {
 
             // 更新推广链接统计
             if (order.getPromotionLinkId() != null) {
+                final BigDecimal finalCommissionTotal = fullCommissionTotal;
                 promotionLinkRepository.findById(order.getPromotionLinkId()).ifPresent(link -> {
                     link.setPaidCount(link.getPaidCount() + 1);
                     link.setTotalSales(link.getTotalSales().add(order.getActualAmount()));
-                    link.setTotalCommission(link.getTotalCommission().add(fullCommissionTotal));
+                    link.setTotalCommission(link.getTotalCommission().add(finalCommissionTotal));
                     promotionLinkRepository.save(link);
                 });
             }
