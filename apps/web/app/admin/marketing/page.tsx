@@ -666,6 +666,7 @@ function EmailsTab({ searchParams, router }: { searchParams: ReturnType<typeof u
   const [form, setForm] = useState<EmailFormState>(emptyEmailForm())
   const [coupons, setCoupons] = useState<MarketingCouponItem[]>([])
   const [recipients, setRecipients] = useState<{ campaignId: string; title: string } | null>(null)
+  const [detailId, setDetailId] = useState<string | null>(null)
 
   // 支持从客户管理「营销」按钮跳转预填受众（?email_audience=&email_targets=）
   useEffect(() => {
@@ -918,6 +919,9 @@ function EmailsTab({ searchParams, router }: { searchParams: ReturnType<typeof u
                     <td className="px-4 py-3">{statusBadge(c)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
+                        <button type="button" onClick={() => setDetailId(c.id)} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title={t("admin.emailViewDetail")}>
+                          <Eye className="h-4 w-4" />
+                        </button>
                         {c.status !== "SENT" && (
                           <button type="button" onClick={() => openEdit(c)} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title={t("admin.edit")}>
                             <Pencil className="h-4 w-4" />
@@ -962,6 +966,11 @@ function EmailsTab({ searchParams, router }: { searchParams: ReturnType<typeof u
       {/* Recipients modal */}
       {recipients && (
         <RecipientsModal campaignId={recipients.campaignId} title={recipients.title} onClose={() => setRecipients(null)} />
+      )}
+
+      {/* Detail modal */}
+      {detailId && (
+        <EmailDetailModal id={detailId} onClose={() => setDetailId(null)} />
       )}
 
       {/* Create / Edit modal */}
@@ -1069,6 +1078,180 @@ function RecipientsModal({ campaignId, title, onClose }: { campaignId: string; t
             <Pager page={page} totalPages={data?.total_pages ?? 1} onChange={setPage} />
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function EmailDetailModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const { t } = useLocale()
+  const [email, setEmail] = useState<MarketingEmailItem | null>(null)
+  const [data, setData] = useState<RecipientsResult | null>(null)
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [loadingRecipients, setLoadingRecipients] = useState(true)
+
+  // 加载邮件详情（含正文内容）
+  useEffect(() => {
+    setLoading(true)
+    adminMarketingApi.getEmail(id)
+      .then(setEmail)
+      .catch((err) => toast.error(err instanceof Error ? err.message : "加载失败"))
+      .finally(() => setLoading(false))
+  }, [id])
+
+  // 加载送达用户
+  useEffect(() => {
+    setLoadingRecipients(true)
+    adminMarketingApi.recipients(id, { page, page_size: 10 })
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoadingRecipients(false))
+  }, [id, page])
+
+  // 正文占位符替换（与编辑器预览保持一致）
+  const contentHtml = useMemo(() => {
+    const html = email?.content || ""
+    return html
+      .replace(/\{site_url\}/g, typeof window !== "undefined" ? window.location.origin : "")
+      .replace(/\{username\}/g, "用户")
+      .replace(/\{coupon_code\}/g, "NK-XXXXXXXX")
+  }, [email?.content])
+
+  const audienceLabel = ({
+    ALL_USERS: t("admin.audienceAll"),
+    USER_IDS: t("admin.audienceUsers"),
+    EMAILS: t("admin.audienceEmails"),
+  } as Record<string, string>)[email?.audience_type || "ALL_USERS"]
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col rounded-xl border border-border bg-card shadow-2xl">
+        {/* 头部 */}
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold text-foreground">{t("admin.emailDetailTitle")}</h2>
+            <p className="truncate text-sm text-muted-foreground">{email?.title || ""}</p>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          ) : email ? (
+            <>
+              {/* 基本信息 */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground">{t("admin.statusLabel")}</p>
+                  <p className="mt-0.5 text-sm font-semibold text-foreground">
+                    {{ SENT: t("admin.emailSent"), SCHEDULED: t("admin.emailScheduled"), DRAFT: t("admin.emailDraft") }[email.status] || email.status}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground">{t("admin.audienceType")}</p>
+                  <p className="mt-0.5 text-sm font-medium text-foreground">{audienceLabel}</p>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground">{t("admin.emailSendAt")}</p>
+                  <p className="mt-0.5 text-sm font-medium text-foreground">{email.send_at ? new Date(email.send_at).toLocaleString() : "—"}</p>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground">{t("admin.emailLinkedCoupon")}</p>
+                  <p className="mt-0.5 text-sm font-medium text-foreground">{email.coupon_ref_id ? (email as MarketingEmailItem & { coupon_title?: string }).coupon_title || t("admin.emailLinkedCoupon") : "—"}</p>
+                </div>
+              </div>
+
+              {/* 主题 */}
+              <div className="mt-4 rounded-lg border border-border p-4">
+                <p className="text-xs text-muted-foreground">{t("admin.campaignSubject")}</p>
+                <p className="mt-1 break-all text-sm font-medium text-foreground">{email.subject || "—"}</p>
+              </div>
+
+              {/* 邮件内容 */}
+              <div className="mt-4">
+                <p className="mb-2 text-sm font-semibold text-foreground">{t("admin.emailContent")}</p>
+                <div className="overflow-hidden rounded-lg border border-border bg-white p-4">
+                  {contentHtml ? (
+                    // eslint-disable-next-line react/no-danger
+                    <div
+                      dangerouslySetInnerHTML={{ __html: contentHtml }}
+                      className="break-words text-sm leading-relaxed text-gray-900 [&_a]:text-primary [&_a]:underline [&_img]:max-w-full [&_table]:w-full"
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">—</p>
+                  )}
+                </div>
+              </div>
+
+              {/* 送达用户 */}
+              <div className="mt-6">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-foreground">{t("admin.recipientsTitle")}</p>
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="text-muted-foreground">{t("admin.emailRecipientCount")} {data?.total ?? email.recipient_count}</span>
+                    <span className="text-emerald-600">{t("admin.emailDeliveredCount")} {data?.delivered ?? "—"}</span>
+                    <span className="text-red-500">{t("admin.emailFailedCount")} {data?.failed ?? "—"}</span>
+                  </div>
+                </div>
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/30">
+                          <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientEmail")}</th>
+                          <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientUsername")}</th>
+                          <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientCode")}</th>
+                          <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.statusLabel")}</th>
+                          <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientSentAt")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loadingRecipients ? (
+                          <tr><td colSpan={5} className="py-10"><div className="flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+                        ) : !data || data.list.length === 0 ? (
+                          <tr><td colSpan={5} className="py-10 text-center text-sm text-muted-foreground">{t("admin.recipientNoData")}</td></tr>
+                        ) : (
+                          data.list.map((r, idx) => (
+                            <tr key={idx} className="border-b border-border/50 last:border-0">
+                              <td className="px-4 py-2.5 text-foreground">{r.email}</td>
+                              <td className="px-4 py-2.5 text-muted-foreground">{r.username || "—"}</td>
+                              <td className="px-4 py-2.5 font-mono text-xs text-foreground">{r.code || "—"}</td>
+                              <td className="px-4 py-2.5">
+                                {r.delivered === 1 ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600">
+                                    <CheckCircle2 className="h-3 w-3" /> {t("admin.recipientDelivered")}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500" title={r.error || ""}>
+                                    <XCircle className="h-3 w-3" /> {t("admin.recipientFailed")}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                                {r.sent_at ? new Date(r.sent_at).toLocaleString() : "—"}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  {(data?.total_pages ?? 1) > 1 && (
+                    <div className="flex items-center justify-between border-t border-border px-4 py-3">
+                      <span className="text-sm text-muted-foreground">{t("admin.totalRecords")} {data?.total}</span>
+                      <Pager page={page} totalPages={data?.total_pages ?? 1} onChange={setPage} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
       </div>
     </div>
   )
