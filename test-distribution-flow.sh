@@ -112,10 +112,10 @@ if [ "$MODE" = "settle" ]; then
 
   echo -e "\n${ARROW} [结算验证] 结算前置处理..."
   # 结算真实条件：订单 COMPLETED 且 completed_at 超过结算延迟期（findPendingSettlement），
-  # 测试订单仅 mark-paid（PAID），必须置 COMPLETED 并 backdate 完成时间
-  echo "  orders 表相关列:"
-  psql_run "SELECT column_name || ':' || data_type FROM information_schema.columns WHERE table_name='orders' AND column_name IN ('completed_at','status','id') ORDER BY column_name" | sed 's/^/    /'
-  UPDATE_ORD=$(PGPASSWORD="$DB_PASS" "$PSQL_BIN" -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -t -A -c "UPDATE orders SET status='COMPLETED', completed_at=now()-interval '8 days' WHERE id IN ($O_IDS)" 2>&1)
+  # 测试订单仅 mark-paid（DELIVERED），必须置 COMPLETED 并 backdate。
+  # 注意 orders 表有 CHECK 约束要求 completed_at >= paid_at：必须同时 backdate paid_at/delivered_at，
+  # 否则 completed_at(8天前) < paid_at(现在) 违反约束导致 UPDATE 失败。
+  UPDATE_ORD=$(PGPASSWORD="$DB_PASS" "$PSQL_BIN" -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -t -A -c "UPDATE orders SET status='COMPLETED', paid_at=now()-interval '9 days', delivered_at=now()-interval '9 days', completed_at=now()-interval '8 days' WHERE id IN ($O_IDS)" 2>&1)
   echo -e "  ${ARROW} UPDATE orders 输出: $(echo "$UPDATE_ORD" | head -c 200)"
   psql_run "UPDATE commission_records SET created_at=now()-interval '8 days' WHERE order_id IN ($O_IDS)" >/dev/null
   echo -e "  ${OK} 佣金已 backdate 8 天"
