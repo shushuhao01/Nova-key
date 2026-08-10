@@ -37,7 +37,8 @@ public class OrderController {
                                       @RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
                                       HttpServletRequest httpRequest) {
         return ApiResponse.success(orderService.createDirectOrder(
-                request, RequestContext.getUserId(), httpRequest.getRemoteAddr(), sessionToken));
+                request, RequestContext.getUserId(), httpRequest.getRemoteAddr(), sessionToken,
+                resolveReferralDistributorId(request, httpRequest), resolvePromotionLinkId(request, httpRequest)));
     }
 
     @PostMapping("/from-cart")
@@ -45,7 +46,63 @@ public class OrderController {
                                           @RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
                                           HttpServletRequest httpRequest) {
         return ApiResponse.success(orderService.createCartOrder(
-                request, RequestContext.getUserId(), httpRequest.getRemoteAddr(), sessionToken));
+                request, RequestContext.getUserId(), httpRequest.getRemoteAddr(), sessionToken,
+                resolveReferralDistributorId(request, httpRequest), resolvePromotionLinkId(request, httpRequest)));
+    }
+
+    /**
+     * 解析推广链接 ID：
+     * 1. 请求体 promotion_link_id（前端显式传参优先）
+     * 2. Cookie dist_link（推广链接跳转页设置的链接 Cookie，用于统计）
+     */
+    private UUID resolvePromotionLinkId(Map<String, Object> request, HttpServletRequest httpRequest) {
+        String raw = null;
+        if (request.get("promotion_link_id") != null) {
+            raw = request.get("promotion_link_id").toString();
+        } else if (httpRequest.getCookies() != null) {
+            for (var cookie : httpRequest.getCookies()) {
+                if ("dist_link".equals(cookie.getName()) && cookie.getValue() != null && !cookie.getValue().isBlank()) {
+                    raw = cookie.getValue();
+                    break;
+                }
+            }
+        }
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw.trim());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * 解析推广员归属：
+     * 1. 请求体 referral_distributor_id（前端显式传参优先）
+     * 2. Cookie dist_ref（推广链接跳转页设置的推广员 Cookie）
+     * 无效（非 UUID / 不存在 / 未审核通过 / 自购）返回 null，由 Service 兜底忽略。
+     */
+    private UUID resolveReferralDistributorId(Map<String, Object> request, HttpServletRequest httpRequest) {
+        String raw = null;
+        if (request.get("referral_distributor_id") != null) {
+            raw = request.get("referral_distributor_id").toString();
+        } else if (httpRequest.getCookies() != null) {
+            for (var cookie : httpRequest.getCookies()) {
+                if ("dist_ref".equals(cookie.getName()) && cookie.getValue() != null && !cookie.getValue().isBlank()) {
+                    raw = cookie.getValue();
+                    break;
+                }
+            }
+        }
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw.trim());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     @GetMapping("/{id}/status")

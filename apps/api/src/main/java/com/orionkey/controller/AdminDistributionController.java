@@ -1,0 +1,148 @@
+package com.orionkey.controller;
+
+import com.orionkey.common.ApiResponse;
+import com.orionkey.context.RequestContext;
+import com.orionkey.service.DistributionService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.util.Map;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/admin/distribution")
+@RequiredArgsConstructor
+public class AdminDistributionController {
+
+    private final DistributionService distributionService;
+
+    // ── 概览统计 ──
+    @GetMapping("/overview")
+    public ApiResponse<?> getOverview() {
+        return ApiResponse.success(distributionService.adminGetOverviewStats());
+    }
+
+    // ── 规则配置 ──
+    @GetMapping("/rules")
+    public ApiResponse<?> getRules() {
+        return ApiResponse.success(distributionService.getRules());
+    }
+
+    @PutMapping("/rules")
+    public ApiResponse<?> updateRules(@RequestBody Map<String, Object> request) {
+        distributionService.updateRules(request);
+        return ApiResponse.success();
+    }
+
+    // ── 阶梯佣金 ──
+    @GetMapping("/tiers")
+    public ApiResponse<?> getTiers() {
+        return ApiResponse.success(distributionService.listCommissionTiers());
+    }
+
+    @PutMapping("/tiers")
+    public ApiResponse<?> updateTiers(@RequestBody Map<String, Object> request) {
+        @SuppressWarnings("unchecked")
+        java.util.List<Map<String, Object>> tiers = (java.util.List<Map<String, Object>>) request.get("tiers");
+        distributionService.updateCommissionTiers(tiers);
+        return ApiResponse.success();
+    }
+
+    // ── 分销员管理 ──
+    @GetMapping("/distributors")
+    public ApiResponse<?> listDistributors(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        return ApiResponse.success(distributionService.adminListDistributors(status, keyword, page, pageSize));
+    }
+
+    @GetMapping("/distributors/{id}")
+    public ApiResponse<?> getDistributor(@PathVariable UUID id) {
+        return ApiResponse.success(distributionService.adminGetDistributor(id));
+    }
+
+    @PutMapping("/distributors/{id}/status")
+    public ApiResponse<?> updateDistributorStatus(@PathVariable UUID id, @RequestBody Map<String, Object> request) {
+        String status = (String) request.get("status");
+        String reason = request.get("reason") != null ? request.get("reason").toString() : "";
+        distributionService.adminUpdateDistributorStatus(id, status, reason);
+        return ApiResponse.success();
+    }
+
+    @PutMapping("/distributors/{id}/rate")
+    public ApiResponse<?> updateDistributorRate(@PathVariable UUID id, @RequestBody Map<String, Object> request) {
+        BigDecimal customRate = request.get("custom_rate") != null
+                ? new BigDecimal(request.get("custom_rate").toString()) : null;
+        BigDecimal subRate = request.get("sub_rate") != null
+                ? new BigDecimal(request.get("sub_rate").toString()) : null;
+        distributionService.adminUpdateDistributorRate(id, customRate, subRate);
+        return ApiResponse.success();
+    }
+
+    // ── 商品佣金配置 ──
+    @GetMapping("/products")
+    public ApiResponse<?> listProductCommissions(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        return ApiResponse.success(distributionService.adminListProductCommissions(page, pageSize));
+    }
+
+    @PutMapping("/products/{productId}")
+    public ApiResponse<?> updateProductCommission(@PathVariable UUID productId, @RequestBody Map<String, Object> request) {
+        BigDecimal customRate = request.get("custom_rate") != null
+                ? new BigDecimal(request.get("custom_rate").toString()) : null;
+        boolean excluded = Boolean.parseBoolean(request.get("excluded") != null ? request.get("excluded").toString() : "false");
+        distributionService.adminUpdateProductCommission(productId, customRate, excluded);
+        return ApiResponse.success();
+    }
+
+    // ── 佣金记录 ──
+    @GetMapping("/commissions")
+    public ApiResponse<?> listCommissions(
+            @RequestParam(value = "distributor_id", required = false) UUID distributorId,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        return ApiResponse.success(distributionService.adminListCommissions(distributorId, status, page, pageSize));
+    }
+
+    @GetMapping("/commissions/stats")
+    public ApiResponse<?> commissionStats() {
+        return ApiResponse.success(distributionService.adminCommissionStats());
+    }
+
+    // ── 提现管理 ──
+    @GetMapping("/withdrawals")
+    public ApiResponse<?> listWithdrawals(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        return ApiResponse.success(distributionService.adminListWithdrawals(status, page, pageSize));
+    }
+
+    @PutMapping("/withdrawals/{id}/approve")
+    public ApiResponse<?> approveWithdrawal(@PathVariable UUID id) {
+        distributionService.adminApproveWithdrawal(id);
+        return ApiResponse.success();
+    }
+
+    @PutMapping("/withdrawals/{id}/reject")
+    public ApiResponse<?> rejectWithdrawal(@PathVariable UUID id, @RequestBody Map<String, Object> request) {
+        String reason = request.get("reason") != null ? request.get("reason").toString() : "";
+        distributionService.adminRejectWithdrawal(id, reason);
+        return ApiResponse.success();
+    }
+
+    @PutMapping("/withdrawals/{id}/settle")
+    public ApiResponse<?> manualSettleWithdrawal(@PathVariable UUID id, @RequestBody Map<String, Object> request) {
+        BigDecimal actualAmount = null;
+        if (request.get("actual_amount") != null && !request.get("actual_amount").toString().isBlank()) {
+            actualAmount = new BigDecimal(request.get("actual_amount").toString());
+        }
+        distributionService.adminManualSettle(id, actualAmount);
+        return ApiResponse.success();
+    }
+}

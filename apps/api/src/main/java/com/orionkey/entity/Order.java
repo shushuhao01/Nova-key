@@ -93,4 +93,12 @@ public class Order extends BaseEntity {
     /** 链上交易哈希（支付成功后填充） */
     @Column(unique = true)
     private String usdtTxId;
+
+    // ── 分销推广字段 ──
+
+    /** 推广员 ID（来自推广链接，用于佣金计算） */
+    private UUID referralDistributorId;
+
+    /** 推广链接 ID */
+    private UUID promotionLinkId;
 }

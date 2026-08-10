@@ -20,6 +20,7 @@ import com.orionkey.service.AlipayService.AlipayPaymentResult;
 import com.orionkey.service.EpayService;
 import com.orionkey.service.EpayService.ChannelConfig;
 import com.orionkey.service.EpayService.EpayResult;
+import com.orionkey.service.DistributionService;
 import com.orionkey.service.WxpayService;
 import com.orionkey.service.WxpayService.WxpayConfig;
 import com.orionkey.service.WxpayService.WxpayOrderQueryResult;
@@ -27,6 +28,7 @@ import com.orionkey.service.WxpayService.WxpayPaymentResult;
 import com.orionkey.service.PaymentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -62,6 +64,11 @@ public class PaymentServiceImpl implements PaymentService {
     private final WxpayService wxpayService;
     private final AlipayService alipayService;
     private final ObjectMapper objectMapper;
+    /**
+     * 分销佣金服务（延迟获取以打破与 DistributionServiceImpl 的循环依赖：
+     * DistributionServiceImpl 依赖本类 buildWxpayConfig，本类又需触发 onOrderPaid）
+     */
+    private final ObjectProvider<DistributionService> distributionServiceProvider;
 
     /** 应用公网地址（application.yml: app.base-url），用于自动生成微信/支付宝回调地址 */
     @Value("${app.base-url:http://localhost:8083}")
@@ -251,7 +258,8 @@ public class PaymentServiceImpl implements PaymentService {
         // 回调地址自动生成（与 WebhookController 端点一致）
         String notifyUrl = trimTrailingSlash(appBaseUrl) + WXPAY_WEBHOOK_PATH;
 
-        return new WxpayConfig(appid, mchid, apiV3Key, serialNo, privateKey, notifyUrl, "https://api.mch.weixin.qq.com");
+        return new WxpayConfig(appid, mchid, apiV3Key, serialNo, privateKey, notifyUrl,
+                "https://api.mch.weixin.qq.com", cfg.get("transfer_scene_id"));
     }
 
     /**
@@ -311,7 +319,8 @@ public class PaymentServiceImpl implements PaymentService {
         String serialNo = cfg.getOrDefault("serial_no", "");
         String privateKey = resolveWxpayPrivateKeyLenient(cfg, channel.getChannelCode());
         String notifyUrl = trimTrailingSlash(appBaseUrl) + WXPAY_WEBHOOK_PATH;
-        return new WxpayConfig(appid, mchid, apiV3Key, serialNo, privateKey, notifyUrl, "https://api.mch.weixin.qq.com");
+        return new WxpayConfig(appid, mchid, apiV3Key, serialNo, privateKey, notifyUrl,
+                "https://api.mch.weixin.qq.com", cfg.get("transfer_scene_id"));
     }
 
     /**
@@ -528,6 +537,15 @@ public class PaymentServiceImpl implements PaymentService {
             order.setPaidAt(java.time.LocalDateTime.now());
             orderRepository.save(order);
             log.info("Active query: order {} marked as PAID via {}", order.getId(), providerType);
+            // 分销佣金计算（主动查单确认支付也属于支付成功路径）
+            try {
+                DistributionService ds = distributionServiceProvider.getIfAvailable();
+                if (ds != null) {
+                    ds.onOrderPaid(order.getId());
+                }
+            } catch (Exception e) {
+                log.error("Failed to calculate commission for order {}: {}", order.getId(), e.getMessage());
+            }
         }
     }
 

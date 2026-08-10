@@ -11,6 +11,7 @@ import com.orionkey.service.MarketingService;
 import com.orionkey.service.NotificationService;
 import com.orionkey.service.OrderService;
 import com.orionkey.service.PaymentService;
+import com.orionkey.service.DistributionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -39,10 +40,13 @@ public class OrderServiceImpl implements OrderService {
     private final PaymentService paymentService;
     private final NotificationService notificationService;
     private final MarketingService marketingService;
+    private final DistributionService distributionService;
+    private final DistributorRepository distributorRepository;
+    private final PromotionLinkRepository promotionLinkRepository;
 
     @Override
     @Transactional
-    public Map<String, Object> createDirectOrder(Map<String, Object> req, UUID userId, String clientIp, String sessionToken) {
+    public Map<String, Object> createDirectOrder(Map<String, Object> req, UUID userId, String clientIp, String sessionToken, UUID referralDistributorId, UUID promotionLinkId) {
         String device = (String) req.get("device");
         String idempotencyKey = (String) req.get("idempotency_key");
         if (idempotencyKey != null) {
@@ -113,6 +117,7 @@ public class OrderServiceImpl implements OrderService {
         order.setIdempotencyKey(idempotencyKey);
         order.setClientIp(clientIp);
         order.setSessionToken(sessionToken);
+        applyReferralDistributor(order, referralDistributorId, promotionLinkId, userId);
         orderRepository.save(order);
 
         // 优惠券抵扣（选填）：校验核销码 → 计算抵扣 → 绑定订单并重算应付金额
@@ -127,6 +132,11 @@ public class OrderServiceImpl implements OrderService {
                 // 0 元订单：优惠券全额抵扣后无需支付，直接标记已支付，由自动发货任务立即发货
                 order.setStatus(OrderStatus.PAID);
                 order.setPaidAt(LocalDateTime.now());
+                try {
+                    distributionService.onOrderPaid(order.getId());
+                } catch (Exception e) {
+                    log.error("Failed to calculate commission for free order {}: {}", order.getId(), e.getMessage());
+                }
             }
             orderRepository.save(order);
         }
@@ -154,7 +164,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
-    public Map<String, Object> createCartOrder(Map<String, Object> req, UUID userId, String clientIp, String sessionToken) {
+    public Map<String, Object> createCartOrder(Map<String, Object> req, UUID userId, String clientIp, String sessionToken, UUID referralDistributorId, UUID promotionLinkId) {
         String device = (String) req.get("device");
         String idempotencyKey = (String) req.get("idempotency_key");
         if (idempotencyKey != null) {
@@ -212,6 +222,7 @@ public class OrderServiceImpl implements OrderService {
         order.setIdempotencyKey(idempotencyKey);
         order.setClientIp(clientIp);
         order.setSessionToken(sessionToken);
+        applyReferralDistributor(order, referralDistributorId, promotionLinkId, userId);
         orderRepository.save(order);
 
         for (CartItem ci : cartItems) {
@@ -281,6 +292,11 @@ public class OrderServiceImpl implements OrderService {
                 // 0 元订单：优惠券全额抵扣后无需支付，直接标记已支付，由自动发货任务立即发货
                 order.setStatus(OrderStatus.PAID);
                 order.setPaidAt(LocalDateTime.now());
+                try {
+                    distributionService.onOrderPaid(order.getId());
+                } catch (Exception e) {
+                    log.error("Failed to calculate commission for free order {}: {}", order.getId(), e.getMessage());
+                }
             }
             orderRepository.save(order);
         }
@@ -398,6 +414,34 @@ public class OrderServiceImpl implements OrderService {
             if (pending >= maxPending) {
                 throw new BusinessException(ErrorCode.UNPAID_ORDER_EXISTS, "该邮箱有未支付的订单，请先完成支付或等待过期");
             }
+        }
+    }
+
+    /**
+     * 校验并写入订单推广员归属。
+     * 无效推广员（不存在/未审核通过/自购）静默忽略，不阻断下单。
+     * 推广链接需属于该推广员且指向同一商品（或全店链接），否则仅记录推广员归属。
+     */
+    private void applyReferralDistributor(Order order, UUID referralDistributorId, UUID promotionLinkId, UUID userId) {
+        if (referralDistributorId == null) {
+            return;
+        }
+        Distributor d = distributorRepository.findById(referralDistributorId).orElse(null);
+        if (d == null || d.getStatus() != com.orionkey.constant.DistributorStatus.APPROVED) {
+            log.info("Ignore invalid referral distributor {} for order", referralDistributorId);
+            return;
+        }
+        // 自购不返佣
+        if (userId != null && userId.equals(d.getUserId())) {
+            log.info("Self-purchase order, ignore referral distributor {}", referralDistributorId);
+            return;
+        }
+        order.setReferralDistributorId(d.getId());
+        // 推广链接归属：校验链接属于该推广员
+        if (promotionLinkId != null) {
+            promotionLinkRepository.findById(promotionLinkId)
+                    .filter(pl -> d.getId().equals(pl.getDistributorId()))
+                    .ifPresent(pl -> order.setPromotionLinkId(pl.getId()));
         }
     }
 

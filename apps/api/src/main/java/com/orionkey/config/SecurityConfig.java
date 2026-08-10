@@ -64,6 +64,12 @@ public class SecurityConfig {
                         .requestMatchers("/marketing/**").permitAll()
                         .requestMatchers("/uploads/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/visit/track").permitAll()
+                        // Distribution public endpoints
+                        .requestMatchers(HttpMethod.GET, "/distribution/resolve/**", "/distribution/commission-preview").permitAll()
+                        // Distributor endpoints (authenticated)
+                        .requestMatchers("/distributor/**").authenticated()
+                        // User messages (authenticated)
+                        .requestMatchers("/user/messages/**").authenticated()
                         // Authenticated user endpoints
                         .requestMatchers("/auth/logout").authenticated()
                         .requestMatchers("/user/**").authenticated()

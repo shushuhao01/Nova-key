@@ -1,0 +1,1816 @@
+"use client"
+
+import { useState, useEffect, useMemo, useCallback } from "react"
+import {
+  Users2, Search, Check, X, Ban, Pencil, ChevronLeft, ChevronRight,
+  Package, Coins, Wallet, Settings, Plus, Trash2, Save, TrendingUp,
+  Clock, CheckCircle2, UserCheck, UserX, Percent, RefreshCw, ShoppingBag,
+  HandCoins, Loader2,
+} from "lucide-react"
+import { cn } from "@/lib/utils"
+import { toast } from "sonner"
+import { adminDistributionApi } from "@/services/api"
+
+const ITEMS_PER_PAGE = 10
+
+type Tab = "overview" | "distributors" | "products" | "commissions" | "withdrawals" | "rules"
+
+type DistributorStatus = "PENDING" | "APPROVED" | "REJECTED" | "DISABLED"
+type CommissionStatus = "PENDING" | "SETTLED" | "CANCELED"
+type WithdrawalStatus = "PENDING" | "APPROVED" | "REJECTED" | "PROCESSING" | "SUCCESS" | "FAILED"
+
+interface OverviewData {
+  total_distributors: number
+  pending_count: number
+  total_commission: number
+  pending_settlement: number
+  available_balance: number
+  frozen_balance: number
+  withdrawn_amount: number
+}
+
+interface Distributor {
+  id: string
+  user_id: string
+  username: string
+  email: string
+  phone: string
+  status: DistributorStatus
+  custom_rate: number | null
+  sub_rate: number | null
+  default_rate: number
+  total_commission: number
+  available_balance: number
+  frozen_balance: number
+  withdrawn_amount: number
+  subordinate_count: number
+  customer_count: number
+  applied_at: string
+  approved_at: string | null
+  reject_reason: string | null
+}
+
+interface DistributionProduct {
+  id: string
+  product_id: string
+  title: string
+  default_rate: number
+  custom_rate: number | null
+  excluded: boolean
+  cover_image: string | null
+  price: number
+}
+
+interface CommissionRecord {
+  id: string
+  distributor_id: string
+  distributor_name: string
+  order_id: string
+  order_no: string
+  product_id: string
+  product_title: string
+  amount: number
+  rate: number
+  status: CommissionStatus
+  created_at: string
+  settled_at: string | null
+}
+
+interface Withdrawal {
+  id: string
+  distributor_id: string
+  distributor_name: string
+  amount: number
+  actual_amount: number | null
+  status: WithdrawalStatus
+  account_info: string
+  reason: string | null
+  fail_reason: string | null
+  out_bill_no: string | null
+  transfer_bill_no: string | null
+  created_at: string
+  processed_at: string | null
+  transferred_at: string | null
+  completed_at: string | null
+}
+
+interface DistributionRules {
+  enabled: boolean
+  auto_approve: boolean
+  default_rate: number       // 百分比（0-100），提交时 /100 转系数
+  default_sub_rate: number   // 百分比（0-100），提交时 /100 转系数
+  min_withdraw_amount: number
+  settle_delay_days: number
+  withdraw_fee_rate: number  // 百分比（0-100），提交时 /100 转系数
+  binding_protection_days: number
+  tier_enabled: boolean
+  sub_distribution_enabled: boolean
+}
+
+interface Tier {
+  id: string
+  tier_order: number
+  rate: number       // 百分比（0-100），保存时 /100 转系数
+  enabled: boolean
+}
+
+const defaultRules: DistributionRules = {
+  enabled: false,
+  auto_approve: false,
+  default_rate: 10,
+  default_sub_rate: 30,
+  min_withdraw_amount: 10,
+  settle_delay_days: 7,
+  withdraw_fee_rate: 0,
+  binding_protection_days: 30,
+  tier_enabled: false,
+  sub_distribution_enabled: true,
+}
+
+const fmtMoney = (n: number | null | undefined) => `¥${(Number(n) || 0).toFixed(2)}`
+const fmtDate = (s: string | null | undefined) => (s ? new Date(s).toLocaleString() : "—")
+
+export default function AdminDistributionPage() {
+  const [tab, setTab] = useState<Tab>("overview")
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">分销推广管理</h1>
+          <p className="text-sm text-muted-foreground">管理分销员、商品佣金、提现申请与分销规则</p>
+        </div>
+        <TabSwitch tab={tab} setTab={setTab} />
+      </div>
+
+      {tab === "overview" && <OverviewTab />}
+      {tab === "distributors" && <DistributorsTab />}
+      {tab === "products" && <ProductsTab />}
+      {tab === "commissions" && <CommissionsTab />}
+      {tab === "withdrawals" && <WithdrawalsTab />}
+      {tab === "rules" && <RulesTab />}
+    </div>
+  )
+}
+
+function TabSwitch({ tab, setTab }: { tab: Tab; setTab: (v: Tab) => void }) {
+  const options: { v: Tab; label: string; icon: typeof Users2 }[] = [
+    { v: "overview", label: "概览", icon: TrendingUp },
+    { v: "distributors", label: "推广员", icon: Users2 },
+    { v: "products", label: "商品佣金", icon: Package },
+    { v: "commissions", label: "佣金记录", icon: Coins },
+    { v: "withdrawals", label: "提现管理", icon: Wallet },
+    { v: "rules", label: "规则设置", icon: Settings },
+  ]
+  return (
+    <div className="flex flex-wrap rounded-lg bg-muted p-1">
+      {options.map(opt => (
+        <button
+          key={opt.v}
+          type="button"
+          onClick={() => setTab(opt.v)}
+          className={cn(
+            "flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors",
+            tab === opt.v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <opt.icon className="h-4 w-4" />
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ═══════════════════════ 概览 TAB ═══════════════════════
+
+function OverviewTab() {
+  const [data, setData] = useState<OverviewData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetch = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await adminDistributionApi.getOverview()
+      setData(res as OverviewData)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "加载失败")
+      setData(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetch() }, [fetch])
+
+  const cards = useMemo(() => {
+    if (!data) return []
+    return [
+      { label: "分销员总数", value: String(data.total_distributors ?? 0), icon: Users2, color: "text-blue-600 bg-blue-500/10" },
+      { label: "待审核数", value: String(data.pending_count ?? 0), icon: Clock, color: "text-amber-600 bg-amber-500/10" },
+      { label: "总佣金", value: fmtMoney(data.total_commission), icon: Coins, color: "text-emerald-600 bg-emerald-500/10" },
+      { label: "待结算", value: fmtMoney(data.pending_settlement), icon: Clock, color: "text-purple-600 bg-purple-500/10" },
+      { label: "可提现", value: fmtMoney(data.available_balance), icon: Wallet, color: "text-cyan-600 bg-cyan-500/10" },
+      { label: "冻结中", value: fmtMoney(data.frozen_balance), icon: Ban, color: "text-slate-600 bg-slate-500/10" },
+      { label: "已提现", value: fmtMoney(data.withdrawn_amount), icon: CheckCircle2, color: "text-green-600 bg-green-500/10" },
+    ]
+  }, [data])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-foreground">数据概览</h2>
+        <button
+          type="button"
+          onClick={fetch}
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-input px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <RefreshCw className="h-4 w-4" />
+          刷新
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {cards.map(c => (
+          <div key={c.label} className="rounded-lg border border-border bg-card p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">{c.label}</span>
+              <span className={cn("flex h-8 w-8 items-center justify-center rounded-md", c.color)}>
+                <c.icon className="h-4 w-4" />
+              </span>
+            </div>
+            <p className="mt-3 text-2xl font-bold text-foreground">{c.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════ 推广员 TAB ═══════════════════════
+
+const distributorStatusMap: Record<DistributorStatus, { label: string; cls: string }> = {
+  PENDING: { label: "待审核", cls: "bg-amber-500/10 text-amber-600" },
+  APPROVED: { label: "已通过", cls: "bg-emerald-500/10 text-emerald-600" },
+  REJECTED: { label: "已拒绝", cls: "bg-red-500/10 text-red-500" },
+  DISABLED: { label: "已禁用", cls: "bg-muted text-muted-foreground" },
+}
+
+function DistributorsTab() {
+  const [list, setList] = useState<Distributor[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [keyword, setKeyword] = useState("")
+  const [statusFilter, setStatusFilter] = useState<DistributorStatus | "">("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [rateModal, setRateModal] = useState<Distributor | null>(null)
+
+  const fetchList = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await adminDistributionApi.listDistributors({
+        page: currentPage,
+        page_size: ITEMS_PER_PAGE,
+        keyword: keyword || undefined,
+        status: statusFilter || undefined,
+      })
+      setList((data.list || []) as Distributor[])
+      setTotal(data.pagination?.total ?? 0)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "加载失败")
+      setList([])
+      setTotal(0)
+    } finally {
+      setLoading(false)
+    }
+  }, [currentPage, keyword, statusFilter])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setCurrentPage(1), 300)
+    return () => clearTimeout(timer)
+  }, [keyword, statusFilter])
+
+  useEffect(() => { fetchList() }, [fetchList])
+
+  const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
+
+  const handleStatus = async (d: Distributor, status: DistributorStatus, reason?: string) => {
+    const actionLabel = distributorStatusMap[status].label
+    if (status === "REJECTED" || status === "DISABLED") {
+      const input = window.prompt(`请输入${actionLabel}原因`, reason || "")
+      if (input === null) return
+      reason = input
+    } else {
+      if (!window.confirm(`确认${actionLabel}该分销员？`)) return
+    }
+    try {
+      await adminDistributionApi.updateDistributorStatus(d.id, status, reason)
+      toast.success(`${actionLabel}成功`)
+      fetchList()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    }
+  }
+
+  const effectiveRate = (d: Distributor) => d.custom_rate != null ? d.custom_rate : d.default_rate
+  const effectiveSubRate = (d: Distributor) => d.sub_rate != null ? d.sub_rate : 0
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="搜索用户名 / 邮箱 / 手机号"
+              className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as DistributorStatus | "")}
+            className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">全部状态</option>
+            <option value="PENDING">待审核</option>
+            <option value="APPROVED">已通过</option>
+            <option value="REJECTED">已拒绝</option>
+            <option value="DISABLED">已禁用</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">分销员</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">联系方式</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">状态</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金比例</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">下级比例</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">总佣金</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">可提现</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">团队</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">申请时间</th>
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={10} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+              ) : list.length === 0 ? (
+                <tr><td colSpan={10} className="py-8 text-center text-sm text-muted-foreground">暂无分销员数据</td></tr>
+              ) : (
+                list.map((d) => {
+                  const st = distributorStatusMap[d.status]
+                  const isCustomRate = d.custom_rate != null
+                  return (
+                    <tr key={d.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Users2 className="h-4 w-4 shrink-0 text-primary" />
+                          <div className="flex flex-col">
+                            <span className="font-medium text-foreground">{d.username || "—"}</span>
+                            <span className="text-xs text-muted-foreground">ID: {d.user_id}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        <div>{d.email || "—"}</div>
+                        <div>{d.phone || "—"}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
+                          {st.label}
+                        </span>
+                        {d.reject_reason && (
+                          <p className="mt-1 text-xs text-red-500" title={d.reject_reason}>原因：{d.reject_reason}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium text-foreground">{effectiveRate(d).toFixed(2)}%</span>
+                          {isCustomRate && (
+                            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">自定义</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{effectiveSubRate(d).toFixed(2)}%</td>
+                      <td className="px-4 py-3 font-medium text-foreground">{fmtMoney(d.total_commission)}</td>
+                      <td className="px-4 py-3 text-emerald-600">{fmtMoney(d.available_balance)}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        <div>下级 {d.subordinate_count || 0}</div>
+                        <div>客户 {d.customer_count || 0}</div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(d.applied_at)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          {d.status === "PENDING" && (
+                            <>
+                              <button type="button" onClick={() => handleStatus(d, "APPROVED")} className="flex h-8 w-8 items-center justify-center rounded-md text-emerald-600 hover:bg-emerald-500/10" title="审核通过">
+                                <UserCheck className="h-4 w-4" />
+                              </button>
+                              <button type="button" onClick={() => handleStatus(d, "REJECTED")} className="flex h-8 w-8 items-center justify-center rounded-md text-red-500 hover:bg-red-500/10" title="拒绝">
+                                <UserX className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
+                          {d.status === "APPROVED" && (
+                            <button type="button" onClick={() => handleStatus(d, "DISABLED")} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-amber-500/10 hover:text-amber-600" title="禁用">
+                              <Ban className="h-4 w-4" />
+                            </button>
+                          )}
+                          {d.status === "DISABLED" && (
+                            <button type="button" onClick={() => handleStatus(d, "APPROVED")} className="flex h-8 w-8 items-center justify-center rounded-md text-emerald-600 hover:bg-emerald-500/10" title="解禁">
+                              <Check className="h-4 w-4" />
+                            </button>
+                          )}
+                          {(d.status === "APPROVED" || d.status === "DISABLED") && (
+                            <button type="button" onClick={() => setRateModal(d)} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="编辑佣金比例">
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex items-center justify-between border-t border-border px-4 py-3">
+          <span className="text-sm text-muted-foreground">共 {total} 条，第 {currentPage}/{totalPages} 页</span>
+          <Pager page={currentPage} totalPages={totalPages} onChange={setCurrentPage} />
+        </div>
+      </div>
+
+      {rateModal && (
+        <RateEditModal
+          distributor={rateModal}
+          onClose={() => setRateModal(null)}
+          onSaved={() => { setRateModal(null); fetchList() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function RateEditModal({ distributor, onClose, onSaved }: {
+  distributor: Distributor
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [customRate, setCustomRate] = useState<string>(
+    distributor.custom_rate != null ? String(distributor.custom_rate) : ""
+  )
+  const [subRate, setSubRate] = useState<string>(
+    distributor.sub_rate != null ? String(distributor.sub_rate) : ""
+  )
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    const cr = customRate === "" ? null : parseFloat(customRate)
+    const sr = subRate === "" ? null : parseFloat(subRate)
+    if (cr != null && (Number.isNaN(cr) || cr < 0 || cr > 100)) {
+      toast.error("佣金比例需在 0-100 之间")
+      return
+    }
+    if (sr != null && (Number.isNaN(sr) || sr < 0 || sr > 100)) {
+      toast.error("下级佣金比例需在 0-100 之间")
+      return
+    }
+    setSaving(true)
+    try {
+      await adminDistributionApi.updateDistributorRate(distributor.id, cr ?? undefined, sr ?? undefined)
+      toast.success("佣金比例已更新")
+      onSaved()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-foreground">编辑佣金比例</h2>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mb-4 rounded-lg bg-muted/40 p-3 text-sm">
+          <p className="font-medium text-foreground">{distributor.username}</p>
+          <p className="mt-1 text-xs text-muted-foreground">默认佣金比例：{distributor.default_rate.toFixed(2)}%</p>
+        </div>
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">自定义佣金比例 (%)</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={customRate}
+              onChange={(e) => setCustomRate(e.target.value)}
+              placeholder={`默认 ${distributor.default_rate}`}
+              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">留空则使用默认比例</p>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">下级佣金比例 (%)</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={subRate}
+              onChange={(e) => setSubRate(e.target.value)}
+              placeholder="0"
+              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">分销员下级产生的佣金分成比例，留空表示 0</p>
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="h-10 rounded-lg border border-input px-4 text-sm font-medium text-foreground hover:bg-accent">取消</button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={handleSave}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
+          >
+            {saving ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" /> : <Save className="h-4 w-4" />}
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════ 商品佣金 TAB ═══════════════════════
+
+function ProductsTab() {
+  const [list, setList] = useState<DistributionProduct[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [editModal, setEditModal] = useState<DistributionProduct | null>(null)
+
+  const fetchList = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await adminDistributionApi.listProducts({
+        page: currentPage,
+        page_size: ITEMS_PER_PAGE,
+      })
+      setList((data.list || []) as DistributionProduct[])
+      setTotal(data.pagination?.total ?? 0)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "加载失败")
+      setList([])
+      setTotal(0)
+    } finally {
+      setLoading(false)
+    }
+  }, [currentPage])
+
+  useEffect(() => { fetchList() }, [fetchList])
+
+  const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
+
+  const handleToggleExcluded = async (p: DistributionProduct) => {
+    try {
+      await adminDistributionApi.updateProductCommission(p.product_id, p.custom_rate, !p.excluded)
+      toast.success(p.excluded ? "已纳入分销" : "已排除分销")
+      fetchList()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">商品佣金配置</h2>
+          <p className="text-sm text-muted-foreground">为商品设置自定义佣金比例或排除分销</p>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">售价</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">默认比例</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">自定义比例</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">分销状态</th>
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={6} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+              ) : list.length === 0 ? (
+                <tr><td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">暂无商品数据</td></tr>
+              ) : (
+                list.map((p) => {
+                  const effective = p.custom_rate != null ? p.custom_rate : p.default_rate
+                  return (
+                    <tr key={p.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          {p.cover_image ? (
+                            <img src={p.cover_image} alt="" className="h-10 w-10 rounded-md object-cover" />
+                          ) : (
+                            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted">
+                              <Package className="h-5 w-5 text-muted-foreground" />
+                            </div>
+                          )}
+                          <div className="flex flex-col">
+                            <span className="font-medium text-foreground line-clamp-1">{p.title}</span>
+                            <span className="text-xs text-muted-foreground">ID: {p.product_id}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{fmtMoney(p.price)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{p.default_rate.toFixed(2)}%</td>
+                      <td className="px-4 py-3">
+                        {p.custom_rate != null ? (
+                          <span className="inline-flex items-center gap-1.5 font-medium text-primary">
+                            <Percent className="h-3 w-3" />
+                            {p.custom_rate.toFixed(2)}%
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">— 使用默认</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {p.excluded ? (
+                          <span className="inline-flex items-center rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-medium text-red-500">
+                            <Ban className="mr-1 h-3 w-3" />
+                            已排除
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-600">
+                            <Check className="mr-1 h-3 w-3" />
+                            可分销
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          <button type="button" onClick={() => setEditModal(p)} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="编辑佣金">
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleExcluded(p)}
+                            className={cn(
+                              "flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium",
+                              p.excluded
+                                ? "text-emerald-600 hover:bg-emerald-500/10"
+                                : "text-red-500 hover:bg-red-500/10"
+                            )}
+                            title={p.excluded ? "纳入分销" : "排除分销"}
+                          >
+                            {p.excluded ? <Check className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
+                            {p.excluded ? "纳入" : "排除"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex items-center justify-between border-t border-border px-4 py-3">
+          <span className="text-sm text-muted-foreground">共 {total} 条，第 {currentPage}/{totalPages} 页</span>
+          <Pager page={currentPage} totalPages={totalPages} onChange={setCurrentPage} />
+        </div>
+      </div>
+
+      {editModal && (
+        <ProductCommissionModal
+          product={editModal}
+          onClose={() => setEditModal(null)}
+          onSaved={() => { setEditModal(null); fetchList() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function ProductCommissionModal({ product, onClose, onSaved }: {
+  product: DistributionProduct
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [customRate, setCustomRate] = useState<string>(
+    product.custom_rate != null ? String(product.custom_rate) : ""
+  )
+  const [excluded, setExcluded] = useState<boolean>(product.excluded)
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    const cr = customRate === "" ? null : parseFloat(customRate)
+    if (cr != null && (Number.isNaN(cr) || cr < 0 || cr > 100)) {
+      toast.error("佣金比例需在 0-100 之间")
+      return
+    }
+    setSaving(true)
+    try {
+      await adminDistributionApi.updateProductCommission(product.product_id, cr ?? undefined, excluded)
+      toast.success("佣金配置已更新")
+      onSaved()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-foreground">编辑商品佣金</h2>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mb-4 rounded-lg bg-muted/40 p-3 text-sm">
+          <p className="font-medium text-foreground line-clamp-1">{product.title}</p>
+          <p className="mt-1 text-xs text-muted-foreground">默认佣金比例：{product.default_rate.toFixed(2)}% · 售价 {fmtMoney(product.price)}</p>
+        </div>
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">自定义佣金比例 (%)</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={customRate}
+              onChange={(e) => setCustomRate(e.target.value)}
+              placeholder={`默认 ${product.default_rate}`}
+              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">留空则使用默认比例</p>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">分销状态</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setExcluded(false)}
+                className={cn(
+                  "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                  !excluded ? "border-primary bg-primary/10 text-primary" : "border-border text-foreground hover:border-primary/30"
+                )}
+              >
+                可分销
+              </button>
+              <button
+                type="button"
+                onClick={() => setExcluded(true)}
+                className={cn(
+                  "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                  excluded ? "border-red-500 bg-red-500/10 text-red-500" : "border-border text-foreground hover:border-red-500/30"
+                )}
+              >
+                排除分销
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">排除后该商品不参与任何分销推广</p>
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="h-10 rounded-lg border border-input px-4 text-sm font-medium text-foreground hover:bg-accent">取消</button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={handleSave}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
+          >
+            {saving ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" /> : <Save className="h-4 w-4" />}
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════ 佣金记录 TAB ═══════════════════════
+
+const commissionStatusMap: Record<CommissionStatus, { label: string; cls: string }> = {
+  PENDING: { label: "待结算", cls: "bg-amber-500/10 text-amber-600" },
+  SETTLED: { label: "已结算", cls: "bg-emerald-500/10 text-emerald-600" },
+  CANCELED: { label: "已取消", cls: "bg-red-500/10 text-red-500" },
+}
+
+function CommissionsTab() {
+  const [list, setList] = useState<CommissionRecord[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [distributorId, setDistributorId] = useState("")
+  const [statusFilter, setStatusFilter] = useState<CommissionStatus | "">("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [stats, setStats] = useState<{ total_amount: number; pending_amount: number; settled_amount: number; canceled_amount: number } | null>(null)
+
+  const fetchList = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await adminDistributionApi.listCommissions({
+        page: currentPage,
+        page_size: ITEMS_PER_PAGE,
+        distributor_id: distributorId || undefined,
+        status: statusFilter || undefined,
+      })
+      setList((data.list || []) as CommissionRecord[])
+      setTotal(data.pagination?.total ?? 0)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "加载失败")
+      setList([])
+      setTotal(0)
+    } finally {
+      setLoading(false)
+    }
+  }, [currentPage, distributorId, statusFilter])
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await adminDistributionApi.commissionStats()
+      setStats(res)
+    } catch {
+      setStats(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setCurrentPage(1), 300)
+    return () => clearTimeout(timer)
+  }, [distributorId, statusFilter])
+
+  useEffect(() => { fetchList() }, [fetchList])
+  useEffect(() => { fetchStats() }, [fetchStats])
+
+  const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
+
+  return (
+    <div className="flex flex-col gap-4">
+      {stats && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+            <p className="text-xs text-muted-foreground">佣金总额</p>
+            <p className="mt-1 text-xl font-bold text-foreground">{fmtMoney(stats.total_amount)}</p>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+            <p className="text-xs text-amber-600">待结算</p>
+            <p className="mt-1 text-xl font-bold text-amber-600">{fmtMoney(stats.pending_amount)}</p>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+            <p className="text-xs text-emerald-600">已结算</p>
+            <p className="mt-1 text-xl font-bold text-emerald-600">{fmtMoney(stats.settled_amount)}</p>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+            <p className="text-xs text-red-500">已取消</p>
+            <p className="mt-1 text-xl font-bold text-red-500">{fmtMoney(stats.canceled_amount)}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="按分销员 ID 筛选"
+              className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              value={distributorId}
+              onChange={(e) => setDistributorId(e.target.value)}
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as CommissionStatus | "")}
+            className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">全部状态</option>
+            <option value="PENDING">待结算</option>
+            <option value="SETTLED">已结算</option>
+            <option value="CANCELED">已取消</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">分销员</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">订单编号</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金金额</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">比例</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">状态</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">创建时间</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">结算时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={8} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+              ) : list.length === 0 ? (
+                <tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">暂无佣金记录</td></tr>
+              ) : (
+                list.map((c) => {
+                  const st = commissionStatusMap[c.status] || { label: c.status, cls: "bg-muted text-muted-foreground" }
+                  return (
+                    <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-foreground">{c.distributor_name || "—"}</span>
+                          <span className="text-xs text-muted-foreground">ID: {c.distributor_id}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-foreground">{c.order_no || c.order_id}</td>
+                      <td className="max-w-[200px] truncate px-4 py-3 text-xs text-muted-foreground" title={c.product_title}>
+                        <ShoppingBag className="mr-1 inline h-3 w-3" />
+                        {c.product_title || "—"}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-emerald-600">{fmtMoney(c.amount)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{(Number(c.rate) || 0).toFixed(2)}%</td>
+                      <td className="px-4 py-3">
+                        <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
+                          {st.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(c.created_at)}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(c.settled_at)}</td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex items-center justify-between border-t border-border px-4 py-3">
+          <span className="text-sm text-muted-foreground">共 {total} 条，第 {currentPage}/{totalPages} 页</span>
+          <Pager page={currentPage} totalPages={totalPages} onChange={setCurrentPage} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════ 提现管理 TAB ═══════════════════════
+
+const withdrawalStatusMap: Record<WithdrawalStatus, { label: string; cls: string }> = {
+  PENDING: { label: "待审核", cls: "bg-amber-500/10 text-amber-600" },
+  APPROVED: { label: "已通过", cls: "bg-blue-500/10 text-blue-600" },
+  REJECTED: { label: "已拒绝", cls: "bg-red-500/10 text-red-500" },
+  PROCESSING: { label: "转账中", cls: "bg-cyan-500/10 text-cyan-600" },
+  SUCCESS: { label: "已结算", cls: "bg-emerald-500/10 text-emerald-600" },
+  FAILED: { label: "已失败", cls: "bg-red-500/10 text-red-500" },
+}
+
+function WithdrawalsTab() {
+  const [list, setList] = useState<Withdrawal[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState<WithdrawalStatus | "">("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [rejectModal, setRejectModal] = useState<Withdrawal | null>(null)
+  const [settleModal, setSettleModal] = useState<Withdrawal | null>(null)
+
+  const fetchList = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await adminDistributionApi.listWithdrawals({
+        page: currentPage,
+        page_size: ITEMS_PER_PAGE,
+        status: statusFilter || undefined,
+      })
+      setList((data.list || []) as Withdrawal[])
+      setTotal(data.pagination?.total ?? 0)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "加载失败")
+      setList([])
+      setTotal(0)
+    } finally {
+      setLoading(false)
+    }
+  }, [currentPage, statusFilter])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setCurrentPage(1), 300)
+    return () => clearTimeout(timer)
+  }, [statusFilter])
+
+  useEffect(() => { fetchList() }, [fetchList])
+
+  const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
+
+  const handleApprove = async (w: Withdrawal) => {
+    if (!window.confirm(`确认通过该提现申请？金额 ${fmtMoney(w.amount)}`)) return
+    try {
+      await adminDistributionApi.approveWithdrawal(w.id)
+      toast.success("已通过提现申请")
+      fetchList()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as WithdrawalStatus | "")}
+          className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="">全部状态</option>
+          <option value="PENDING">待审核</option>
+          <option value="APPROVED">已通过</option>
+          <option value="REJECTED">已拒绝</option>
+          <option value="PROCESSING">转账中</option>
+          <option value="SUCCESS">已结算</option>
+          <option value="FAILED">已失败</option>
+        </select>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">分销员</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">提现金额</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">收款账户</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">状态</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">申请时间</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">处理时间</th>
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={7} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+              ) : list.length === 0 ? (
+                <tr><td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">暂无提现申请</td></tr>
+              ) : (
+                list.map((w) => {
+                  const st = withdrawalStatusMap[w.status] || { label: w.status, cls: "bg-muted text-muted-foreground" }
+                  return (
+                    <tr key={w.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-foreground">{w.distributor_name || "—"}</span>
+                          <span className="text-xs text-muted-foreground">ID: {w.distributor_id}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-foreground">{fmtMoney(w.amount)}</td>
+                      <td className="max-w-[240px] truncate px-4 py-3 text-xs text-muted-foreground" title={w.account_info}>
+                        {w.account_info || "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
+                          {st.label}
+                        </span>
+                        {w.reason && (
+                          <p className="mt-1 text-xs text-red-500" title={w.reason}>原因：{w.reason}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(w.created_at)}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(w.processed_at)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          {w.status === "PENDING" && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleApprove(w)}
+                                className="flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-emerald-600 hover:bg-emerald-500/10"
+                                title="审核通过"
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                                通过
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setRejectModal(w)}
+                                className="flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-red-500 hover:bg-red-500/10"
+                                title="拒绝"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                                拒绝
+                              </button>
+                            </>
+                          )}
+                          {(w.status === "APPROVED" || w.status === "PROCESSING") && (
+                            <button
+                              type="button"
+                              onClick={() => setSettleModal(w)}
+                              className="flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-cyan-600 hover:bg-cyan-500/10"
+                              title="手动结算（确认已线下支付）"
+                            >
+                              <HandCoins className="h-3.5 w-3.5" />
+                              手动结算
+                            </button>
+                          )}
+                          {(w.status === "REJECTED" || w.status === "SUCCESS" || w.status === "FAILED") && (
+                            <span className="text-xs text-muted-foreground">已处理</span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex items-center justify-between border-t border-border px-4 py-3">
+          <span className="text-sm text-muted-foreground">共 {total} 条，第 {currentPage}/{totalPages} 页</span>
+          <Pager page={currentPage} totalPages={totalPages} onChange={setCurrentPage} />
+        </div>
+      </div>
+
+      {rejectModal && (
+        <RejectWithdrawalModal
+          withdrawal={rejectModal}
+          onClose={() => setRejectModal(null)}
+          onSaved={() => { setRejectModal(null); fetchList() }}
+        />
+      )}
+
+      {settleModal && (
+        <SettleWithdrawalModal
+          withdrawal={settleModal}
+          onClose={() => setSettleModal(null)}
+          onSaved={() => { setSettleModal(null); fetchList() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function SettleWithdrawalModal({ withdrawal, onClose, onSaved }: {
+  withdrawal: Withdrawal
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const defaultAmount = withdrawal.actual_amount ?? withdrawal.amount
+  const [amount, setAmount] = useState(String(defaultAmount.toFixed(2)))
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    const num = parseFloat(amount)
+    if (Number.isNaN(num) || num <= 0) {
+      toast.error("请输入有效的结算金额")
+      return
+    }
+    setSaving(true)
+    try {
+      await adminDistributionApi.settleWithdrawal(withdrawal.id, num)
+      toast.success("手动结算成功")
+      onSaved()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-foreground">手动结算提现</h2>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mb-4 rounded-lg bg-cyan-500/5 p-3 text-sm">
+          <p className="font-medium text-foreground">{withdrawal.distributor_name}</p>
+          <p className="mt-1 text-xs text-muted-foreground">提现金额：{fmtMoney(withdrawal.amount)}</p>
+          {withdrawal.transfer_bill_no && (
+            <p className="mt-1 text-xs text-cyan-600">微信转账单号：{withdrawal.transfer_bill_no}</p>
+          )}
+        </div>
+        <div className="mb-4 rounded-lg bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
+          确认已通过线下方式（微信/支付宝/银行转账等）将佣金支付给分销员。结算后将从分销员冻结佣金余额扣减。
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-foreground">实际结算金额</label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="请输入实际支付金额"
+            className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">如实际支付金额与提现金额不同（如扣手续费），请填写实际支付金额</p>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="h-10 rounded-lg border border-input px-4 text-sm font-medium text-foreground hover:bg-accent">取消</button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={handleSave}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-cyan-600 px-4 text-sm font-semibold text-white transition-all hover:brightness-110 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <HandCoins className="h-4 w-4" />}
+            确认结算
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RejectWithdrawalModal({ withdrawal, onClose, onSaved }: {
+  withdrawal: Withdrawal
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [reason, setReason] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    if (!reason.trim()) {
+      toast.error("请填写拒绝原因")
+      return
+    }
+    setSaving(true)
+    try {
+      await adminDistributionApi.rejectWithdrawal(withdrawal.id, reason.trim())
+      toast.success("已拒绝提现申请")
+      onSaved()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-foreground">拒绝提现申请</h2>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mb-4 rounded-lg bg-muted/40 p-3 text-sm">
+          <p className="font-medium text-foreground">{withdrawal.distributor_name}</p>
+          <p className="mt-1 text-xs text-muted-foreground">提现金额：{fmtMoney(withdrawal.amount)}</p>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-foreground">拒绝原因</label>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="请填写拒绝原因，将通知分销员"
+            rows={4}
+            className="w-full rounded-lg border border-input bg-background p-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="h-10 rounded-lg border border-input px-4 text-sm font-medium text-foreground hover:bg-accent">取消</button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={handleSave}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-500 px-4 text-sm font-semibold text-white transition-all hover:brightness-110 disabled:opacity-50"
+          >
+            {saving ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <X className="h-4 w-4" />}
+            确认拒绝
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════ 规则设置 TAB ═══════════════════════
+
+function RulesTab() {
+  const [rules, setRules] = useState<DistributionRules>(defaultRules)
+  const [tiers, setTiers] = useState<Tier[]>([])
+  const [loading, setLoading] = useState(true)
+  const [savingRules, setSavingRules] = useState(false)
+  const [savingTiers, setSavingTiers] = useState(false)
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true)
+      try {
+        const [rulesRes, tiersRes] = await Promise.all([
+          adminDistributionApi.getRules(),
+          adminDistributionApi.getTiers(),
+        ])
+        if (rulesRes && typeof rulesRes === "object") {
+          const r = rulesRes as any
+          setRules({
+            enabled: !!r.enabled,
+            auto_approve: !!r.auto_approve,
+            default_rate: Math.round(Number(r.default_rate ?? 0) * 10000) / 100,
+            default_sub_rate: Math.round(Number(r.default_sub_rate ?? 0) * 10000) / 100,
+            min_withdraw_amount: Number(r.min_withdraw_amount ?? 10),
+            settle_delay_days: Number(r.settle_delay_days ?? 7),
+            withdraw_fee_rate: Math.round(Number(r.withdraw_fee_rate ?? 0) * 10000) / 100,
+            binding_protection_days: Number(r.binding_protection_days ?? 30),
+            tier_enabled: !!r.tier_enabled,
+            sub_distribution_enabled: r.sub_distribution_enabled !== false,
+          })
+        }
+        if (Array.isArray(tiersRes)) {
+          // 后端系数(0-1) → 前端百分比(0-100)
+          setTiers((tiersRes as any[]).map((t, i) => ({
+            id: String(t.id ?? i),
+            tier_order: Number(t.tier_order ?? i + 1),
+            rate: Math.round(Number(t.rate ?? 0) * 10000) / 100,
+            enabled: t.enabled !== false,
+          })))
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "加载失败")
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [])
+
+  const updRule = <K extends keyof DistributionRules>(k: K, v: DistributionRules[K]) => {
+    setRules(prev => ({ ...prev, [k]: v }))
+  }
+
+  const handleSaveRules = async () => {
+    if (rules.default_rate < 0 || rules.default_rate > 100) {
+      toast.error("默认佣金比例需在 0-100 之间")
+      return
+    }
+    if (rules.default_sub_rate < 0 || rules.default_sub_rate > 100) {
+      toast.error("下级抽成比例需在 0-100 之间")
+      return
+    }
+    if (rules.min_withdraw_amount < 0) {
+      toast.error("最低提现金额不能为负数")
+      return
+    }
+    if (rules.settle_delay_days < 0) {
+      toast.error("佣金结算延迟天数不能为负数")
+      return
+    }
+    setSavingRules(true)
+    try {
+      // 百分比 → 系数（与后端 ruleToMap/updateRules 一致）
+      await adminDistributionApi.updateRules({
+        enabled: rules.enabled,
+        auto_approve: rules.auto_approve,
+        default_rate: rules.default_rate / 100,
+        default_sub_rate: rules.default_sub_rate / 100,
+        min_withdraw_amount: rules.min_withdraw_amount,
+        settle_delay_days: rules.settle_delay_days,
+        withdraw_fee_rate: rules.withdraw_fee_rate / 100,
+        binding_protection_days: rules.binding_protection_days,
+        tier_enabled: rules.tier_enabled,
+        sub_distribution_enabled: rules.sub_distribution_enabled,
+      })
+      toast.success("分销规则已保存")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败")
+    } finally {
+      setSavingRules(false)
+    }
+  }
+
+  const handleSaveTiers = async () => {
+    const orders = new Set<number>()
+    for (const t of tiers) {
+      if (t.rate < 0 || t.rate > 100) {
+        toast.error(`第 ${t.tier_order} 次购买的佣金比例需在 0-100 之间`)
+        return
+      }
+      if (orders.has(t.tier_order)) {
+        toast.error(`购买次序 ${t.tier_order} 重复，请检查`)
+        return
+      }
+      orders.add(t.tier_order)
+    }
+    setSavingTiers(true)
+    try {
+      // 百分比 → 系数（与后端 CommissionTier.rate 语义一致：1.0=100%）
+      const payload = tiers
+        .slice()
+        .sort((a, b) => a.tier_order - b.tier_order)
+        .map(t => ({
+          tier_order: t.tier_order,
+          rate: t.rate / 100,
+          enabled: true,
+        }))
+      await adminDistributionApi.updateTiers(payload)
+      toast.success("阶梯佣金配置已保存")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败")
+    } finally {
+      setSavingTiers(false)
+    }
+  }
+
+  const addTier = () => {
+    const nextOrder = tiers.length ? Math.max(...tiers.map(t => t.tier_order)) + 1 : 1
+    setTiers(prev => [
+      ...prev,
+      {
+        id: `new_${Date.now()}`,
+        tier_order: nextOrder,
+        rate: 100,
+        enabled: true,
+      },
+    ])
+  }
+
+  const updateTier = (id: string, field: keyof Tier, value: string | number) => {
+    setTiers(prev => prev.map(t => (t.id === id ? { ...t, [field]: value } : t)))
+  }
+
+  const removeTier = (id: string) => {
+    setTiers(prev => prev.filter(t => t.id !== id))
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* 基础规则 */}
+      <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
+        <div className="mb-5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Settings className="h-5 w-5 text-primary" />
+            <h2 className="text-base font-semibold text-foreground">基础规则</h2>
+          </div>
+          <button
+            type="button"
+            disabled={savingRules}
+            onClick={handleSaveRules}
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
+          >
+            {savingRules ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" /> : <Save className="h-4 w-4" />}
+            保存规则
+          </button>
+        </div>
+
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">启用分销</p>
+              <p className="mt-1 text-xs text-muted-foreground">关闭后所有分销链接将失效</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => updRule("enabled", !rules.enabled)}
+              className={cn(
+                "relative h-6 w-11 rounded-full transition-colors",
+                rules.enabled ? "bg-primary" : "bg-muted-foreground/30"
+              )}
+            >
+              <span className={cn(
+                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                rules.enabled ? "translate-x-5" : "translate-x-0.5"
+              )} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">自动审核</p>
+              <p className="mt-1 text-xs text-muted-foreground">开启后新申请自动通过</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => updRule("auto_approve", !rules.auto_approve)}
+              className={cn(
+                "relative h-6 w-11 rounded-full transition-colors",
+                rules.auto_approve ? "bg-primary" : "bg-muted-foreground/30"
+              )}
+            >
+              <span className={cn(
+                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                rules.auto_approve ? "translate-x-5" : "translate-x-0.5"
+              )} />
+            </button>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">默认佣金比例 (%)</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={rules.default_rate}
+              onChange={(e) => updRule("default_rate", parseFloat(e.target.value) || 0)}
+              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">未单独配置的商品/分销员使用此比例</p>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">下级抽成比例 (%)</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={rules.default_sub_rate}
+              onChange={(e) => updRule("default_sub_rate", parseFloat(e.target.value) || 0)}
+              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">一级分销员从下级佣金中抽成的默认比例</p>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">最低提现金额 (元)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={rules.min_withdraw_amount}
+              onChange={(e) => updRule("min_withdraw_amount", parseFloat(e.target.value) || 0)}
+              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">单笔提现申请的最低金额</p>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">佣金结算延迟 (天)</label>
+            <input
+              type="number"
+              min={0}
+              value={rules.settle_delay_days}
+              onChange={(e) => updRule("settle_delay_days", parseInt(e.target.value) || 0)}
+              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">订单支付完成后 N 天佣金才可提现</p>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">客户保护期 (天)</label>
+            <input
+              type="number"
+              min={0}
+              value={rules.binding_protection_days}
+              onChange={(e) => updRule("binding_protection_days", parseInt(e.target.value) || 0)}
+              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">客户绑定推广员后 N 天内不可被其他推广员抢走</p>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">提现手续费率 (%)</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={rules.withdraw_fee_rate}
+              onChange={(e) => updRule("withdraw_fee_rate", parseFloat(e.target.value) || 0)}
+              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">0 = 免费提现</p>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">开启二级分销</p>
+              <p className="mt-1 text-xs text-muted-foreground">一级分销员可从下级佣金中抽成</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => updRule("sub_distribution_enabled", !rules.sub_distribution_enabled)}
+              className={cn(
+                "relative h-6 w-11 rounded-full transition-colors",
+                rules.sub_distribution_enabled ? "bg-primary" : "bg-muted-foreground/30"
+              )}
+            >
+              <span className={cn(
+                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                rules.sub_distribution_enabled ? "translate-x-5" : "translate-x-0.5"
+              )} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">开启阶梯佣金</p>
+              <p className="mt-1 text-xs text-muted-foreground">同一客户多次购买，佣金比例按阶梯递减</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => updRule("tier_enabled", !rules.tier_enabled)}
+              className={cn(
+                "relative h-6 w-11 rounded-full transition-colors",
+                rules.tier_enabled ? "bg-primary" : "bg-muted-foreground/30"
+              )}
+            >
+              <span className={cn(
+                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                rules.tier_enabled ? "translate-x-5" : "translate-x-0.5"
+              )} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 阶梯佣金 */}
+      <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
+        <div className="mb-5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-primary" />
+            <div>
+              <h2 className="text-base font-semibold text-foreground">阶梯佣金配置</h2>
+              <p className="text-xs text-muted-foreground">同一客户多次购买，佣金按购买次序递减，超出最后档位不再返佣（0%）</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={addTier}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-input px-3 text-sm font-medium text-foreground hover:bg-accent"
+            >
+              <Plus className="h-4 w-4" />
+              新增阶梯
+            </button>
+            <button
+              type="button"
+              disabled={savingTiers}
+              onClick={handleSaveTiers}
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
+            >
+              {savingTiers ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" /> : <Save className="h-4 w-4" />}
+              保存阶梯
+            </button>
+          </div>
+        </div>
+
+        {tiers.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border bg-muted/20 py-12 text-center">
+            <TrendingUp className="mx-auto h-8 w-8 text-muted-foreground/50" />
+            <p className="mt-3 text-sm text-muted-foreground">暂无阶梯配置，点击「新增阶梯」开始配置</p>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-lg border border-border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">购买次序</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金比例（占基础佣金 %）</th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tiers.map((t) => (
+                  <tr key={t.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-3">
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={t.tier_order}
+                        onChange={(e) => updateTier(t.id, "tier_order", Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        placeholder="第几次购买"
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.01"
+                        value={t.rate}
+                        onChange={(e) => updateTier(t.id, "rate", parseFloat(e.target.value) || 0)}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => removeTier(t.id)}
+                          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
+                          title="删除"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════ 分页器 ═══════════════════════
+
+function Pager({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
+  const pages = useMemo(() => {
+    const arr: (number | "…")[] = []
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) arr.push(i)
+    } else {
+      arr.push(1)
+      if (page > 3) arr.push("…")
+      for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) arr.push(i)
+      if (page < totalPages - 2) arr.push("…")
+      arr.push(totalPages)
+    }
+    return arr
+  }, [page, totalPages])
+
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        disabled={page <= 1}
+        onClick={() => onChange(page - 1)}
+        className="flex h-8 w-8 items-center justify-center rounded-md border border-input text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      {pages.map((p, idx) =>
+        p === "…" ? (
+          <span key={`e${idx}`} className="px-1 text-sm text-muted-foreground">…</span>
+        ) : (
+          <button
+            key={p}
+            type="button"
+            onClick={() => onChange(p)}
+            className={cn(
+              "h-8 min-w-8 rounded-md px-2 text-sm font-medium transition-colors",
+              p === page ? "bg-primary text-primary-foreground" : "border border-input text-muted-foreground hover:bg-accent hover:text-foreground"
+            )}
+          >
+            {p}
+          </button>
+        )
+      )}
+      <button
+        type="button"
+        disabled={page >= totalPages}
+        onClick={() => onChange(page + 1)}
+        className="flex h-8 w-8 items-center justify-center rounded-md border border-input text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}

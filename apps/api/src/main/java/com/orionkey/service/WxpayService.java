@@ -20,9 +20,11 @@ public interface WxpayService {
      * @param privateKey 商户 API 私钥 PEM 内容（支持 PKCS#8 / PKCS#1）
      * @param notifyUrl  异步回调地址
      * @param gatewayUrl API 网关地址（默认 https://api.mch.weixin.qq.com）
+     * @param transferSceneId 商家转账场景ID（如 1005=佣金报酬），用于分销提现
      */
     record WxpayConfig(String appid, String mchid, String apiV3Key, String serialNo,
-                       String privateKey, String notifyUrl, String gatewayUrl) {
+                       String privateKey, String notifyUrl, String gatewayUrl,
+                       String transferSceneId) {
     }
 
     record WxpayPaymentResult(String codeUrl, String h5Url) {
@@ -58,6 +60,28 @@ public interface WxpayService {
     }
 
     /**
+     * 商家转账到零钱结果。
+     *
+     * @param outBillNo      商户单号
+     * @param transferBillNo 微信转账单号
+     * @param state          转账状态（ACCEPTED / PROCESSING / WAIT_USER_CONFIRM 等）
+     * @param packageInfo    拉起用户确认收款所需的 package_info（JSAPI 调起用）
+     */
+    record WxpayTransferResult(String outBillNo, String transferBillNo, String state, String packageInfo) {
+    }
+
+    /**
+     * 商家转账结果回调通知（已验签并解密）。
+     *
+     * @param id        通知 ID（幂等键）
+     * @param outBillNo 商户转账单号
+     * @param state     转账终态（FINISHED=成功，其他如 FAILED/CLOSED/WAIT_USER_CONFIRM 等）
+     * @param failReason 失败原因
+     */
+    record WxpayTransferNotificationResult(String id, String outBillNo, String state, String failReason) {
+    }
+
+    /**
      * Native 扫码下单，返回 code_url（用户扫码支付链接）。
      */
     WxpayPaymentResult createNativePayment(WxpayConfig config, String outTradeNo, String description,
@@ -74,6 +98,23 @@ public interface WxpayService {
      * 主动查询订单状态。查询失败（网络/网关错误）返回 null。
      */
     WxpayOrderQueryResult queryOrder(WxpayConfig config, String outTradeNo);
+
+    /**
+     * 商家转账到零钱（POST /v3/transfer/batches）。
+     * <p>
+     * 用于分销佣金提现，管理员审批通过后调用此接口发起转账。
+     * 返回 package_info 后，前端在微信内通过 WeixinJSBridge.invoke('requestPayment') 拉起用户确认收款。
+     *
+     * @param config          微信支付配置（含 transferSceneId）
+     * @param outBillNo       商户单号（唯一，幂等键）
+     * @param openid          收款用户 openid
+     * @param amount          转账金额（元）
+     * @param remark          转账备注（如"佣金提现"）
+     * @param notifyUrl       转账结果异步回调地址
+     * @return 转账结果（含 package_info）
+     */
+    WxpayTransferResult createTransfer(WxpayConfig config, String outBillNo, String openid,
+                                       BigDecimal amount, String remark, String notifyUrl);
 
     /**
      * 测试商户配置与微信支付平台的连通性（调用 GET /v3/certificates 验证
@@ -94,4 +135,15 @@ public interface WxpayService {
      * @return 解密后的通知内容；验签或解密失败返回 null
      */
     WxpayNotificationResult decryptNotification(WxpayConfig config, Map<String, String> headers, String rawBody);
+
+    /**
+     * 验证微信商家转账结果回调签名并解密资源内容。
+     * 与 {@link #decryptNotification} 使用相同的 APIv3 通知机制，但资源字段为
+     * out_bill_no / state / fail_reason（转账结果），而非支付订单字段。
+     *
+     * @param headers 回调请求头（键已转为小写，含 wechatpay-* 头）
+     * @param rawBody 原始请求体（签名验证对象）
+     * @return 解密后的转账通知内容；验签或解密失败返回 null
+     */
+    WxpayTransferNotificationResult decryptTransferNotification(WxpayConfig config, Map<String, String> headers, String rawBody);
 }

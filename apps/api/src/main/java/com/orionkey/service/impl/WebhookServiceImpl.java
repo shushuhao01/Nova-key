@@ -16,6 +16,7 @@ import com.orionkey.service.EpayService;
 import com.orionkey.service.AlipayService;
 import com.orionkey.service.AlipayService.AlipayConfig;
 import com.orionkey.service.AlipayService.AlipayOrderQueryResult;
+import com.orionkey.service.DistributionService;
 import com.orionkey.service.NotificationService;
 import com.orionkey.service.TxidVerifyService;
 import com.orionkey.service.WebhookService;
@@ -53,6 +54,7 @@ public class WebhookServiceImpl implements WebhookService {
     private final PaymentServiceImpl paymentService;
     private final TxidVerifyService txidVerifyService;
     private final NotificationService notificationService;
+    private final DistributionService distributionService;
 
     @Override
     @Transactional
@@ -180,6 +182,7 @@ public class WebhookServiceImpl implements WebhookService {
             order.setPaidAt(LocalDateTime.now());
             orderRepository.save(order);
             sendPaidNotice(order);
+            triggerCommissionCalculation(order.getId());
             event.setProcessResult("SUCCESS");
             log.info("Epay callback: order {} marked as PAID", orderId);
         } else {
@@ -324,6 +327,7 @@ public class WebhookServiceImpl implements WebhookService {
             order.setUsdtTxId(blockTxId);
             orderRepository.save(order);
             sendPaidNotice(order);
+            triggerCommissionCalculation(order.getId());
             saveWebhookEvent(eventId, "usdt", order.getId(), signParams.toString(), "SUCCESS");
             log.info("BEpusdt callback: order {} marked as PAID, txid={}", orderId, blockTxId);
         } else {
@@ -434,6 +438,7 @@ public class WebhookServiceImpl implements WebhookService {
                 order.setPaidAt(LocalDateTime.now());
                 orderRepository.save(order);
                 sendPaidNotice(order);
+                triggerCommissionCalculation(order.getId());
                 saveWebhookEvent(eventId, "wxpay", orderId, rawBody, "SUCCESS");
                 log.info("Wxpay callback: order {} marked as PAID", orderId);
             } else {
@@ -560,6 +565,7 @@ public class WebhookServiceImpl implements WebhookService {
             order.setPaidAt(LocalDateTime.now());
             orderRepository.save(order);
             sendPaidNotice(order);
+            triggerCommissionCalculation(order.getId());
             saveWebhookEvent(eventId, "alipay", orderId, params.toString(), "SUCCESS");
             log.info("Alipay callback: order {} marked as PAID", orderId);
         } else {
@@ -568,6 +574,68 @@ public class WebhookServiceImpl implements WebhookService {
             log.info("Alipay callback: order {} already {}", orderId, order.getStatus());
         }
         return "success";
+    }
+
+    /**
+     * 微信商家转账结果回调处理：
+     * 1) 平台证书验签 + APIv3 密钥解密资源
+     * 2) 幂等检查（通知 ID）
+     * 3) 同步提现状态（成功扣冻结加已提现 / 失败退回冻结）
+     */
+    @Override
+    @Transactional
+    public String processWxpayTransferCallback(Map<String, String> headers, String rawBody) {
+        log.info("Wxpay transfer callback received");
+        try {
+            // 1. 用任一已启用的微信商户配置验签 + 解密（与支付回调同一机制）
+            WxpayService.WxpayTransferNotificationResult notification = null;
+            for (PaymentChannel channel : paymentChannelRepository
+                    .findByProviderTypeAndIsDeleted("native_wxpay", 0)) {
+                if (!channel.isEnabled()) continue;
+                try {
+                    WxpayConfig config = paymentService.buildWxpayConfig(channel);
+                    WxpayService.WxpayTransferNotificationResult result =
+                            wxpayService.decryptTransferNotification(config, headers, rawBody);
+                    if (result != null) {
+                        notification = result;
+                        break;
+                    }
+                } catch (Exception e) {
+                    log.warn("Wxpay transfer notification attempt failed for channel {}: {}",
+                            channel.getChannelCode(), e.getMessage());
+                }
+            }
+            if (notification == null) {
+                log.error("Wxpay transfer callback rejected: signature verification or decryption failed for all channels");
+                return "FAIL";
+            }
+
+            // 2. 幂等检查（通知 ID）
+            String eventId = "wxpay_transfer_" + (notification.id() != null ? notification.id() : notification.outBillNo());
+            if (webhookEventRepository.findByEventId(eventId).isPresent()) {
+                log.info("Wxpay transfer callback already processed: {}", eventId);
+                return "SUCCESS";
+            }
+
+            // 3. 同步提现状态（内部含终态幂等，失败抛出则整体回滚触发微信重试）
+            distributionService.handleTransferCallback(notification.outBillNo(), notification.state(), notification.failReason());
+            saveWebhookEvent(eventId, "wxpay_transfer", null, rawBody, "SUCCESS");
+            log.info("Wxpay transfer callback processed: outBillNo={}, state={}",
+                    notification.outBillNo(), notification.state());
+            return "SUCCESS";
+        } catch (Exception e) {
+            log.error("Wxpay transfer callback processing error", e);
+            return "FAIL";
+        }
+    }
+
+    /** 订单支付成功后触发分销佣金计算（失败仅记录日志，不影响支付主流程） */
+    private void triggerCommissionCalculation(UUID orderId) {
+        try {
+            distributionService.onOrderPaid(orderId);
+        } catch (Exception e) {
+            log.error("Failed to calculate commission for order {}: {}", orderId, e.getMessage());
+        }
     }
 
     /** 管理员通知：订单支付成功 */

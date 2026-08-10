@@ -10,6 +10,7 @@ import { mockCreateOrder } from "@/lib/mock-data"
 import { Turnstile, useTurnstile } from "@/components/shared/turnstile"
 import { cn, validateEmail, generateIdempotencyKey, getCurrencySymbol, detectPaymentDevice, isMobileDevice } from "@/lib/utils"
 import { PaymentSelector } from "@/components/shared/payment-selector"
+import { ShareCommissionButton } from "@/components/store/share-commission"
 import type { ProductDetail, ProductSpec, PaymentChannelItem, MyCouponItem } from "@/types"
 
 interface ProductActionsProps {
@@ -517,6 +518,11 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
 
         {/* Action Buttons */}
         <div className="flex gap-3">
+          <ShareCommissionButton
+            productId={product.id}
+            productTitle={product.title}
+            productPrice={product.base_price}
+          />
           <button
             onClick={handleBuyNow}
             disabled={submitting || isOutOfStock}

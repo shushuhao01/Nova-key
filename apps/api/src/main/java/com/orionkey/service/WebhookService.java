@@ -30,4 +30,14 @@ public interface WebhookService {
      * @return "success" 表示已确认处理，其他值触发支付宝重试
      */
     String processAlipayCallback(Map<String, String> params);
+
+    /**
+     * 处理微信商家转账结果回调（APIv3 通知，含平台证书验签与资源解密）。
+     * 转账成功/失败状态同步到提现记录（分销佣金提现到账确认）。
+     *
+     * @param headers 回调请求头（键已转为小写，含 wechatpay-* 签名头）
+     * @param rawBody 原始请求体
+     * @return "SUCCESS" 表示已确认处理，其他值触发微信重试
+     */
+    String processWxpayTransferCallback(Map<String, String> headers, String rawBody);
 }

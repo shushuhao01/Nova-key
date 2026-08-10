@@ -101,6 +101,7 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
       },
       { key: "notify_url", label: "支付回调地址", placeholder: "系统自动生成", readonly: true, copyable: true, hint: "支付成功后微信会回调此地址，请确保服务器可访问；请在微信商户平台「产品中心 → 开发配置」中绑定该回调地址" },
       { key: "h5_enabled", label: "H5支付（手机浏览器拉起微信App）", placeholder: "关闭时手机端显示二维码", type: "switch", hint: "开启后手机浏览器（Safari/Chrome）选微信支付会自动拉起微信App；需在微信商户平台开通H5支付权限，未开通时保持关闭即可" },
+      { key: "transfer_scene_id", label: "商家转账场景ID（佣金报酬）", placeholder: "例如：1005", hint: "分销提现「商家转账到零钱」使用的转账场景ID，佣金报酬场景默认为 1005；需在微信商户平台「商家转账到零钱」中确认该场景已开通" },
     ],
   },
   {

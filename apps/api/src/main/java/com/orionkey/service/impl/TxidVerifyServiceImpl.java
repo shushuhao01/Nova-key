@@ -9,6 +9,7 @@ import com.orionkey.entity.UnmatchedTransaction;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.UnmatchedTransactionRepository;
+import com.orionkey.service.DistributionService;
 import com.orionkey.service.NotificationService;
 import com.orionkey.service.TxidVerifyService;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,7 @@ public class TxidVerifyServiceImpl implements TxidVerifyService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final NotificationService notificationService;
+    private final DistributionService distributionService;
 
     /**
      * TRC20 USDT 合约地址
@@ -153,6 +155,12 @@ public class TxidVerifyServiceImpl implements TxidVerifyService {
             }
             saveUnmatched(order, txid, chain, VerifyResult.AUTO_APPROVED,
                     "AUTO_APPROVED", tx.from, tx.to, tx.amount);
+            // 分销佣金计算（USDT 链上验证通过即支付成功）
+            try {
+                distributionService.onOrderPaid(order.getId());
+            } catch (Exception e) {
+                log.error("Failed to calculate commission for order {}: {}", order.getId(), e.getMessage());
+            }
             // 管理员通知：订单支付成功（USDT 自动通过）
             try {
                 BigDecimal amount = order.getActualAmount() != null ? order.getActualAmount() : order.getTotalAmount();

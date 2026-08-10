@@ -12,6 +12,7 @@ import com.orionkey.repository.OrderItemRepository;
 import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.UserRepository;
 import com.orionkey.service.AdminOrderService;
+import com.orionkey.service.DistributionService;
 import com.orionkey.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     private final OrderItemRepository orderItemRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final DistributionService distributionService;
 
     @Override
     public PageResult<?> listOrders(String status, String orderType, String paymentMethod,
@@ -76,6 +78,12 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         order.setStatus(OrderStatus.PAID);
         order.setPaidAt(LocalDateTime.now());
         orderRepository.save(order);
+        // 分销佣金计算（管理员手动标记已支付也属于支付成功路径）
+        try {
+            distributionService.onOrderPaid(order.getId());
+        } catch (Exception e) {
+            log.error("Failed to calculate commission for order {}: {}", order.getId(), e.getMessage());
+        }
         // 管理员通知：订单支付成功
         try {
             BigDecimal amount = order.getActualAmount() != null ? order.getActualAmount() : order.getTotalAmount();

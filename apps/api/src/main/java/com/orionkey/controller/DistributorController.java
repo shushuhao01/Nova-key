@@ -1,0 +1,113 @@
+package com.orionkey.controller;
+
+import com.orionkey.common.ApiResponse;
+import com.orionkey.context.RequestContext;
+import com.orionkey.service.DistributionService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/distributor")
+@RequiredArgsConstructor
+public class DistributorController {
+
+    private final DistributionService distributionService;
+
+    // ── 分销员申请 ──
+    @PostMapping("/apply")
+    public ApiResponse<?> apply(@RequestBody(required = false) Map<String, Object> request) {
+        String inviteCode = request != null ? (String) request.get("invite_code") : null;
+        return ApiResponse.success(distributionService.applyDistributor(RequestContext.getUserId(), inviteCode));
+    }
+
+    // ── 分销员信息 ──
+    @GetMapping("/profile")
+    public ApiResponse<?> getProfile() {
+        return ApiResponse.success(distributionService.getDistributorProfile(RequestContext.getUserId()));
+    }
+
+    // ── 统计数据 ──
+    @GetMapping("/stats")
+    public ApiResponse<?> getStats() {
+        return ApiResponse.success(distributionService.getDistributorStats(RequestContext.getUserId()));
+    }
+
+    // ── 推广商品 ──
+    @GetMapping("/products")
+    public ApiResponse<?> listPromotionProducts(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        return ApiResponse.success(distributionService.listPromotionProducts(page, pageSize));
+    }
+
+    @GetMapping("/products/mine")
+    public ApiResponse<?> listMyPromotionProducts(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        return ApiResponse.success(distributionService.listMyPromotionProducts(RequestContext.getUserId(), page, pageSize));
+    }
+
+    @PostMapping("/products/{productId}/link")
+    public ApiResponse<?> generatePromotionLink(@PathVariable UUID productId) {
+        return ApiResponse.success(distributionService.generatePromotionLink(RequestContext.getUserId(), productId));
+    }
+
+    // ── 全店推广 ──
+    @PostMapping("/store/link")
+    public ApiResponse<?> generateStoreLink() {
+        return ApiResponse.success(distributionService.generateStoreLink(RequestContext.getUserId()));
+    }
+
+    // ── 我的推广链接 ──
+    @GetMapping("/links")
+    public ApiResponse<?> listMyLinks(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        return ApiResponse.success(distributionService.listMyLinks(RequestContext.getUserId(), page, pageSize));
+    }
+
+    // ── 佣金明细 ──
+    @GetMapping("/commissions")
+    public ApiResponse<?> listMyCommissions(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        return ApiResponse.success(distributionService.listMyCommissions(RequestContext.getUserId(), status, page, pageSize));
+    }
+
+    // ── 提现 ──
+    @PostMapping("/withdrawals")
+    public ApiResponse<?> applyWithdrawal(@RequestBody Map<String, Object> request) {
+        BigDecimal amount = new BigDecimal(request.get("amount").toString());
+        return ApiResponse.success(distributionService.applyWithdrawal(RequestContext.getUserId(), amount));
+    }
+
+    @GetMapping("/withdrawals")
+    public ApiResponse<?> listMyWithdrawals(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        return ApiResponse.success(distributionService.listMyWithdrawals(RequestContext.getUserId(), page, pageSize));
+    }
+
+    // ── 下级分销员 ──
+    @GetMapping("/subordinates")
+    public ApiResponse<?> listSubordinates(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        return ApiResponse.success(distributionService.listSubordinates(RequestContext.getUserId(), page, pageSize));
+    }
+
+    // ── 客户管理 ──
+    @GetMapping("/customers")
+    public ApiResponse<?> listMyCustomers(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        return ApiResponse.success(distributionService.listMyCustomers(RequestContext.getUserId(), page, pageSize));
+    }
+}

@@ -186,53 +186,19 @@ public class WxpayServiceImpl implements WxpayService {
     @Override
     public WxpayNotificationResult decryptNotification(WxpayConfig config, Map<String, String> headers, String rawBody) {
         try {
-            String timestamp = headers.get("wechatpay-timestamp");
-            String nonce = headers.get("wechatpay-nonce");
-            String signature = headers.get("wechatpay-signature");
-            String serial = headers.get("wechatpay-serial");
-            if (timestamp == null || nonce == null || signature == null || serial == null) {
-                log.warn("Wxpay notification missing signature headers");
+            Map<String, Object> resource = verifyAndDecryptResource(config, headers, rawBody);
+            if (resource == null) {
                 return null;
             }
-
-            // 1. 平台证书验签
-            X509Certificate platformCert = getPlatformCertificate(config, serial);
-            if (platformCert == null) {
-                return null;
-            }
-            String message = timestamp + "\n" + nonce + "\n" + rawBody + "\n";
-            Signature sig = Signature.getInstance("SHA256withRSA");
-            sig.initVerify(platformCert.getPublicKey());
-            sig.update(message.getBytes(StandardCharsets.UTF_8));
-            if (!sig.verify(Base64.getDecoder().decode(signature))) {
-                log.warn("Wxpay notification signature verification failed, serial={}", serial);
-                return null;
-            }
-
-            // 2. 解密资源内容
             Map<String, Object> root = objectMapper.readValue(rawBody, new TypeReference<>() {
             });
             String id = root.get("id") != null ? root.get("id").toString() : null;
             String eventType = root.get("event_type") != null ? root.get("event_type").toString() : null;
-            if (!(root.get("resource") instanceof Map<?, ?> resource)) {
-                return null;
-            }
-            String algorithm = resource.get("algorithm") != null ? resource.get("algorithm").toString() : null;
-            String resNonce = resource.get("nonce") != null ? resource.get("nonce").toString() : null;
-            String associatedData = resource.get("associated_data") != null ? resource.get("associated_data").toString() : null;
-            String ciphertext = resource.get("ciphertext") != null ? resource.get("ciphertext").toString() : null;
-            if (!"AEAD_AES_256_GCM".equals(algorithm) || resNonce == null || ciphertext == null) {
-                log.warn("Wxpay notification unsupported resource format");
-                return null;
-            }
-            String decrypted = PaymentCryptoUtils.decryptAesGcm(config.apiV3Key(), resNonce, associatedData, ciphertext);
-            Map<String, Object> pay = objectMapper.readValue(decrypted, new TypeReference<>() {
-            });
-            String outTradeNo = pay.get("out_trade_no") != null ? pay.get("out_trade_no").toString() : null;
-            String transactionId = pay.get("transaction_id") != null ? pay.get("transaction_id").toString() : null;
-            String tradeState = pay.get("trade_state") != null ? pay.get("trade_state").toString() : null;
+            String outTradeNo = resource.get("out_trade_no") != null ? resource.get("out_trade_no").toString() : null;
+            String transactionId = resource.get("transaction_id") != null ? resource.get("transaction_id").toString() : null;
+            String tradeState = resource.get("trade_state") != null ? resource.get("trade_state").toString() : null;
             Integer total = null;
-            if (pay.get("amount") instanceof Map<?, ?> am && am.get("total") instanceof Number n) {
+            if (resource.get("amount") instanceof Map<?, ?> am && am.get("total") instanceof Number n) {
                 total = n.intValue();
             }
             return new WxpayNotificationResult(id, eventType, outTradeNo, tradeState, total, transactionId);
@@ -240,6 +206,74 @@ public class WxpayServiceImpl implements WxpayService {
             log.warn("Wxpay notification processing failed: {}", e.getMessage());
             return null;
         }
+    }
+
+    @Override
+    public WxpayTransferNotificationResult decryptTransferNotification(WxpayConfig config, Map<String, String> headers, String rawBody) {
+        try {
+            Map<String, Object> resource = verifyAndDecryptResource(config, headers, rawBody);
+            if (resource == null) {
+                return null;
+            }
+            Map<String, Object> root = objectMapper.readValue(rawBody, new TypeReference<>() {
+            });
+            String id = root.get("id") != null ? root.get("id").toString() : null;
+            String outBillNo = resource.get("out_bill_no") != null ? resource.get("out_bill_no").toString() : null;
+            String state = resource.get("state") != null ? resource.get("state").toString() : null;
+            String failReason = resource.get("fail_reason") != null ? resource.get("fail_reason").toString() : null;
+            return new WxpayTransferNotificationResult(id, outBillNo, state, failReason);
+        } catch (Exception e) {
+            log.warn("Wxpay transfer notification processing failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 微信 APIv3 通知通用处理：平台证书验签 + APIv3 密钥 AES-256-GCM 解密资源内容。
+     *
+     * @return 解密后的资源内容（Map）；验签/解密失败或头部缺失返回 null
+     */
+    private Map<String, Object> verifyAndDecryptResource(WxpayConfig config, Map<String, String> headers, String rawBody) throws Exception {
+        String timestamp = headers.get("wechatpay-timestamp");
+        String nonce = headers.get("wechatpay-nonce");
+        String signature = headers.get("wechatpay-signature");
+        String serial = headers.get("wechatpay-serial");
+        if (timestamp == null || nonce == null || signature == null || serial == null) {
+            log.warn("Wxpay notification missing signature headers");
+            return null;
+        }
+
+        // 1. 平台证书验签
+        X509Certificate platformCert = getPlatformCertificate(config, serial);
+        if (platformCert == null) {
+            return null;
+        }
+        String message = timestamp + "\n" + nonce + "\n" + rawBody + "\n";
+        Signature sig = Signature.getInstance("SHA256withRSA");
+        sig.initVerify(platformCert.getPublicKey());
+        sig.update(message.getBytes(StandardCharsets.UTF_8));
+        if (!sig.verify(Base64.getDecoder().decode(signature))) {
+            log.warn("Wxpay notification signature verification failed, serial={}", serial);
+            return null;
+        }
+
+        // 2. 解密资源内容
+        Map<String, Object> root = objectMapper.readValue(rawBody, new TypeReference<>() {
+        });
+        if (!(root.get("resource") instanceof Map<?, ?> resource)) {
+            return null;
+        }
+        String algorithm = resource.get("algorithm") != null ? resource.get("algorithm").toString() : null;
+        String resNonce = resource.get("nonce") != null ? resource.get("nonce").toString() : null;
+        String associatedData = resource.get("associated_data") != null ? resource.get("associated_data").toString() : null;
+        String ciphertext = resource.get("ciphertext") != null ? resource.get("ciphertext").toString() : null;
+        if (!"AEAD_AES_256_GCM".equals(algorithm) || resNonce == null || ciphertext == null) {
+            log.warn("Wxpay notification unsupported resource format");
+            return null;
+        }
+        String decrypted = PaymentCryptoUtils.decryptAesGcm(config.apiV3Key(), resNonce, associatedData, ciphertext);
+        return objectMapper.readValue(decrypted, new TypeReference<>() {
+        });
     }
 
     @Override
@@ -323,6 +357,62 @@ public class WxpayServiceImpl implements WxpayService {
 
     private static boolean isNotBlank(String s) {
         return s != null && !s.isBlank();
+    }
+
+    @Override
+    public WxpayTransferResult createTransfer(WxpayConfig config, String outBillNo, String openid,
+                                              BigDecimal amount, String remark, String notifyUrl) {
+        String canonicalPath = "/v3/transfer/batches";
+        String gateway = trimSlash(config.gatewayUrl());
+
+        int totalCents = amount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        if (totalCents <= 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "转账金额必须大于 0");
+        }
+        if (openid == null || openid.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "收款人 openid 不能为空");
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("appid", config.appid());
+        body.put("out_bill_no", outBillNo);
+        // 转账场景ID：佣金报酬默认 1005，可从渠道配置读取
+        String sceneId = isNotBlank(config.transferSceneId()) ? config.transferSceneId() : "1005";
+        body.put("transfer_scene_id", sceneId);
+        body.put("openid", openid);
+        body.put("transfer_amount", totalCents);
+        body.put("transfer_remark", remark != null && !remark.isBlank() ? remark : "佣金提现");
+        body.put("notify_url", notifyUrl);
+        // 用户收款感知文案
+        body.put("user_recv_perception", "佣金提现");
+
+        try {
+            String jsonBody = objectMapper.writeValueAsString(body);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    gateway + canonicalPath, HttpMethod.POST,
+                    new HttpEntity<>(jsonBody, apiV3Headers(config, "POST", canonicalPath, jsonBody)),
+                    String.class);
+            Map<String, Object> resp = objectMapper.readValue(response.getBody(), new TypeReference<>() {
+            });
+            String transferBillNo = resp.get("transfer_bill_no") != null ? resp.get("transfer_bill_no").toString() : null;
+            String state = resp.get("state") != null ? resp.get("state").toString() : null;
+            String packageInfo = resp.get("package_info") != null ? resp.get("package_info").toString() : null;
+            if (transferBillNo == null && packageInfo == null) {
+                log.error("Wxpay transfer failed: outBillNo={}, resp={}", outBillNo, response.getBody());
+                throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信转账失败：" + response.getBody());
+            }
+            log.info("Wxpay transfer created: outBillNo={}, state={}, transferBillNo={}", outBillNo, state, transferBillNo);
+            return new WxpayTransferResult(outBillNo, transferBillNo, state, packageInfo);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (HttpClientErrorException e) {
+            String detail = extractWxErrorDetail(e);
+            log.error("Wxpay transfer API error: outBillNo={}, status={}, detail={}", outBillNo, e.getStatusCode().value(), detail);
+            throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信转账失败：" + detail);
+        } catch (Exception e) {
+            log.error("Wxpay transfer API error: outBillNo={}, error={}", outBillNo, e.getMessage());
+            throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信转账失败：网络错误");
+        }
     }
 
     /** 从微信 APIv3 错误响应体中提取 message 字段（如签名错误的具体原因） */

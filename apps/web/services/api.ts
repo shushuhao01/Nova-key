@@ -800,6 +800,127 @@ export const adminTxidReviewApi = {
 export { ApiError }
 
 // ============================================================
+// Distribution — Admin
+// ============================================================
+
+export const adminDistributionApi = {
+  getOverview: () => request<any>("/admin/distribution/overview"),
+  getRules: () => request<any>("/admin/distribution/rules"),
+  updateRules: (data: Record<string, any>) =>
+    request<void>("/admin/distribution/rules", { method: "PUT", body: JSON.stringify(data) }),
+  getTiers: () => request<any[]>("/admin/distribution/tiers"),
+  updateTiers: (tiers: any[]) =>
+    request<void>("/admin/distribution/tiers", { method: "PUT", body: JSON.stringify({ tiers }) }),
+  listDistributors: (params: { status?: string; keyword?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/admin/distribution/distributors?${qs}`)
+  },
+  getDistributor: (id: string) => request<any>(`/admin/distribution/distributors/${id}`),
+  updateDistributorStatus: (id: string, status: string, reason?: string) =>
+    request<void>(`/admin/distribution/distributors/${id}/status`, { method: "PUT", body: JSON.stringify({ status, reason: reason || "" }) }),
+  updateDistributorRate: (id: string, custom_rate?: number, sub_rate?: number) =>
+    request<void>(`/admin/distribution/distributors/${id}/rate`, { method: "PUT", body: JSON.stringify({ custom_rate, sub_rate }) }),
+  listProducts: (params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/admin/distribution/products?${qs}`)
+  },
+  updateProductCommission: (productId: string, custom_rate?: number | null, excluded?: boolean) =>
+    request<void>(`/admin/distribution/products/${productId}`, { method: "PUT", body: JSON.stringify({ custom_rate, excluded }) }),
+  listCommissions: (params: { distributor_id?: string; status?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/admin/distribution/commissions?${qs}`)
+  },
+  commissionStats: () => request<any>("/admin/distribution/commissions/stats"),
+  listWithdrawals: (params: { status?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/admin/distribution/withdrawals?${qs}`)
+  },
+  approveWithdrawal: (id: string) =>
+    request<void>(`/admin/distribution/withdrawals/${id}/approve`, { method: "PUT" }),
+  rejectWithdrawal: (id: string, reason: string) =>
+    request<void>(`/admin/distribution/withdrawals/${id}/reject`, { method: "PUT", body: JSON.stringify({ reason }) }),
+  settleWithdrawal: (id: string, actualAmount?: number) =>
+    request<void>(`/admin/distribution/withdrawals/${id}/settle`, {
+      method: "PUT",
+      body: JSON.stringify(actualAmount != null ? { actual_amount: actualAmount } : {}),
+    }),
+}
+
+// ============================================================
+// Distribution — Distributor (前台)
+// ============================================================
+
+export const distributorApi = {
+  apply: (invite_code?: string) =>
+    request<any>("/distributor/apply", { method: "POST", body: JSON.stringify({ invite_code }) }),
+  getProfile: () => request<any>("/distributor/profile"),
+  getStats: () => request<any>("/distributor/stats"),
+  listProducts: (params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/distributor/products?${qs}`)
+  },
+  listMyProducts: (params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/distributor/products/mine?${qs}`)
+  },
+  generateLink: (productId: string) =>
+    request<any>(`/distributor/products/${productId}/link`, { method: "POST" }),
+  generateStoreLink: () =>
+    request<any>("/distributor/store/link", { method: "POST" }),
+  listLinks: (params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/distributor/links?${qs}`)
+  },
+  listCommissions: (params: { status?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/distributor/commissions?${qs}`)
+  },
+  applyWithdrawal: (amount: number) =>
+    request<any>("/distributor/withdrawals", { method: "POST", body: JSON.stringify({ amount }) }),
+  listWithdrawals: (params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/distributor/withdrawals?${qs}`)
+  },
+  listSubordinates: (params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/distributor/subordinates?${qs}`)
+  },
+  listCustomers: (params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/distributor/customers?${qs}`)
+  },
+}
+
+// ============================================================
+// Distribution — Public
+// ============================================================
+
+export const distributionApi = {
+  resolveLink: (linkCode: string) => request<any>(`/distribution/resolve/${linkCode}`),
+  commissionPreview: (productIds: string[]) =>
+    request<any>(`/distribution/commission-preview?product_ids=${productIds.join(",")}`),
+}
+
+// ============================================================
+// User Messages (铃铛)
+// ============================================================
+
+export const userMessageApi = {
+  unreadCount: () => request<{ count: number }>("/user/messages/unread-count"),
+  recent: () => request<any[]>("/user/messages/recent"),
+  list: (params: { category?: string; unreadOnly?: boolean; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/user/messages?${qs}`)
+  },
+  markRead: (id: string) =>
+    request<void>(`/user/messages/${id}/read`, { method: "PUT" }),
+  markAllRead: () =>
+    request<void>("/user/messages/read-all", { method: "PUT" }),
+  clearAll: () =>
+    request<void>("/user/messages", { method: "DELETE" }),
+}
+
+// ============================================================
 // Error code → i18n key mapping
 // ============================================================
 

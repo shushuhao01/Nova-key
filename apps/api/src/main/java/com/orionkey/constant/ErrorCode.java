@@ -58,4 +58,15 @@ public final class ErrorCode {
     public static final int CARD_KEY_FORMAT_ERROR = 70003;
     public static final int CARD_KEY_DUPLICATE = 70004;
     public static final int PAYMENT_CONFIG_INCOMPLETE = 70005;
+
+    // ── Distribution 80001~80099 ──
+    public static final int DISTRIBUTOR_NOT_FOUND = 80001;
+    public static final int DISTRIBUTOR_ALREADY_EXISTS = 80002;
+    public static final int DISTRIBUTOR_NOT_APPROVED = 80003;
+    public static final int DISTRIBUTOR_DISABLED = 80004;
+    public static final int INSUFFICIENT_BALANCE = 80005;
+    public static final int WITHDRAWAL_AMOUNT_TOO_SMALL = 80006;
+    public static final int WECHAT_NOT_BOUND = 80007;
+    public static final int DISTRIBUTION_DISABLED = 80008;
+    public static final int PRODUCT_EXCLUDED = 80009;
 }

@@ -3,9 +3,10 @@
 import { useCallback, useRef, useState, useEffect } from "react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
-import { ShoppingCart, User, LogIn, Menu, X, Globe, Moon, Sun, Package, Search, Settings, ChevronDown, SlidersHorizontal, LogOut, ClipboardList } from "lucide-react"
+import { ShoppingCart, User, LogIn, Menu, X, Globe, Moon, Sun, Package, Search, Settings, ChevronDown, SlidersHorizontal, LogOut, ClipboardList, Bell, TrendingUp } from "lucide-react"
 import { useAuth, useLocale, useTheme, useColorScheme, useSearch, useCart, useSiteConfig, COLOR_SCHEMES, type SortKey } from "@/lib/context"
 import { cn } from "@/lib/utils"
+import { userMessageApi } from "@/services/api"
 
 interface StoreHeaderProps {
   siteName?: string
@@ -32,6 +33,7 @@ export function StoreHeader({ siteName }: StoreHeaderProps) {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [colorPickerOpen, setColorPickerOpen] = useState(false)
   const [sortOpen, setSortOpen] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const sortRef = useRef<HTMLDivElement>(null)
 
@@ -52,6 +54,23 @@ export function StoreHeader({ siteName }: StoreHeaderProps) {
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
   }, [searchOpen, closeSearch])
+
+  // 轮询消息未读数（登录用户，每30秒）
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setUnreadCount(0)
+      return
+    }
+    let cancelled = false
+    const fetchUnread = () => {
+      userMessageApi.unreadCount()
+        .then(data => { if (!cancelled) setUnreadCount(data?.count ?? 0) })
+        .catch(() => {})
+    }
+    fetchUnread()
+    const timer = setInterval(fetchUnread, 30000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [isLoggedIn])
 
   // Close sort dropdown on outside click
   useEffect(() => {
@@ -238,6 +257,22 @@ export function StoreHeader({ siteName }: StoreHeaderProps) {
             )}
           </Link>
 
+          {/* Message Bell — 登录用户显示消息铃铛 */}
+          {isLoggedIn && (
+            <Link
+              href="/my/messages"
+              className="relative hidden h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground sm:inline-flex"
+              aria-label="消息中心"
+            >
+              <Bell className="h-4 w-4" />
+              {unreadCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </Link>
+          )}
+
           {/* User / Auth — auth 未就绪时显示占位，避免登录按钮闪烁 */}
           {!authLoaded ? (
             <div className="h-9 w-9 animate-pulse rounded-md bg-muted" />
@@ -259,6 +294,17 @@ export function StoreHeader({ siteName }: StoreHeaderProps) {
                     </Link>
                     <Link href="/my/orders" onClick={() => setUserMenuOpen(false)} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-popover-foreground hover:bg-accent">
                       <Search className="h-4 w-4" />{t("nav.myOrders")}
+                    </Link>
+                    <Link href="/my/distribution" onClick={() => setUserMenuOpen(false)} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-popover-foreground hover:bg-accent">
+                      <TrendingUp className="h-4 w-4" />分销中心
+                    </Link>
+                    <Link href="/my/messages" onClick={() => setUserMenuOpen(false)} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-popover-foreground hover:bg-accent">
+                      <Bell className="h-4 w-4" />消息中心
+                      {unreadCount > 0 && (
+                        <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                          {unreadCount > 99 ? "99+" : unreadCount}
+                        </span>
+                      )}
                     </Link>
                     {(user?.role === "ADMIN" || (user?.permissions ?? []).includes("BACKEND_ACCESS")) && (
                       <Link href="/admin/dashboard" onClick={() => setUserMenuOpen(false)} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-popover-foreground hover:bg-accent">

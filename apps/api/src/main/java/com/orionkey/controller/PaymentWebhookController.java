@@ -82,4 +82,31 @@ public class PaymentWebhookController {
         }
         return ResponseEntity.ok(result);
     }
+
+    /**
+     * 微信商家转账结果回调（分销佣金提现到账确认）— POST JSON，成功返回 "SUCCESS"，失败返回 500 触发微信重试
+     */
+    @PostMapping(value = "/wxpay-transfer", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> handleWxpayTransferCallback(HttpServletRequest request) {
+        Map<String, String> headers = new HashMap<>();
+        var headerNames = request.getHeaderNames();
+        while (headerNames.hasMoreElements()) {
+            String name = headerNames.nextElement();
+            headers.put(name.toLowerCase(), request.getHeader(name));
+        }
+        String rawBody;
+        try (var is = request.getInputStream()) {
+            rawBody = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.error("Wxpay transfer callback failed to read body", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("FAIL");
+        }
+        log.info("Wxpay transfer callback received, headers={}, body={}", headers, rawBody);
+
+        String result = webhookService.processWxpayTransferCallback(headers, rawBody);
+        if ("FAIL".equals(result)) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("FAIL");
+        }
+        return ResponseEntity.ok(result);
+    }
 }

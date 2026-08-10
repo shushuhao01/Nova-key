@@ -11,6 +11,7 @@ import com.orionkey.entity.UnmatchedTransaction;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.UnmatchedTransactionRepository;
+import com.orionkey.service.DistributionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -28,6 +29,7 @@ public class AdminTxidReviewController {
 
     private final UnmatchedTransactionRepository unmatchedTransactionRepository;
     private final OrderRepository orderRepository;
+    private final DistributionService distributionService;
 
     @GetMapping
     public ApiResponse<?> listTxidReviews(
@@ -98,6 +100,12 @@ public class AdminTxidReviewController {
                 order.setUsdtTxId(ut.getTxid());
                 orderRepository.save(order);
                 log.info("TXID review approved: order {} marked as PAID", ut.getOrderId());
+                // 分销佣金计算（人工审核通过也属于支付成功路径）
+                try {
+                    distributionService.onOrderPaid(order.getId());
+                } catch (Exception e) {
+                    log.error("Failed to calculate commission for order {}: {}", order.getId(), e.getMessage());
+                }
             }
         }
 
