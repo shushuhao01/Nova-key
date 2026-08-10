@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Share2, X, Copy, Check, Image as ImageIcon } from "lucide-react"
+import { Share2, X, Copy, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth, useLocale } from "@/lib/context"
 import { toast } from "sonner"
@@ -78,10 +78,9 @@ export function ShareCommissionButton({ productId, productTitle, productPrice }:
   const [linkUrl, setLinkUrl] = useState("")
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
-  // 已审核分销员 → 显示"生成推广海报"（与分销中心商品海报一致）
-  const [isDistributor, setIsDistributor] = useState(false)
+  // 已审核分销员 → 点击直接弹出与分销中心一致的商品海报（可下载/分享/复制链接）
   const [poster, setPoster] = useState<any>(null)
-  const [posterLoading, setPosterLoading] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -103,39 +102,34 @@ export function ShareCommissionButton({ productId, productTitle, productPrice }:
       toast.info("请先登录后再分享赚佣金")
       return
     }
-    setModalOpen(true)
-    setLoading(true)
+    setBusy(true)
     try {
-      const result = await distributorApi.generateLink(productId)
-      const url = `${window.location.origin}/p/${result.link_code}`
-      setLinkUrl(url)
-      // 检测是否已审核分销员（决定是否展示"生成推广海报"入口，海报与分销中心一致）
-      try {
-        const profile = await distributorApi.getProfile()
-        setIsDistributor(profile?.status === "APPROVED")
-      } catch {
-        setIsDistributor(false)
+      // 检测是否已审核分销员：是 → 直接弹出与分销中心一致的商品海报（下载/分享/复制链接齐全）
+      let profile: any = null
+      try { profile = await distributorApi.getProfile() } catch { profile = null }
+      if (profile?.status === "APPROVED") {
+        const res = await distributorApi.generateProductPoster(productId)
+        setPoster(res)
+        return
       }
-    } catch (err) {
-      toast.error(getApiErrorMessage(err, t) || "生成推广链接失败")
-      setModalOpen(false)
-    } finally {
-      setLoading(false)
-    }
-  }, [user, productId, t])
-
-  // 生成商品推广海报（复用分销中心同款 Canvas 海报）
-  const handleGeneratePoster = useCallback(async () => {
-    setPosterLoading(true)
-    try {
-      const res = await distributorApi.generateProductPoster(productId)
-      setPoster(res)
+      // 非分销员 → 原弹窗：推广链接 + 二维码
+      setModalOpen(true)
+      setLoading(true)
+      try {
+        const result = await distributorApi.generateLink(productId)
+        setLinkUrl(`${window.location.origin}/p/${result.link_code}`)
+      } catch (err) {
+        toast.error(getApiErrorMessage(err, t) || "生成推广链接失败")
+        setModalOpen(false)
+      } finally {
+        setLoading(false)
+      }
     } catch (err) {
       toast.error(getApiErrorMessage(err, t) || "生成海报失败")
     } finally {
-      setPosterLoading(false)
+      setBusy(false)
     }
-  }, [productId, t])
+  }, [user, productId, t])
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(linkUrl)
@@ -150,9 +144,14 @@ export function ShareCommissionButton({ productId, productTitle, productPrice }:
     <>
       <button
         onClick={handleShare}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-60 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
       >
-        <Share2 className="h-4 w-4" />
+        {busy ? (
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
+        ) : (
+          <Share2 className="h-4 w-4" />
+        )}
         分享赚 ¥{amount.toFixed(2)}
       </button>
 
@@ -213,22 +212,6 @@ export function ShareCommissionButton({ productId, productTitle, productPrice }:
                   </div>
                   <p className="text-xs text-muted-foreground">扫码或复制链接分享给好友</p>
                 </div>
-
-                {/* 已审核分销员：生成与分销中心一致的商品推广海报 */}
-                {isDistributor && (
-                  <button
-                    onClick={handleGeneratePoster}
-                    disabled={posterLoading}
-                    className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
-                  >
-                    {posterLoading ? (
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                    ) : (
-                      <ImageIcon className="h-4 w-4" />
-                    )}
-                    生成推广海报
-                  </button>
-                )}
               </>
             )}
           </div>
