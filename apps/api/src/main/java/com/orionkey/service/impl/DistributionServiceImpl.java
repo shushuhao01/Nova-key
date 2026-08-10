@@ -19,6 +19,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -362,7 +363,9 @@ public class DistributionServiceImpl implements DistributionService {
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> adminListProductCommissions(int page, int pageSize, String keyword) {
-        Pageable pageable = toPageable(page, pageSize);
+        // 最新添加的商品排在前面
+        Pageable pageable = PageRequest.of(Math.max(page - 1, 0), Math.min(Math.max(pageSize, 1), 100),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
         String kw = keyword != null && !keyword.isBlank() ? "%" + keyword.trim().toLowerCase() + "%" : null;
         Page<Product> pp = kw == null
                 ? productRepository.findAdminProducts(null, null, pageable)
@@ -801,9 +804,10 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> listPromotionProducts(int page, int pageSize) {
         DistributionRule rule = getOrCreateRule();
         List<Product> all = productRepository.findPublicProducts(null, Pageable.unpaged()).getContent();
-        // 仅展示已开启分销（存在 product_commission 且未排除）的商品
+        // 仅展示已开启分销（存在 product_commission 且未排除）的商品，最新添加的排在前面
         List<Product> distributable = all.stream()
                 .filter(p -> isProductDistributable(p.getId()))
+                .sorted(Comparator.comparing(Product::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
         List<Map<String, Object>> items = paginate(distributable, page, pageSize).stream().map(p -> {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -831,6 +835,8 @@ public class DistributionServiceImpl implements DistributionService {
         Page<PromotionLink> lp = promotionLinkRepository.findByDistributorId(d.getId(), Pageable.unpaged());
 
         List<Map<String, Object>> all = lp.getContent().stream()
+                // 最新推广的商品排在前面
+                .sorted(Comparator.comparing(PromotionLink::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .filter(pl -> pl.getProductId() != null)
                 // 仅展示仍在分销的商品（已取消分销的推广商品不再可见）
                 .filter(pl -> isProductDistributable(pl.getProductId()))
@@ -1271,7 +1277,10 @@ public class DistributionServiceImpl implements DistributionService {
     @Transactional(readOnly = true)
     public Map<String, Object> listSubordinates(UUID userId, int page, int pageSize) {
         Distributor d = requireDistributorByUserId(userId);
-        List<Distributor> subs = distributorRepository.findByParentId(d.getId());
+        // 最新加入的下级排在前面
+        List<Distributor> subs = distributorRepository.findByParentId(d.getId()).stream()
+                .sorted(Comparator.comparing(Distributor::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
         // 手动分页
         int from = Math.min((page - 1) * pageSize, subs.size());
         int to = Math.min(from + pageSize, subs.size());
