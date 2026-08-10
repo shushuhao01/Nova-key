@@ -1185,70 +1185,99 @@ function PosterModal({
         ctx.font = "13px sans-serif"
         ctx.fillText(truncate(linkUrl, 60), W / 2, H - 64)
       } else {
-        // 全店海报：中间热销商品
+        // 全店海报：热销商品竖排卡片 + 促销词（不绘制中间大二维码，底部号召区保留唯一二维码）
         ctx.fillStyle = "#111827"
         ctx.font = "bold 26px sans-serif"
-        ctx.fillText("热销推荐", W / 2, 150)
+        ctx.fillText("热销推荐", W / 2, 148)
         ctx.fillStyle = "#9ca3af"
         ctx.font = "14px sans-serif"
-        ctx.fillText("为你精选 3 款好物", W / 2, 176)
+        ctx.fillText("为你精选 3 款好物", W / 2, 174)
 
         const hot: any[] = (data?.hot_products || []).slice(0, 3)
-        const cw = 176
-        const gap = 14
-        const startX = (W - cw * 3 - gap * 2) / 2
-        const coverY = 200
+        const cardX = 48
+        const cardW = W - cardX * 2
+        const cardH = 110
+        const cardGap = 14
+        const coverSize = 94
+        const startY = 200
         if (hot.length === 0) {
           ctx.fillStyle = "#9ca3af"
           ctx.font = "18px sans-serif"
-          ctx.fillText("（暂无推广商品）", W / 2, coverY + 70)
+          ctx.fillText("（暂无推广商品）", W / 2, startY + 70)
         }
         hot.forEach((hp: any, i: number) => {
-          const x = startX + i * (cw + gap)
+          const y = startY + i * (cardH + cardGap)
+          // 卡片底色
+          ctx.fillStyle = "#f9fafb"
+          roundRect(cardX, y, cardW, cardH, 14)
+          // 商品封面（左侧圆角图）
           const img = hp.cover_url ? images[hp.cover_url] : undefined
-          ctx.fillStyle = "#f3f4f6"
-          ctx.fillRect(x, coverY, cw, cw)
           if (img) {
-            const iw = img.naturalWidth || cw
-            const ih = img.naturalHeight || cw
-            const scale = Math.max(cw / iw, cw / ih)
+            const iw = img.naturalWidth || coverSize
+            const ih = img.naturalHeight || coverSize
+            const scale = Math.max(coverSize / iw, coverSize / ih)
             const dw = iw * scale
             const dh = ih * scale
-            ctx.drawImage(img, x + (cw - dw) / 2, coverY + (cw - dh) / 2, dw, dh)
+            ctx.save()
+            ctx.beginPath()
+            ctx.roundRect(cardX + 8, y + 8, coverSize, coverSize, 10)
+            ctx.clip()
+            ctx.drawImage(img, cardX + 8 + (coverSize - dw) / 2, y + 8 + (coverSize - dh) / 2, dw, dh)
+            ctx.restore()
+          } else {
+            ctx.fillStyle = "#e5e7eb"
+            ctx.fillRect(cardX + 8, y + 8, coverSize, coverSize)
           }
-          // 商品名（两行）
+          // 商品名（右侧，最多两行，左对齐）
+          ctx.textAlign = "left"
           ctx.fillStyle = "#111827"
-          ctx.font = "18px sans-serif"
-          const lines = clampLines(wrapLines(hp.product_title || "", cw - 8), 2)
-          lines.forEach((l, li) => {
-            ctx.fillText(l, x + cw / 2, coverY + cw + 30 + li * 26)
+          ctx.font = "bold 16px sans-serif"
+          const nameLines = clampLines(wrapLines(hp.product_title || "", cardW - coverSize - 56), 2)
+          nameLines.forEach((l, li) => {
+            ctx.fillText(l, cardX + coverSize + 30, y + 40 + li * 23)
           })
           // 价格
           ctx.fillStyle = "#ef4444"
           ctx.font = "bold 20px sans-serif"
-          ctx.fillText(`¥${Number(hp.base_price || 0).toFixed(2)}`, x + cw / 2, coverY + cw + 32 + lines.length * 26)
+          ctx.fillText(`¥${Number(hp.base_price || 0).toFixed(2)}`, cardX + coverSize + 30, y + 92)
+          // 热销角标
+          const tagW = 44
+          const tagH = 24
+          const tagX = cardX + cardW - tagW - 14
+          const tagY = y + 14
+          ctx.save()
+          ctx.beginPath()
+          ctx.roundRect(tagX, tagY, tagW, tagH, 12)
+          ctx.fillStyle = "rgba(244,63,94,0.12)"
+          ctx.fill()
+          ctx.restore()
+          ctx.fillStyle = "#f43f5e"
+          ctx.font = "bold 13px sans-serif"
+          ctx.textAlign = "center"
+          ctx.fillText(`TOP${i + 1}`, tagX + tagW / 2, tagY + 17)
+          ctx.textAlign = "left"
         })
+        ctx.textAlign = "center"
 
-        // 主二维码 + 引导词
-        const qsize = 220
-        const qx = (W - qsize) / 2
-        const qy = 560
-        ctx.fillStyle = "#ffffff"
-        ctx.strokeStyle = "#e5e7eb"
-        ctx.lineWidth = 2
-        ctx.strokeRect(qx - 10, qy - 10, qsize + 20, qsize + 20)
-        if (qr) {
-          ctx.drawImage(qr, qx, qy, qsize, qsize)
-        } else {
-          ctx.fillStyle = "#f3f4f6"
-          ctx.fillRect(qx, qy, qsize, qsize)
+        // 促销词区
+        const promoY = startY + hot.length * (cardH + cardGap) - cardGap + 26
+        if (hot.length > 0) {
+          ctx.strokeStyle = "#fde68a"
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.moveTo(W / 2 - 120, promoY - 4)
+          ctx.lineTo(W / 2 + 120, promoY - 4)
+          ctx.stroke()
+          ctx.fillStyle = "#f97316"
+          ctx.font = "bold 26px sans-serif"
+          ctx.fillText("爆款直降 · 全场精选", W / 2, promoY + 34)
+          ctx.fillStyle = "#6b7280"
+          ctx.font = "15px sans-serif"
+          ctx.fillText("扫描下方二维码，解锁你的专属优惠", W / 2, promoY + 68)
         }
-        ctx.fillStyle = "#111827"
-        ctx.font = "bold 20px sans-serif"
-        ctx.fillText("长按识别二维码 · 选购更多好物", W / 2, 818)
 
         // 底部号召区：左侧号召行动 + 右侧小二维码
-        const bandY = 866
+        const bandY = 838
         const bandH = 164
         const bandGrad = ctx.createLinearGradient(0, bandY, W, bandY)
         bandGrad.addColorStop(0, "#f97316")

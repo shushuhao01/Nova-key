@@ -210,7 +210,7 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListDistributors(String status, String keyword, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         DistributorStatus statusEnum = parseStatus(status);
-        Page<Distributor> dp = distributorRepository.findAdminList(statusEnum != null ? statusEnum.name() : "",
+        Page<Distributor> dp = distributorRepository.findAdminList(statusEnum,
                 keyword != null ? keyword : "",
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
@@ -525,7 +525,7 @@ public class DistributionServiceImpl implements DistributionService {
         Pageable pageable = toPageable(page, pageSize);
         CommissionStatus statusEnum = parseCommissionStatus(status);
         Page<CommissionRecord> cp = commissionRecordRepository.findAdminList(distributorId,
-                statusEnum != null ? statusEnum.name() : "",
+                statusEnum,
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
                 pageable);
@@ -586,7 +586,7 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListWithdrawals(String status, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         WithdrawalStatus statusEnum = parseWithdrawalStatus(status);
-        Page<WithdrawalRecord> wp = withdrawalRecordRepository.findAdminList(statusEnum != null ? statusEnum.name() : "",
+        Page<WithdrawalRecord> wp = withdrawalRecordRepository.findAdminList(statusEnum,
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
                 pageable);
@@ -1248,7 +1248,7 @@ public class DistributionServiceImpl implements DistributionService {
         Page<CommissionRecord> cp;
         if (statusEnum != null) {
             // 复用 admin 查询（distributorId + status，无时间范围限制）
-            cp = commissionRecordRepository.findAdminList(me, statusEnum.name(), null, null, pageable);
+            cp = commissionRecordRepository.findAdminList(me, statusEnum, null, null, pageable);
         } else {
             cp = commissionRecordRepository.findByDistributorIdOrderByCreatedAtDesc(me, pageable);
         }

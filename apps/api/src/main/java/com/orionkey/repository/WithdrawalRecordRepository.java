@@ -18,11 +18,11 @@ public interface WithdrawalRecordRepository extends JpaRepository<WithdrawalReco
     Page<WithdrawalRecord> findByDistributorIdOrderByCreatedAtDesc(UUID distributorId, Pageable pageable);
 
     @Query("SELECT wr FROM WithdrawalRecord wr WHERE " +
-            "(:status = '' OR wr.status = :status) " +
+            "(:status IS NULL OR wr.status = :status) " +
             "AND (:from IS NULL OR wr.createdAt >= :from) " +
             "AND (:to IS NULL OR wr.createdAt < :to) " +
             "ORDER BY wr.createdAt DESC")
-    Page<WithdrawalRecord> findAdminList(@Param("status") String status,
+    Page<WithdrawalRecord> findAdminList(@Param("status") WithdrawalStatus status,
                                          @Param("from") java.time.LocalDateTime from,
                                          @Param("to") java.time.LocalDateTime to,
                                          Pageable pageable);

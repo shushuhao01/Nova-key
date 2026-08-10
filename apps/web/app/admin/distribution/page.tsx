@@ -1144,7 +1144,7 @@ function ProductsTab() {
                         </div>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{fmtMoney(p.base_price)}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{p.default_rate.toFixed(2)}%</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{Number(p.default_rate ?? 0).toFixed(2)}%</td>
                       <td className="whitespace-nowrap px-4 py-3">
                         {p.custom_rate != null ? (
                           <span className="inline-flex items-center gap-1.5 font-medium text-primary">
@@ -1399,7 +1399,7 @@ function ProductCommissionModal({ product, onClose, onSaved }: {
         </div>
         <div className="mb-4 rounded-lg bg-muted/40 p-3 text-sm">
           <p className="font-medium text-foreground line-clamp-1">{product.product_title}</p>
-          <p className="mt-1 text-xs text-muted-foreground">默认佣金比例：{product.default_rate.toFixed(2)}% · 售价 {fmtMoney(product.base_price)}</p>
+          <p className="mt-1 text-xs text-muted-foreground">默认佣金比例：{Number(product.default_rate ?? 0).toFixed(2)}% · 售价 {fmtMoney(product.base_price)}</p>
         </div>
         <div className="flex flex-col gap-4">
           <div>
@@ -1560,7 +1560,7 @@ function AddDistributionProductModal({ onClose, onSaved }: {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-foreground">{p.product_title}</p>
                       <p className="text-xs text-muted-foreground">
-                        {fmtMoney(p.base_price)} · 默认比例 {p.default_rate.toFixed(2)}%
+                        {fmtMoney(p.base_price)} · 默认比例 {Number(p.default_rate ?? 0).toFixed(2)}%
                         {p.commission_set && p.excluded && (
                           <span className="ml-1.5 rounded bg-red-500/10 px-1.5 py-0.5 text-[11px] font-medium text-red-500">已排除</span>
                         )}

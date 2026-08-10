@@ -25,12 +25,12 @@ public interface DistributorRepository extends JpaRepository<Distributor, UUID> 
     List<Distributor> findByParentId(UUID parentId);
 
     @Query("SELECT d FROM Distributor d WHERE " +
-            "(:status = '' OR d.status = :status) " +
+            "(:status IS NULL OR d.status = :status) " +
             "AND (:keyword IS NULL OR :keyword = '' OR LOWER(d.distributorCode) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
             "AND (:from IS NULL OR d.createdAt >= :from) " +
             "AND (:to IS NULL OR d.createdAt < :to) " +
             "ORDER BY d.createdAt DESC")
-    Page<Distributor> findAdminList(@Param("status") String status,
+    Page<Distributor> findAdminList(@Param("status") DistributorStatus status,
                                     @Param("keyword") String keyword,
                                     @Param("from") java.time.LocalDateTime from,
                                     @Param("to") java.time.LocalDateTime to,
