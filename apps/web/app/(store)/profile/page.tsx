@@ -1,19 +1,19 @@
 "use client"
 
 import React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
-import { User, Lock, Star, Eye, EyeOff, Save, Ticket, Copy } from "lucide-react"
+import { User, Lock, Star, Eye, EyeOff, Save, Ticket, Copy, UserPlus, Gift } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale } from "@/lib/context"
 import { useAuth } from "@/lib/context"
 import { useRequireAuth } from "@/lib/hooks"
-import { userApi, marketingApi, withMockFallback, getApiErrorMessage } from "@/services/api"
+import { userApi, marketingApi, distributorApi, withMockFallback, getApiErrorMessage } from "@/services/api"
 import { mockPointsData } from "@/lib/mock-data"
 import type { PointRecord, MyCouponItem } from "@/types"
 import { cn } from "@/lib/utils"
 
-type Tab = "info" | "password" | "points" | "coupons"
+type Tab = "info" | "password" | "points" | "coupons" | "invite"
 
 export default function ProfilePage() {
   const { t } = useLocale()
@@ -25,7 +25,7 @@ export default function ProfilePage() {
   // 支持 ?tab=coupons 直达优惠券中心（如领取成功跳转）
   useEffect(() => {
     const tabParam = searchParams.get("tab")
-    if (tabParam === "coupons" || tabParam === "points" || tabParam === "password" || tabParam === "info") {
+    if (tabParam === "coupons" || tabParam === "points" || tabParam === "password" || tabParam === "info" || tabParam === "invite") {
       setActiveTab(tabParam as Tab)
     }
   }, [searchParams])
@@ -35,6 +35,7 @@ export default function ProfilePage() {
     { key: "password", label: t("profile.changePassword"), icon: <Lock className="h-4 w-4" /> },
     { key: "points", label: t("profile.points"), icon: <Star className="h-4 w-4" /> },
     { key: "coupons", label: t("profile.couponTab"), icon: <Ticket className="h-4 w-4" /> },
+    { key: "invite", label: t("profile.inviteTab"), icon: <UserPlus className="h-4 w-4" /> },
   ]
 
   if (!currentUser) return null
@@ -104,6 +105,9 @@ export default function ProfilePage() {
 
       {/* Coupons Tab */}
       {activeTab === "coupons" && <MyCoupons />}
+
+      {/* Invite Binding Tab */}
+      {activeTab === "invite" && <InviteBinding />}
     </div>
   )
 }
@@ -486,6 +490,122 @@ function CouponCard({ coupon, onCopy }: { coupon: MyCouponItem; onCopy: (code: s
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+// ═══════════════════════ 邀请码绑定推广员 ═══════════════════════
+
+function InviteBinding() {
+  const { t } = useLocale()
+  const [binding, setBinding] = useState<any>(null)
+  const [code, setCode] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+
+  const fetchBinding = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await distributorApi.getCustomerBinding()
+      setBinding(data)
+    } catch {
+      setBinding(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchBinding() }, [fetchBinding])
+
+  const handleBind = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!code.trim()) {
+      toast.error(t("profile.inviteCodePlaceholder"))
+      return
+    }
+    setSubmitting(true)
+    try {
+      await distributorApi.bindInvite(code.trim())
+      toast.success(t("profile.inviteBindSuccess"))
+      setCode("")
+      fetchBinding()
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, t))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-5">
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      ) : binding?.bound ? (
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start gap-3 rounded-lg bg-emerald-500/10 p-4">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15">
+              <Gift className="h-5 w-5 text-emerald-600" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">
+                {t("profile.inviteBound")} · {binding.distributor_name || "—"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("profile.inviteCode")}：
+                <span className="font-mono font-semibold text-primary">{binding.invite_code || "—"}</span>
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {t("profile.inviteBoundAt")}：{binding.bound_at ? new Date(binding.bound_at).toLocaleString() : "—"}
+                {binding.protection_expires_at && (
+                  <> · {t("profile.inviteProtectionUntil")}：{new Date(binding.protection_expires_at).toLocaleDateString()}</>
+                )}
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">{t("profile.inviteCodeHint")}</p>
+        </div>
+      ) : (
+        <form onSubmit={handleBind} className="flex flex-col gap-4">
+          <div className="flex items-start gap-3 rounded-lg bg-muted/50 p-4">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <UserPlus className="h-5 w-5 text-primary" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-foreground">{t("profile.inviteUnbound")}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("profile.inviteCodeHint")}</p>
+            </div>
+          </div>
+          <div>
+            <label htmlFor="invite-code" className="mb-1.5 block text-sm font-medium text-foreground">
+              {t("profile.inviteCode")}
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="invite-code"
+                type="text"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder={t("profile.inviteCodePlaceholder")}
+                className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <button
+                type="submit"
+                disabled={submitting}
+                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
+              >
+                {submitting ? (
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                ) : (
+                  <UserPlus className="h-4 w-4" />
+                )}
+                {t("profile.inviteBind")}
+              </button>
+            </div>
+          </div>
+        </form>
+      )}
     </div>
   )
 }

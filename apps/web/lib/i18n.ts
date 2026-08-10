@@ -255,6 +255,9 @@ const zh = {
   "auth.captchaHint": "请输入右侧图片中的验证码（不区分大小写）",
   "auth.captchaPlaceholder": "请输入验证码",
   "auth.fillAllRequired": "请完整填写所有必填项",
+  "auth.inviteCode": "邀请码",
+  "auth.inviteCodePlaceholder": "输入推广员邀请码，无则留空",
+  "auth.inviteCodeHint": "填写邀请码可将您绑定为推广员的客户，下单成交将计入其推广业绩",
 
   // Public coupon claim page
   "claim.title": "领取优惠券",
@@ -315,6 +318,18 @@ const zh = {
   "profile.couponOrder": "订单号",
   "profile.couponStamped": "已核销",
   "profile.couponExpired": "已过期",
+
+  // Profile Invite Binding
+  "profile.inviteTab": "邀请绑定",
+  "profile.inviteCode": "邀请码",
+  "profile.inviteCodePlaceholder": "输入推广员邀请码",
+  "profile.inviteCodeHint": "填写邀请码可将您绑定为推广员的客户，下单成交将计入其推广业绩",
+  "profile.inviteBound": "已绑定推广员",
+  "profile.inviteUnbound": "尚未绑定推广员",
+  "profile.inviteBind": "绑定",
+  "profile.inviteBindSuccess": "绑定成功",
+  "profile.inviteBoundAt": "绑定时间",
+  "profile.inviteProtectionUntil": "保护期至",
 
   // My Orders
   "myOrders.title": "购买记录",
@@ -1186,6 +1201,9 @@ const en: Record<keyof typeof zh, string> = {
   "auth.captchaHint": "Enter the code in the image (case-insensitive)",
   "auth.captchaPlaceholder": "Enter captcha",
   "auth.fillAllRequired": "Please fill in all required fields",
+  "auth.inviteCode": "Invite code",
+  "auth.inviteCodePlaceholder": "Enter the distributor invite code (optional)",
+  "auth.inviteCodeHint": "Binding an invite code makes you a customer of that distributor",
 
   // Public coupon claim page
   "claim.title": "Claim Coupon",
@@ -1246,6 +1264,18 @@ const en: Record<keyof typeof zh, string> = {
   "profile.couponOrder": "Order No.",
   "profile.couponStamped": "USED",
   "profile.couponExpired": "EXPIRED",
+
+  // Profile Invite Binding
+  "profile.inviteTab": "Invite Binding",
+  "profile.inviteCode": "Invite code",
+  "profile.inviteCodePlaceholder": "Enter the distributor invite code",
+  "profile.inviteCodeHint": "Binding an invite code makes you a customer of that distributor",
+  "profile.inviteBound": "Bound distributor",
+  "profile.inviteUnbound": "Not bound to a distributor yet",
+  "profile.inviteBind": "Bind",
+  "profile.inviteBindSuccess": "Bound successfully",
+  "profile.inviteBoundAt": "Bound at",
+  "profile.inviteProtectionUntil": "Protection until",
 
   // My Orders
   "myOrders.title": "My Orders",

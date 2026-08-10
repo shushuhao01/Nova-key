@@ -1048,6 +1048,107 @@ public class DistributionServiceImpl implements DistributionService {
         return pageResult(items, lp.getTotalElements(), page, pageSize);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> getStoreStats(UUID userId) {
+        Distributor d = requireDistributorByUserId(userId);
+        PromotionLink link = promotionLinkRepository.findByDistributorIdAndProductId(d.getId(), null).orElse(null);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("exists", link != null);
+        if (link == null) {
+            m.put("click_count", 0L);
+            m.put("unique_click_count", 0L);
+            m.put("paid_count", 0L);
+            m.put("conversion_rate", BigDecimal.ZERO.setScale(2));
+            m.put("total_sales", BigDecimal.ZERO.setScale(2));
+            m.put("total_commission", BigDecimal.ZERO.setScale(2));
+            return m;
+        }
+        long clicks = link.getClickCount();
+        long paid = link.getPaidCount();
+        m.put("link_code", link.getLinkCode());
+        m.put("click_count", clicks);
+        m.put("unique_click_count", link.getUniqueClickCount());
+        m.put("paid_count", paid);
+        m.put("conversion_rate", clicks > 0
+                ? new BigDecimal(paid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(clicks), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO.setScale(2));
+        m.put("total_sales", nullSafe(link.getTotalSales()).setScale(2, RoundingMode.HALF_UP));
+        m.put("total_commission", nullSafe(link.getTotalCommission()).setScale(2, RoundingMode.HALF_UP));
+        return m;
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  ── 前台：客户邀请码绑定（注册 / 个人中心补填） ──
+    // ════════════════════════════════════════════════════════════════
+
+    @Override
+    @Transactional
+    public Map<String, Object> bindCustomerByInviteCode(UUID userId, String inviteCode) {
+        if (inviteCode == null || inviteCode.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "请输入邀请码");
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "用户不存在"));
+        String email = user.getEmail() == null ? "" : user.getEmail().trim().toLowerCase();
+        if (email.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "您的账号未绑定邮箱，无法绑定推广员");
+        }
+        Distributor distributor = distributorRepository.findByInviteCode(inviteCode.trim()).orElse(null);
+        if (distributor == null || distributor.getStatus() != DistributorStatus.APPROVED) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "邀请码无效或推广员未开通");
+        }
+        // 已绑定该推广员 → 幂等返回
+        Optional<CustomerBinding> existing =
+                customerBindingRepository.findByCustomerEmailAndDistributorId(email, distributor.getId());
+        if (existing.isPresent()) {
+            return customerBindingToMap(existing.get(), distributor);
+        }
+        // 保护期内已绑定其他推广员 → 不允许更换
+        CustomerBinding active = customerBindingRepository.findActiveBindingByEmail(email).orElse(null);
+        if (active != null && !active.getDistributorId().equals(distributor.getId())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "您已绑定其他推广员（保护期内），暂无法更换推广员");
+        }
+        DistributionRule rule = getOrCreateRule();
+        CustomerBinding binding = new CustomerBinding();
+        binding.setDistributorId(distributor.getId());
+        binding.setCustomerUserId(userId);
+        binding.setCustomerEmail(email);
+        binding.setProductId(null);
+        binding.setPromotionLinkId(null);
+        binding.setProtectionExpiresAt(LocalDateTime.now().plusDays(rule.getBindingProtectionDays()));
+        binding.setPurchaseCount(0);
+        customerBindingRepository.save(binding);
+        log.info("Customer {} bound to distributor {} by invite code {}", email, distributor.getId(), inviteCode.trim());
+        return customerBindingToMap(binding, distributor);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> getCustomerBinding(UUID userId) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null || user.getEmail() == null || user.getEmail().isBlank()) return null;
+        CustomerBinding cb = customerBindingRepository
+                .findActiveBindingByEmail(user.getEmail().trim().toLowerCase()).orElse(null);
+        if (cb == null) return null;
+        Distributor d = distributorRepository.findById(cb.getDistributorId()).orElse(null);
+        if (d == null) return null;
+        return customerBindingToMap(cb, d);
+    }
+
+    private Map<String, Object> customerBindingToMap(CustomerBinding cb, Distributor d) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("bound", true);
+        m.put("distributor_id", cb.getDistributorId());
+        m.put("bound_at", cb.getCreatedAt());
+        m.put("protection_expires_at", cb.getProtectionExpiresAt());
+        m.put("invite_code", d.getInviteCode());
+        User du = userRepository.findById(d.getUserId()).orElse(null);
+        m.put("distributor_name", du != null ? du.getUsername() : null);
+        return m;
+    }
+
     // ════════════════════════════════════════════════════════════════
     //  ── 前台：推广海报（返回海报绘制所需数据，前端 canvas 合成） ──
     // ════════════════════════════════════════════════════════════════

@@ -13,6 +13,7 @@ import com.orionkey.model.response.UserProfileResponse;
 import com.orionkey.repository.CartItemRepository;
 import com.orionkey.repository.UserRepository;
 import com.orionkey.service.AuthService;
+import com.orionkey.service.DistributionService;
 import com.orionkey.service.NotificationService;
 import com.orionkey.utils.CaptchaUtils;
 import com.orionkey.utils.JwtUtils;
@@ -39,6 +40,7 @@ public class AuthServiceImpl implements AuthService {
     private final CaptchaUtils captchaUtils;
     private final NotificationService notificationService;
     private final PermissionResolver permissionResolver;
+    private final DistributionService distributionService;
 
     @Override
     public CaptchaResponse generateCaptcha() {
@@ -75,6 +77,16 @@ public class AuthServiceImpl implements AuthService {
                     "email", user.getEmail()));
         } catch (Exception e) {
             log.warn("Register notification failed: {}", e.getMessage());
+        }
+
+        // 邀请码绑定推广员（选填）：无效/异常不阻塞注册
+        if (request.getInviteCode() != null && !request.getInviteCode().isBlank()) {
+            try {
+                distributionService.bindCustomerByInviteCode(user.getId(), request.getInviteCode());
+                log.info("User {} registered and bound by invite code {}", user.getId(), request.getInviteCode().trim());
+            } catch (Exception e) {
+                log.warn("Register invite bind skipped: {}", e.getMessage());
+            }
         }
 
         String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name());

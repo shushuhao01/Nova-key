@@ -53,6 +53,14 @@ public interface DistributionService {
     Map<String, Object> generatePromotionLink(UUID userId, UUID productId);
     Map<String, Object> generateStoreLink(UUID userId);
     Map<String, Object> listMyLinks(UUID userId, int page, int pageSize);
+    /** 全店推广（productId=null 的店铺链接）累计统计：点击/支付/转化率/佣金，与商品分享数据独立 */
+    Map<String, Object> getStoreStats(UUID userId);
+
+    // ── 前台：客户邀请码绑定 ──
+    /** 通过邀请码将当前用户绑定为某分销员的客户（注册/个人中心补填） */
+    Map<String, Object> bindCustomerByInviteCode(UUID userId, String inviteCode);
+    /** 当前用户绑定的推广员信息（无则返回 null） */
+    Map<String, Object> getCustomerBinding(UUID userId);
 
     // ── 前台：推广海报 ──
     Map<String, Object> generateProductPoster(UUID userId, UUID productId);

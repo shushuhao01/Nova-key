@@ -20,6 +20,12 @@ export default function RegisterPage() {
     password: "",
     captcha: "",
   })
+  // 通过推广/邀请链接进入注册页时自动预填邀请码（?invite=xxx / ?invite_code=xxx）
+  const [inviteCode, setInviteCode] = useState<string>(() => {
+    if (typeof window === "undefined") return ""
+    const params = new URLSearchParams(window.location.search)
+    return params.get("invite") || params.get("invite_code") || ""
+  })
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [captchaId, setCaptchaId] = useState("")
@@ -72,6 +78,7 @@ export default function RegisterPage() {
           email: form.email.trim(),
           captcha_id: captchaId,
           captcha: form.captcha.trim(),
+          invite_code: inviteCode.trim() || undefined,
         }),
         () => {
           const { mockRegister } = require("@/lib/mock-data")
@@ -164,6 +171,23 @@ export default function RegisterPage() {
                 </button>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">{t("auth.passwordHint")}</p>
+            </div>
+
+            {/* Invite Code (optional) */}
+            <div>
+              <label htmlFor="reg-invite" className="mb-1.5 block text-sm font-medium text-foreground">
+                {t("auth.inviteCode")}
+                <span className="ml-1 text-xs font-normal text-muted-foreground">（选填）</span>
+              </label>
+              <input
+                id="reg-invite"
+                type="text"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                placeholder={t("auth.inviteCodePlaceholder")}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">{t("auth.inviteCodeHint")}</p>
             </div>
 
             {/* Image Captcha */}

@@ -312,7 +312,7 @@ export async function withMockFallback<T>(
 export const authApi = {
   getCaptcha: () =>
     request<CaptchaResult>("/auth/captcha"),
-  register: (data: { username: string; password: string; email: string; captcha_id: string; captcha: string }) =>
+  register: (data: { username: string; password: string; email: string; captcha_id: string; captcha: string; invite_code?: string }) =>
     request<AuthResult>("/auth/register", { method: "POST", body: JSON.stringify(data) }),
   login: (data: { account: string; password: string }) =>
     request<AuthResult>("/auth/login", { method: "POST", body: JSON.stringify(data) }),
@@ -944,6 +944,10 @@ export const distributorApi = {
     request<any>(`/distributor/products/${productId}/link`, { method: "POST" }),
   generateStoreLink: () =>
     request<any>("/distributor/store/link", { method: "POST" }),
+  getStoreStats: () => request<any>("/distributor/store/stats"),
+  bindInvite: (invite_code: string) =>
+    request<any>("/distributor/customer/bind", { method: "POST", body: JSON.stringify({ invite_code }) }),
+  getCustomerBinding: () => request<any>("/distributor/customer/binding"),
   generateProductPoster: (productId: string) =>
     request<any>(`/distributor/products/${productId}/poster`, { method: "POST" }),
   generateStorePoster: () =>

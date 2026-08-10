@@ -25,16 +25,16 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
      * 避免 System error 500（详见 DistributorRepository.findAdminList）。
      */
     @Query(value = "SELECT * FROM commission_records WHERE " +
-            "(:distributorId IS NULL OR distributor_id = :distributorId) " +
-            "AND (:status IS NULL OR status::text = :status) " +
-            "AND (:from IS NULL OR created_at >= :from) " +
-            "AND (:to IS NULL OR created_at < :to) " +
+            "(:distributorId IS NULL OR distributor_id = CAST(:distributorId AS uuid)) " +
+            "AND (:status IS NULL OR status::text = CAST(:status AS text)) " +
+            "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
+            "AND (:to IS NULL OR created_at < CAST(:to AS timestamp)) " +
             "ORDER BY created_at DESC",
             countQuery = "SELECT COUNT(*) FROM commission_records WHERE " +
-            "(:distributorId IS NULL OR distributor_id = :distributorId) " +
-            "AND (:status IS NULL OR status::text = :status) " +
-            "AND (:from IS NULL OR created_at >= :from) " +
-            "AND (:to IS NULL OR created_at < :to)",
+            "(:distributorId IS NULL OR distributor_id = CAST(:distributorId AS uuid)) " +
+            "AND (:status IS NULL OR status::text = CAST(:status AS text)) " +
+            "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
+            "AND (:to IS NULL OR created_at < CAST(:to AS timestamp))",
             nativeQuery = true)
     Page<CommissionRecord> findAdminList(@Param("distributorId") UUID distributorId,
                                          @Param("status") String status,

@@ -688,6 +688,18 @@ function ProductsTab({ profile }: { profile: any }) {
   const [productPoster, setProductPoster] = useState<any>(null)
   const [generatingStorePoster, setGeneratingStorePoster] = useState(false)
   const [generatingPosterId, setGeneratingPosterId] = useState<string | null>(null)
+  // 全店推广累计统计（与商品分享数据独立）
+  const [storeStats, setStoreStats] = useState<any>(null)
+
+  const fetchStoreStats = useCallback(async () => {
+    try {
+      setStoreStats(await distributorApi.getStoreStats())
+    } catch {
+      setStoreStats(null)
+    }
+  }, [])
+
+  useEffect(() => { fetchStoreStats() }, [fetchStoreStats])
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -737,6 +749,7 @@ function ProductsTab({ profile }: { profile: any }) {
         return
       }
       setStoreLinkModal(linkUrl)
+      fetchStoreStats()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "生成失败")
     } finally {
@@ -749,6 +762,7 @@ function ProductsTab({ profile }: { profile: any }) {
     try {
       const res = await distributorApi.generateStorePoster()
       setStorePoster(res)
+      fetchStoreStats()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "生成海报失败")
     } finally {
@@ -813,6 +827,34 @@ function ProductsTab({ profile }: { profile: any }) {
             )}
             生成海报
           </button>
+        </div>
+
+        {/* 全店推广统计（仅统计本店铺推广链接/海报带来的数据，与商品分享独立） */}
+        <div className="grid w-full grid-cols-2 gap-3 border-t border-primary/10 pt-3 sm:grid-cols-4">
+          <div className="rounded-lg bg-background/70 p-3">
+            <p className="text-xs text-muted-foreground">点击</p>
+            <p className="mt-1 text-lg font-bold text-foreground">
+              {storeStats ? Number(storeStats.click_count ?? 0).toLocaleString() : "—"}
+            </p>
+          </div>
+          <div className="rounded-lg bg-background/70 p-3">
+            <p className="text-xs text-muted-foreground">支付</p>
+            <p className="mt-1 text-lg font-bold text-foreground">
+              {storeStats ? Number(storeStats.paid_count ?? 0).toLocaleString() : "—"}
+            </p>
+          </div>
+          <div className="rounded-lg bg-background/70 p-3">
+            <p className="text-xs text-muted-foreground">转化率</p>
+            <p className="mt-1 text-lg font-bold text-foreground">
+              {storeStats ? `${Number(storeStats.conversion_rate ?? 0).toFixed(2)}%` : "—"}
+            </p>
+          </div>
+          <div className="rounded-lg bg-background/70 p-3">
+            <p className="text-xs text-muted-foreground">佣金</p>
+            <p className="mt-1 text-lg font-bold text-foreground">
+              {storeStats ? fmtMoney(Number(storeStats.total_commission ?? 0)) : "—"}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -1753,6 +1795,8 @@ function WithdrawalsTab({ balance }: { balance: number }) {
   const [bindQr, setBindQr] = useState<string | null>(null)
   // 公众号关注引导
   const [followInfo, setFollowInfo] = useState<{ configured?: boolean; follow_qr?: string } | null>(null)
+  // 关注公众号二维码放大预览
+  const [previewQr, setPreviewQr] = useState<string | null>(null)
 
   const fetchFollowInfo = useCallback(async () => {
     try {
@@ -1941,8 +1985,33 @@ function WithdrawalsTab({ balance }: { balance: number }) {
           <img
             src={followInfo.follow_qr}
             alt="公众号二维码"
-            className="ml-auto h-24 w-24 shrink-0 rounded-lg border border-border bg-white object-contain"
+            onClick={() => setPreviewQr(followInfo.follow_qr || null)}
+            className="ml-auto h-24 w-24 shrink-0 cursor-zoom-in rounded-lg border border-border bg-white object-contain transition-transform hover:scale-105"
           />
+        </div>
+      )}
+
+      {/* 关注公众号二维码放大预览 */}
+      {previewQr && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setPreviewQr(null)}
+        >
+          <div className="relative max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={previewQr}
+              alt="公众号二维码"
+              className="w-full rounded-xl bg-white p-3 object-contain shadow-2xl"
+            />
+            <p className="mt-3 text-center text-sm text-white">长按识别二维码关注公众号</p>
+            <button
+              type="button"
+              onClick={() => setPreviewQr(null)}
+              className="absolute -right-3 -top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background shadow-lg"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
 

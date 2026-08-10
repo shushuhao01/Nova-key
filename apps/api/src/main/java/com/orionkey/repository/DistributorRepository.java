@@ -35,18 +35,20 @@ public interface DistributorRepository extends JpaRepository<Distributor, UUID> 
      * 兼容 status 列为 varchar 或早期 PG 原生枚举（USER-DEFINED）两种情形，
      * 避免 Hibernate 绑定 varchar 参数与原生枚举列比较时报
      * "operator does not exist ... = character varying" → System error 500。
+     * <p>注意：可空参数必须用 CAST(:param AS ...) 显式声明类型，否则 PG 对 null
+     * 参数报 "could not determine data type of parameter"（System error）。
      */
     @Query(value = "SELECT * FROM distributors WHERE " +
-            "(:status IS NULL OR status::text = :status) " +
+            "(:status IS NULL OR status::text = CAST(:status AS text)) " +
             "AND (:keyword IS NULL OR :keyword = '' OR LOWER(distributor_code) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
-            "AND (:from IS NULL OR created_at >= :from) " +
-            "AND (:to IS NULL OR created_at < :to) " +
+            "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
+            "AND (:to IS NULL OR created_at < CAST(:to AS timestamp)) " +
             "ORDER BY created_at DESC",
             countQuery = "SELECT COUNT(*) FROM distributors WHERE " +
-            "(:status IS NULL OR status::text = :status) " +
+            "(:status IS NULL OR status::text = CAST(:status AS text)) " +
             "AND (:keyword IS NULL OR :keyword = '' OR LOWER(distributor_code) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
-            "AND (:from IS NULL OR created_at >= :from) " +
-            "AND (:to IS NULL OR created_at < :to)",
+            "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
+            "AND (:to IS NULL OR created_at < CAST(:to AS timestamp))",
             nativeQuery = true)
     Page<Distributor> findAdminList(@Param("status") String status,
                                     @Param("keyword") String keyword,

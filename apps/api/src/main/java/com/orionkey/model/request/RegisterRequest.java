@@ -27,4 +27,7 @@ public class RegisterRequest {
 
     @NotBlank(message = "Captcha is required")
     private String captcha;
+
+    /** 推广员邀请码（选填）：注册时绑定为该推广员的客户 */
+    private String inviteCode;
 }

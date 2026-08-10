@@ -72,6 +72,24 @@ public class DistributorController {
         return ApiResponse.success(distributionService.generateStoreLink(RequestContext.getUserId()));
     }
 
+    // 全店推广累计统计（点击/支付/转化率/佣金，与商品分享数据独立）
+    @GetMapping("/store/stats")
+    public ApiResponse<?> getStoreStats() {
+        return ApiResponse.success(distributionService.getStoreStats(RequestContext.getUserId()));
+    }
+
+    // ── 客户邀请码绑定（个人中心补填） ──
+    @PostMapping("/customer/bind")
+    public ApiResponse<?> bindCustomer(@RequestBody Map<String, Object> request) {
+        String inviteCode = request != null ? (String) request.get("invite_code") : null;
+        return ApiResponse.success(distributionService.bindCustomerByInviteCode(RequestContext.getUserId(), inviteCode));
+    }
+
+    @GetMapping("/customer/binding")
+    public ApiResponse<?> getCustomerBinding() {
+        return ApiResponse.success(distributionService.getCustomerBinding(RequestContext.getUserId()));
+    }
+
     // ── 推广海报 ──
     @PostMapping("/products/{productId}/poster")
     public ApiResponse<?> generateProductPoster(@PathVariable UUID productId) {
