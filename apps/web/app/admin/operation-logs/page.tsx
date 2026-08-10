@@ -54,6 +54,8 @@ const actionLabels: Record<string, { label: string; color: string }> = {
   "role.delete": { label: "删除角色", color: "bg-red-500/10 text-red-500" },
   "log.cleanup_config": { label: "保存清理配置", color: "bg-blue-500/10 text-blue-600" },
   "log.cleanup": { label: "清理操作日志", color: "bg-red-500/10 text-red-500" },
+  "wechat_mp.save": { label: "保存公众号配置", color: "bg-blue-500/10 text-blue-600" },
+  "wechat_mp.test": { label: "测试公众号配置", color: "bg-amber-500/10 text-amber-600" },
 }
 
 /** 操作对象（target_type）中文映射 */
@@ -74,6 +76,7 @@ const targetTypeLabels: Record<string, string> = {
   TXID_REVIEW: "TXID 审核",
   ROLE: "角色",
   OPERATION_LOG: "操作日志",
+  WECHAT_MP_CONFIG: "公众号配置",
 }
 
 const ITEMS_PER_PAGE = 20
