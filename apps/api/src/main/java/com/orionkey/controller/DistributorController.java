@@ -114,6 +114,14 @@ public class DistributorController {
         return ApiResponse.success(distributionService.listMyLinks(RequestContext.getUserId(), page, pageSize));
     }
 
+    // ── 最近推广成交订单（含下级推广订单） ──
+    @GetMapping("/orders")
+    public ApiResponse<?> listMyPromotionOrders(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "10") int pageSize) {
+        return ApiResponse.success(distributionService.listMyPromotionOrders(RequestContext.getUserId(), page, pageSize));
+    }
+
     // ── 佣金明细 ──
     @GetMapping("/commissions")
     public ApiResponse<?> listMyCommissions(

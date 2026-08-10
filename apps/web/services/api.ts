@@ -907,6 +907,10 @@ export const distributorApi = {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/distributor/links?${qs}`)
   },
+  listPromotionOrders: (params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/distributor/orders?${qs}`)
+  },
   listCommissions: (params: { status?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/distributor/commissions?${qs}`)

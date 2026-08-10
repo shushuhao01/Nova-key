@@ -7,7 +7,7 @@ import {
   ChevronLeft, ChevronRight, AlertCircle, UserPlus, Store, QrCode,
   ShoppingBag, ChevronRight as ChevronRightIcon, ScrollText, Percent,
   Layers, Users, HandCoins, ShieldCheck, Shield, Download,
-  Image as ImageIcon,
+  Image as ImageIcon, ExternalLink, Eye, ShoppingCart,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale } from "@/lib/context"
@@ -46,6 +46,16 @@ const withdrawalStatusMap: Record<WithdrawalStatus, { label: string; cls: string
   PROCESSING: { label: "转账中", cls: "bg-blue-500/10 text-blue-600" },
   SUCCESS: { label: "已到账", cls: "bg-emerald-500/10 text-emerald-600" },
   FAILED: { label: "已失败", cls: "bg-red-500/10 text-red-500" },
+}
+
+const orderStatusMap: Record<string, { label: string; cls: string }> = {
+  PENDING: { label: "待支付", cls: "bg-amber-500/10 text-amber-600" },
+  PAID: { label: "已支付", cls: "bg-blue-500/10 text-blue-600" },
+  DELIVERED: { label: "已发货", cls: "bg-purple-500/10 text-purple-600" },
+  COMPLETED: { label: "已完成", cls: "bg-emerald-500/10 text-emerald-600" },
+  CANCELED: { label: "已取消", cls: "bg-muted text-muted-foreground" },
+  REFUNDED: { label: "已退款", cls: "bg-red-500/10 text-red-500" },
+  PARTIALLY_REFUNDED: { label: "部分退款", cls: "bg-red-500/10 text-red-500" },
 }
 
 export default function DistributionPage() {
@@ -373,7 +383,25 @@ function OverviewTab({
   const [stats, setStats] = useState<OverviewStats | null>(null)
   const [recentCommissions, setRecentCommissions] = useState<any[]>([])
   const [recentWithdrawals, setRecentWithdrawals] = useState<any[]>([])
+  const [orders, setOrders] = useState<any[]>([])
+  const [ordersTotal, setOrdersTotal] = useState(0)
+  const [ordersPage, setOrdersPage] = useState(1)
+  const [ordersLoading, setOrdersLoading] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  const fetchOrders = useCallback(async (page: number) => {
+    setOrdersLoading(true)
+    try {
+      const data = await distributorApi.listPromotionOrders({ page, page_size: PAGE_SIZE })
+      setOrders((data as any)?.list || [])
+      setOrdersTotal((data as any)?.pagination?.total ?? 0)
+    } catch {
+      setOrders([])
+      setOrdersTotal(0)
+    } finally {
+      setOrdersLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -395,7 +423,10 @@ function OverviewTab({
     }
     fetchAll()
     return () => { cancelled = true }
-  }, [])
+  }, [fetchOrders])
+
+  // 订单列表分页
+  useEffect(() => { fetchOrders(ordersPage) }, [ordersPage, fetchOrders])
 
   const s = stats || {}
   const available = s.available_balance ?? profile.available_balance ?? 0
@@ -546,6 +577,93 @@ function OverviewTab({
           </div>
         </div>
       </div>
+
+      {/* 最近推广成交订单（含下级推广订单） */}
+      <div className="rounded-xl border border-border bg-card shadow-sm">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <ShoppingCart className="h-4 w-4 text-primary" />
+            最近推广成交订单
+          </h3>
+          <button
+            type="button"
+            onClick={() => onSwitchTab("commissions")}
+            className="text-xs text-primary hover:underline"
+          >
+            查看佣金明细
+          </button>
+        </div>
+        {ordersLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+        ) : orders.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-12 text-sm text-muted-foreground">
+            <ShoppingCart className="h-8 w-8 opacity-40" />
+            {t("common.noData")}
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">订单</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">价格</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金比例</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">推广员</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">付款时间</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">订单状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.map((o) => {
+                    const st = orderStatusMap[o.order_status || ""] || { label: o.order_status || "—", cls: "bg-muted text-muted-foreground" }
+                    return (
+                      <tr key={o.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                        <td className="px-4 py-3">
+                          <span className="font-mono text-xs text-muted-foreground" title={o.order_id}>
+                            {String(o.order_id).slice(0, 8)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="line-clamp-1 max-w-[200px] font-medium text-foreground" title={o.product_title}>
+                            {o.product_title || "—"}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{fmtMoney(o.product_price)}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{Number(o.commission_rate || 0).toFixed(2)}%</td>
+                        <td className="px-4 py-3 font-medium text-emerald-600">{fmtMoney(o.commission_amount)}</td>
+                        <td className="px-4 py-3">
+                          <span className={cn(
+                            "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium",
+                            o.source_type === "SUB" ? "bg-amber-500/10 text-amber-600" : "bg-emerald-500/10 text-emerald-600"
+                          )}>
+                            {o.source_type === "SUB" ? `下级抽成 · ${o.seller_name || "下级"}` : "自己推广"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{fmtDate(o.paid_at || o.created_at)}</td>
+                        <td className="px-4 py-3">
+                          <span className={cn("inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
+                            {st.label}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {ordersTotal > PAGE_SIZE && (
+              <div className="flex justify-end border-t border-border p-3">
+                <Pager page={ordersPage} totalPages={Math.max(1, Math.ceil(ordersTotal / PAGE_SIZE))} onChange={setOrdersPage} />
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -558,7 +676,6 @@ function ProductsTab({ profile }: { profile: any }) {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
-  const [linkModal, setLinkModal] = useState<{ productName: string; linkUrl: string } | null>(null)
   const [storeLinkModal, setStoreLinkModal] = useState<string | null>(null)
   const [generatingStore, setGeneratingStore] = useState(false)
   const [storePoster, setStorePoster] = useState<any>(null)
@@ -586,7 +703,8 @@ function ProductsTab({ profile }: { profile: any }) {
   useEffect(() => { fetchList() }, [fetchList])
   useEffect(() => { setPage(1) }, [subTab])
 
-  const handleGenerateLink = async (product: any) => {
+  // 生成推广链接并复制
+  const handleCopyLink = async (product: any) => {
     try {
       const res = await distributorApi.generateLink(product.product_id || product.id)
       const linkCode = res?.link_code || res?.code
@@ -595,9 +713,10 @@ function ProductsTab({ profile }: { profile: any }) {
         toast.error("生成推广链接失败")
         return
       }
-      setLinkModal({ productName: product.title, linkUrl })
+      await navigator.clipboard.writeText(linkUrl)
+      toast.success("推广链接已复制")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "生成失败")
+      toast.error(err instanceof Error ? err.message : "复制失败")
     }
   }
 
@@ -695,7 +814,7 @@ function ProductsTab({ profile }: { profile: any }) {
       <div className="flex rounded-lg bg-muted p-1">
         {[
           { k: "available", label: "可推广商品" },
-          { k: "mine", label: "我推广的商品" },
+          { k: "mine", label: "已推广商品" },
         ].map((s) => (
           <button
             key={s.k}
@@ -711,7 +830,7 @@ function ProductsTab({ profile }: { profile: any }) {
         ))}
       </div>
 
-      {/* 商品列表 */}
+      {/* 商品列表（表格） */}
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -722,78 +841,104 @@ function ProductsTab({ profile }: { profile: any }) {
           暂无可推广商品
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {list.map((p) => (
-            <div key={p.id || p.product_id} className="flex flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
-              <div className="flex gap-3">
-                {p.cover_url || p.cover_image ? (
-                  <img
-                    src={p.cover_url || p.cover_image}
-                    alt=""
-                    loading="lazy"
-                    className="h-14 w-14 shrink-0 rounded-md object-cover"
-                  />
-                ) : (
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-muted">
-                    <Package className="h-6 w-6 text-muted-foreground" />
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="line-clamp-2 text-sm font-medium text-foreground">{p.product_title || p.title}</p>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                    <span>售价 {fmtMoney(p.base_price ?? p.price)}</span>
-                    <span>佣金 {effectiveRate(p).toFixed(2)}%</span>
-                  </div>
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">价格</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金比例</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">预计佣金</th>
                   {subTab === "mine" && (
-                    <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-                      <span>点击 {p.click_count ?? 0} 次</span>
-                      <span>成交 {p.paid_count ?? 0} 单</span>
-                      <span>销售额 {fmtMoney(p.total_sales)}</span>
-                      <span>佣金 {fmtMoney(p.total_commission)}</span>
-                    </div>
+                    <>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">成交</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">点击</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">转化率</th>
+                    </>
                   )}
-                </div>
-              </div>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleGenerateLink(p)}
-                  className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-lg bg-primary/10 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
-                >
-                  <Link2 className="h-4 w-4" />
-                  生成推广链接
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleGeneratePoster(p)}
-                  disabled={generatingPosterId === (p.product_id || p.id)}
-                  className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-input text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-                >
-                  {generatingPosterId === (p.product_id || p.id) ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                  ) : (
-                    <ImageIcon className="h-4 w-4" />
-                  )}
-                  生成海报
-                </button>
-              </div>
-            </div>
-          ))}
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((p) => {
+                  const pid = p.product_id || p.id
+                  const clicks = p.click_count ?? 0
+                  const paid = p.paid_count ?? 0
+                  const conv = clicks > 0 ? ((paid / clicks) * 100).toFixed(1) : "0.0"
+                  return (
+                    <tr key={p.id || pid} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          {p.cover_url || p.cover_image ? (
+                            <img
+                              src={p.cover_url || p.cover_image}
+                              alt=""
+                              loading="lazy"
+                              className="h-12 w-12 shrink-0 rounded-md object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-muted">
+                              <Package className="h-5 w-5 text-muted-foreground" />
+                            </div>
+                          )}
+                          <p className="line-clamp-2 min-w-0 max-w-[220px] font-medium text-foreground">{p.product_title || p.title}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{fmtMoney(p.base_price ?? p.price)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{effectiveRate(p).toFixed(2)}%</td>
+                      <td className="px-4 py-3 font-medium text-emerald-600">{fmtMoney(p.commission_amount)}</td>
+                      {subTab === "mine" && (
+                        <>
+                          <td className="px-4 py-3 text-muted-foreground">{paid} 单</td>
+                          <td className="px-4 py-3 text-muted-foreground">{clicks} 次</td>
+                          <td className="px-4 py-3 text-muted-foreground">{conv}%</td>
+                        </>
+                      )}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleGeneratePoster(p)}
+                            disabled={generatingPosterId === pid}
+                            className="flex h-8 w-8 items-center justify-center rounded-md border border-input text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+                            title="分享海报"
+                          >
+                            {generatingPosterId === pid ? (
+                              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                            ) : (
+                              <ImageIcon className="h-4 w-4" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyLink(p)}
+                            className="flex h-8 w-8 items-center justify-center rounded-md border border-input text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                            title="复制分享链接"
+                          >
+                            <Link2 className="h-4 w-4" />
+                          </button>
+                          <a
+                            href={`/product/${pid}`}
+                            className="flex h-8 w-8 items-center justify-center rounded-md border border-input text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                            title="查看详情"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
       {/* 分页 */}
       {total > PAGE_SIZE && (
         <Pager page={page} totalPages={totalPages} onChange={setPage} />
-      )}
-
-      {/* 商品推广链接弹窗 */}
-      {linkModal && (
-        <LinkResultModal
-          title={linkModal.productName}
-          linkUrl={linkModal.linkUrl}
-          onClose={() => setLinkModal(null)}
-        />
       )}
 
       {/* 店铺推广链接弹窗 */}
@@ -1218,22 +1363,30 @@ function CommissionsTab() {
           <div className="divide-y divide-border">
             {list.map((c) => {
               const st = commissionStatusMap[c.status as CommissionStatus] || { label: c.status, cls: "bg-muted text-muted-foreground" }
+              const amount = Number(c.commission_amount ?? c.amount ?? 0)
+              const rate = Number(c.rate ?? c.commission_rate_percent ?? c.commission_rate ?? 0)
               return (
                 <div key={c.id} className="flex items-center justify-between gap-3 p-4">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <ShoppingBag className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <p className="truncate text-sm font-medium text-foreground">{c.product_title || "—"}</p>
+                      <span className={cn(
+                        "inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                        c.source_type === "SUB" ? "bg-amber-500/10 text-amber-600" : "bg-emerald-500/10 text-emerald-600"
+                      )}>
+                        {c.source_type === "SUB" ? `下级抽成 · ${c.seller_name || "下级"}` : "自己推广"}
+                      </span>
                     </div>
                     <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                      订单 {c.order_no || c.order_id}
+                      订单 {c.order_no || String(c.order_id || "").slice(0, 8)}
                     </p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      佣金比例 {(Number(c.rate) || 0).toFixed(2)}% · {fmtDate(c.created_at)}
+                      商品金额 {fmtMoney(c.order_amount)} · 佣金比例 {rate.toFixed(2)}% · {fmtDate(c.created_at)}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
-                    <p className="text-sm font-semibold text-emerald-600">{fmtMoney(c.amount)}</p>
+                    <p className="text-sm font-semibold text-emerald-600">{fmtMoney(amount)}</p>
                     <span className={cn("mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium", st.cls)}>
                       {st.label}
                     </span>
@@ -1632,28 +1785,54 @@ function SubordinatesTab() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-          <div className="divide-y divide-border">
-            {list.map((s) => {
-              const st = distributorStatusMap[s.status as DistributorStatus] || { label: s.status, cls: "bg-muted text-muted-foreground" }
-              return (
-                <div key={s.id} className="flex items-center justify-between gap-3 p-4">
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                      <Users2 className="h-5 w-5 text-primary" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-foreground">{s.username || "—"}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        累计佣金 {fmtMoney(s.total_commission)} · 加入于 {fmtDate(s.applied_at)}
-                      </p>
-                    </div>
-                  </div>
-                  <span className={cn("inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
-                    {st.label}
-                  </span>
-                </div>
-              )
-            })}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">下级</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">状态</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">加入时间</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">客户数</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">成交单数</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">推广销售额</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">我的抽成</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">下级累计佣金</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((s) => {
+                  const st = distributorStatusMap[s.status as DistributorStatus] || { label: s.status, cls: "bg-muted text-muted-foreground" }
+                  return (
+                    <tr key={s.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                            <Users2 className="h-5 w-5 text-primary" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-foreground">{s.username || "—"}</p>
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                              邀请码 {s.invite_code || s.distributor_code || "—"}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={cn("inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
+                          {st.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{fmtDate(s.created_at)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{s.customer_count ?? 0} 人</td>
+                      <td className="px-4 py-3 text-muted-foreground">{s.paid_count ?? 0} 单</td>
+                      <td className="px-4 py-3 text-muted-foreground">{fmtMoney(s.total_sales)}</td>
+                      <td className="px-4 py-3 font-medium text-emerald-600">{fmtMoney(s.sub_commission)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{fmtMoney(s.total_commission)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

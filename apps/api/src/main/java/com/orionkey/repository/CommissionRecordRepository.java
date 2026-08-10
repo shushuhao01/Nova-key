@@ -60,4 +60,18 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
             "AND o.completedAt IS NOT NULL AND o.completedAt < :before " +
             "ORDER BY cr.createdAt ASC")
     List<CommissionRecord> findPendingSettlement(@Param("before") java.time.LocalDateTime before);
+
+    /** 我作为上级抽成的订单项 key 集合（orderId, orderItemId），用于前台区分"自己推广/下级抽成" */
+    @Query("SELECT cr.orderId, cr.orderItemId FROM CommissionRecord cr WHERE cr.parentDistributorId = :parentId")
+    List<Object[]> findParentCommissionItemKeys(@Param("parentId") UUID parentId);
+
+    /** 指定下级为我创造的抽成金额合计 */
+    @Query("SELECT COALESCE(SUM(cr.parentCommissionAmount), 0) FROM CommissionRecord cr " +
+            "WHERE cr.parentDistributorId = :parentId AND cr.distributorId = :subId")
+    BigDecimal sumParentCommissionBySub(@Param("parentId") UUID parentId,
+                                        @Param("subId") UUID subId);
+
+    /** 订单项对应的销售下级记录（用于展示抽成来源的推广员） */
+    List<CommissionRecord> findByOrderIdAndOrderItemIdAndParentDistributorId(
+            UUID orderId, UUID orderItemId, UUID parentDistributorId);
 }

@@ -815,6 +815,10 @@ public class DistributionServiceImpl implements DistributionService {
             ProductCommission pc = productCommissionRepository.findByProductId(p.getId()).orElse(null);
             m.put("excluded", false);
             m.put("custom_rate", rateToPercent(pc != null ? pc.getCustomRate() : null));
+            BigDecimal rate = pc != null && pc.getCustomRate() != null ? pc.getCustomRate() : rule.getDefaultRate();
+            // 预计佣金金额 = 商品基础价 × 最高佣金比例
+            m.put("commission_rate", rateToPercent(rate));
+            m.put("commission_amount", p.getBasePrice().multiply(rate).setScale(2, RoundingMode.HALF_UP));
             return m;
         }).toList();
         return pageResult(items, distributable.size(), page, pageSize);
@@ -843,6 +847,13 @@ public class DistributionServiceImpl implements DistributionService {
                         m.put("product_title", p.getTitle());
                         m.put("cover_url", p.getCoverUrl());
                         m.put("base_price", p.getBasePrice());
+                        DistributionRule r = getOrCreateRule();
+                        ProductCommission pc = productCommissionRepository.findByProductId(p.getId()).orElse(null);
+                        BigDecimal rate = pc != null && pc.getCustomRate() != null ? pc.getCustomRate() : r.getDefaultRate();
+                        m.put("default_rate", rateToPercent(r.getDefaultRate()));
+                        m.put("custom_rate", rateToPercent(pc != null ? pc.getCustomRate() : null));
+                        m.put("commission_rate", rateToPercent(rate));
+                        m.put("commission_amount", p.getBasePrice().multiply(rate).setScale(2, RoundingMode.HALF_UP));
                     });
                     return m;
                 }).toList();
@@ -1099,16 +1110,69 @@ public class DistributionServiceImpl implements DistributionService {
     @Transactional(readOnly = true)
     public Map<String, Object> listMyCommissions(UUID userId, String status, int page, int pageSize) {
         Distributor d = requireDistributorByUserId(userId);
+        UUID me = d.getId();
         Pageable pageable = toPageable(page, pageSize);
         CommissionStatus statusEnum = parseCommissionStatus(status);
         Page<CommissionRecord> cp;
         if (statusEnum != null) {
             // 复用 admin 查询（distributorId + status，无时间范围限制）
-            cp = commissionRecordRepository.findAdminList(d.getId(), statusEnum, null, null, pageable);
+            cp = commissionRecordRepository.findAdminList(me, statusEnum, null, null, pageable);
         } else {
-            cp = commissionRecordRepository.findByDistributorIdOrderByCreatedAtDesc(d.getId(), pageable);
+            cp = commissionRecordRepository.findByDistributorIdOrderByCreatedAtDesc(me, pageable);
         }
-        List<Map<String, Object>> items = cp.getContent().stream().map(this::commissionToMap).toList();
+        // 我作为上级抽成的订单项 key 集合（用于区分"自己推广 / 下级抽成"）
+        Set<String> parentItemKeys = commissionRecordRepository.findParentCommissionItemKeys(me).stream()
+                .map(row -> String.valueOf(row[0]) + ":" + String.valueOf(row[1]))
+                .collect(Collectors.toSet());
+        List<Map<String, Object>> items = cp.getContent().stream()
+                .map(cr -> commissionDetailToMap(cr, me, parentItemKeys))
+                .toList();
+        return pageResult(items, cp.getTotalElements(), page, pageSize);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  ── 前台：最近推广成交订单（含下级推广订单） ──
+    // ════════════════════════════════════════════════════════════════
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> listMyPromotionOrders(UUID userId, int page, int pageSize) {
+        Distributor d = requireDistributorByUserId(userId);
+        UUID me = d.getId();
+        Pageable pageable = toPageable(page, pageSize);
+        Page<CommissionRecord> cp = commissionRecordRepository.findByDistributorIdOrderByCreatedAtDesc(me, pageable);
+        Set<String> parentItemKeys = commissionRecordRepository.findParentCommissionItemKeys(me).stream()
+                .map(row -> String.valueOf(row[0]) + ":" + String.valueOf(row[1]))
+                .collect(Collectors.toSet());
+
+        List<Map<String, Object>> items = cp.getContent().stream().map(cr -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", cr.getId());
+            m.put("order_id", cr.getOrderId());
+            m.put("product_id", cr.getProductId());
+            m.put("product_title", cr.getProductTitle());
+            m.put("product_price", cr.getOrderAmount());
+            m.put("commission_rate", rateToPercent(cr.getCommissionRate()));
+            boolean fromSub = parentItemKeys.contains(String.valueOf(cr.getOrderId()) + ":" + String.valueOf(cr.getOrderItemId()));
+            m.put("source_type", fromSub ? "SUB" : "SELF");
+            m.put("commission_amount", cr.getCommissionAmount());
+            m.put("status", cr.getStatus().name());
+            m.put("created_at", cr.getCreatedAt());
+            orderRepository.findById(cr.getOrderId()).ifPresent(o -> {
+                m.put("order_status", o.getStatus().name());
+                m.put("paid_at", o.getPaidAt());
+            });
+            if (fromSub) {
+                // 展示实际成交的推广员（下级）
+                commissionRecordRepository
+                        .findByOrderIdAndOrderItemIdAndParentDistributorId(cr.getOrderId(), cr.getOrderItemId(), me)
+                        .stream().findFirst()
+                        .flatMap(seller -> distributorRepository.findById(seller.getDistributorId()))
+                        .flatMap(sd -> userRepository.findById(sd.getUserId()))
+                        .ifPresent(u -> m.put("seller_name", u.getUsername()));
+            }
+            return m;
+        }).toList();
         return pageResult(items, cp.getTotalElements(), page, pageSize);
     }
 
@@ -1222,11 +1286,28 @@ public class DistributionServiceImpl implements DistributionService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", sub.getId());
             m.put("distributor_code", sub.getDistributorCode());
+            m.put("invite_code", sub.getInviteCode());
             m.put("username", u != null ? u.getUsername() : null);
             m.put("email", u != null ? u.getEmail() : null);
             m.put("status", sub.getStatus().name());
             m.put("total_commission", sub.getTotalCommission());
+            m.put("withdrawn_amount", sub.getWithdrawnAmount());
             m.put("created_at", sub.getCreatedAt());
+            // 下级推广数据
+            m.put("customer_count", customerBindingRepository.countByDistributorId(sub.getId()));
+            m.put("subordinate_count", distributorRepository.findByParentId(sub.getId()).size());
+            Page<PromotionLink> links = promotionLinkRepository.findByDistributorId(sub.getId(), Pageable.unpaged());
+            long paid = 0;
+            BigDecimal sales = BigDecimal.ZERO;
+            for (PromotionLink pl : links.getContent()) {
+                paid += pl.getPaidCount();
+                sales = sales.add(nullSafe(pl.getTotalSales()));
+            }
+            m.put("paid_count", paid);
+            m.put("total_sales", sales.setScale(2, RoundingMode.HALF_UP));
+            // 我从该下级获得的抽成金额
+            m.put("sub_commission", nullSafe(commissionRecordRepository.sumParentCommissionBySub(d.getId(), sub.getId()))
+                    .setScale(2, RoundingMode.HALF_UP));
             return m;
         }).toList();
         return pageResult(items, subs.size(), page, pageSize);
@@ -2242,6 +2323,30 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("total_sales", pl.getTotalSales());
         m.put("total_commission", pl.getTotalCommission());
         m.put("created_at", pl.getCreatedAt());
+        return m;
+    }
+
+    /** 前台佣金明细：在基础字段上补充来源（自己推广/下级抽成）与订单信息 */
+    private Map<String, Object> commissionDetailToMap(CommissionRecord cr, UUID me, Set<String> parentItemKeys) {
+        Map<String, Object> m = commissionToMap(cr);
+        boolean fromSub = parentItemKeys.contains(String.valueOf(cr.getOrderId()) + ":" + String.valueOf(cr.getOrderItemId()));
+        m.put("source_type", fromSub ? "SUB" : "SELF");
+        m.put("source_label", fromSub ? "下级抽成" : "自己推广");
+        m.put("commission_rate_percent", rateToPercent(cr.getCommissionRate()));
+        // 兼容前端旧字段名
+        m.put("rate", rateToPercent(cr.getCommissionRate()));
+        orderRepository.findById(cr.getOrderId()).ifPresent(o -> {
+            m.put("order_status", o.getStatus().name());
+            m.put("paid_at", o.getPaidAt());
+        });
+        if (fromSub) {
+            commissionRecordRepository
+                    .findByOrderIdAndOrderItemIdAndParentDistributorId(cr.getOrderId(), cr.getOrderItemId(), me)
+                    .stream().findFirst()
+                    .flatMap(seller -> distributorRepository.findById(seller.getDistributorId()))
+                    .flatMap(sd -> userRepository.findById(sd.getUserId()))
+                    .ifPresent(u -> m.put("seller_name", u.getUsername()));
+        }
         return m;
     }
 

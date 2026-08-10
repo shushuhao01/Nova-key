@@ -63,6 +63,9 @@ public interface DistributionService {
     // ── 前台：佣金明细 ──
     Map<String, Object> listMyCommissions(UUID userId, String status, int page, int pageSize);
 
+    // ── 前台：最近推广成交订单（含下级推广订单） ──
+    Map<String, Object> listMyPromotionOrders(UUID userId, int page, int pageSize);
+
     // ── 前台：提现 ──
     Map<String, Object> applyWithdrawal(UUID userId, BigDecimal amount);
     Map<String, Object> listMyWithdrawals(UUID userId, int page, int pageSize);

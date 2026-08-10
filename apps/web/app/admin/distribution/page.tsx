@@ -2030,13 +2030,13 @@ function RulesTab() {
           </button>
         </div>
 
-        {/* 1. 功能开关 */}
+        {/* 1. 功能开关（4 个一行） */}
         <div className="border-b border-border px-6 py-5">
           <div className="mb-4 flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-primary" />
             <h3 className="text-sm font-semibold text-foreground">功能开关</h3>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
             <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4 transition-colors hover:bg-muted/30">
               <div>
                 <p className="text-sm font-medium text-foreground">启用分销</p>
@@ -2119,44 +2119,7 @@ function RulesTab() {
           </div>
         </div>
 
-        {/* 2. 佣金比例 */}
-        <div className="border-b border-border px-6 py-5">
-          <div className="mb-4 flex items-center gap-2">
-            <Percent className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-semibold text-foreground">佣金比例</h3>
-          </div>
-          <div className="grid gap-5 sm:grid-cols-2">
-            <div className="rounded-lg border border-border bg-muted/20 p-4">
-              <label className="mb-1.5 block text-sm font-medium text-foreground">默认佣金比例 (%)</label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step="0.01"
-                value={rules.default_rate}
-                onChange={(e) => updRule("default_rate", parseFloat(e.target.value) || 0)}
-                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <p className="mt-1.5 text-xs text-muted-foreground">未单独配置的商品 / 分销员使用此比例</p>
-            </div>
-
-            <div className="rounded-lg border border-border bg-muted/20 p-4">
-              <label className="mb-1.5 block text-sm font-medium text-foreground">下级抽成比例 (%)</label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step="0.01"
-                value={rules.default_sub_rate}
-                onChange={(e) => updRule("default_sub_rate", parseFloat(e.target.value) || 0)}
-                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <p className="mt-1.5 text-xs text-muted-foreground">一级分销员从下级佣金中抽成的默认比例</p>
-            </div>
-          </div>
-        </div>
-
-        {/* 3. 结算与提现 */}
+        {/* 2. 结算与提现 */}
         <div className="px-6 py-5">
           <div className="mb-4 flex items-center gap-2">
             <Coins className="h-4 w-4 text-primary" />
@@ -2217,95 +2180,134 @@ function RulesTab() {
         </div>
       </div>
 
-      {/* 阶梯佣金 */}
-      <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
-        <div className="mb-5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-primary" />
-            <div>
-              <h2 className="text-base font-semibold text-foreground">阶梯佣金配置</h2>
-              <p className="text-xs text-muted-foreground">同一客户多次购买，佣金按购买次序递减，超出最后档位不再返佣（0%）</p>
-            </div>
+      {/* 佣金比例 + 佣金阶梯配置（同一行两个等高卡片） */}
+      <div className="grid gap-6 xl:grid-cols-2">
+        {/* 佣金比例（竖排） */}
+        <div className="flex flex-col rounded-lg border border-border bg-card p-6 shadow-sm">
+          <div className="mb-5 flex items-center gap-2">
+            <Percent className="h-5 w-5 text-primary" />
+            <h2 className="text-base font-semibold text-foreground">佣金比例</h2>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={addTier}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-input px-3 text-sm font-medium text-foreground hover:bg-accent"
-            >
-              <Plus className="h-4 w-4" />
-              新增阶梯
-            </button>
-            <button
-              type="button"
-              disabled={savingTiers}
-              onClick={handleSaveTiers}
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
-            >
-              {savingTiers ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" /> : <Save className="h-4 w-4" />}
-              保存阶梯
-            </button>
+          <div className="flex flex-col gap-5">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">默认佣金比例 (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                value={rules.default_rate}
+                onChange={(e) => updRule("default_rate", parseFloat(e.target.value) || 0)}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">未单独配置的商品 / 分销员使用此比例</p>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">下级抽成比例 (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                value={rules.default_sub_rate}
+                onChange={(e) => updRule("default_sub_rate", parseFloat(e.target.value) || 0)}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">一级分销员从下级佣金中抽成的默认比例</p>
+            </div>
           </div>
         </div>
 
-        {tiers.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border bg-muted/20 py-12 text-center">
-            <TrendingUp className="mx-auto h-8 w-8 text-muted-foreground/50" />
-            <p className="mt-3 text-sm text-muted-foreground">暂无阶梯配置，点击「新增阶梯」开始配置</p>
+        {/* 佣金阶梯配置 */}
+        <div className="flex flex-col rounded-lg border border-border bg-card p-6 shadow-sm">
+          <div className="mb-5 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-primary" />
+              <div>
+                <h2 className="text-base font-semibold text-foreground">佣金阶梯配置</h2>
+                <p className="text-xs text-muted-foreground">同一客户多次购买，佣金按购买次序递减，超出最后档位不再返佣（0%）</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={addTier}
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-input px-3 text-sm font-medium text-foreground hover:bg-accent"
+              >
+                <Plus className="h-4 w-4" />
+                新增阶梯
+              </button>
+              <button
+                type="button"
+                disabled={savingTiers}
+                onClick={handleSaveTiers}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
+              >
+                {savingTiers ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" /> : <Save className="h-4 w-4" />}
+                保存阶梯
+              </button>
+            </div>
           </div>
-        ) : (
-          <div className="overflow-hidden rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">购买次序</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金比例（占基础佣金 %）</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tiers.map((t) => (
-                  <tr key={t.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3">
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={t.tier_order}
-                        onChange={(e) => updateTier(t.id, "tier_order", Math.max(1, parseInt(e.target.value, 10) || 1))}
-                        placeholder="第几次购买"
-                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step="0.01"
-                        value={t.rate}
-                        onChange={(e) => updateTier(t.id, "rate", parseFloat(e.target.value) || 0)}
-                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => removeTier(t.id)}
-                          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
-                          title="删除"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
+
+          {tiers.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-muted/20 py-12 text-center">
+              <TrendingUp className="mx-auto h-8 w-8 text-muted-foreground/50" />
+              <p className="mt-3 text-sm text-muted-foreground">暂无阶梯配置，点击「新增阶梯」开始配置</p>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">购买次序</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金比例（占基础佣金 %）</th>
+                    <th className="px-4 py-3 text-right font-medium text-muted-foreground">操作</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody>
+                  {tiers.map((t) => (
+                    <tr key={t.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3">
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={t.tier_order}
+                          onChange={(e) => updateTier(t.id, "tier_order", Math.max(1, parseInt(e.target.value, 10) || 1))}
+                          placeholder="第几次购买"
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.01"
+                          value={t.rate}
+                          onChange={(e) => updateTier(t.id, "rate", parseFloat(e.target.value) || 0)}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => removeTier(t.id)}
+                            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
+                            title="删除"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
