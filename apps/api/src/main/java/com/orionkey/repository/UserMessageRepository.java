@@ -1,5 +1,6 @@
 package com.orionkey.repository;
 
+import com.orionkey.constant.UserMessageCategory;
 import com.orionkey.entity.UserMessage;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,7 +23,7 @@ public interface UserMessageRepository extends JpaRepository<UserMessage, UUID> 
             "AND (:unreadOnly = false OR m.read = false) " +
             "ORDER BY m.createdAt DESC")
     Page<UserMessage> findByUserId(@Param("userId") UUID userId,
-                                   @Param("category") String category,
+                                   @Param("category") UserMessageCategory category,
                                    @Param("unreadOnly") boolean unreadOnly,
                                    Pageable pageable);
 

@@ -378,7 +378,7 @@ export default function AdminOrdersPage() {
                             <CheckCircle className="h-4 w-4" />
                           </button>
                         )}
-                        {order.payment_method === "native_wxpay" &&
+                        {order.provider_type === "native_wxpay" &&
                           (order.status === "PAID" || order.status === "DELIVERED" || order.status === "COMPLETED") && (
                           <button
                             type="button"

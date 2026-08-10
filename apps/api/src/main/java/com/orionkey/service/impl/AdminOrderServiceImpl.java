@@ -35,9 +35,6 @@ import java.util.concurrent.ThreadLocalRandom;
 @RequiredArgsConstructor
 public class AdminOrderServiceImpl implements AdminOrderService {
 
-    /** 微信支付退款渠道编码 */
-    private static final String WXPAY_CHANNEL = "native_wxpay";
-
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final UserRepository userRepository;
@@ -119,8 +116,10 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         if (status != OrderStatus.PAID && status != OrderStatus.DELIVERED && status != OrderStatus.COMPLETED) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "仅已支付/已发货/已完成状态的订单可退款");
         }
-        // 2. 仅微信支付支持原路退回
-        if (!WXPAY_CHANNEL.equals(order.getPaymentMethod())) {
+        // 2. 仅微信原生支付渠道支持原路退回（订单 payment_method 存渠道编码 channel_code，需反查渠道）
+        PaymentChannel channel = order.getPaymentMethod() == null ? null
+                : paymentChannelRepository.findByChannelCodeAndIsDeleted(order.getPaymentMethod(), 0).orElse(null);
+        if (channel == null || !"native_wxpay".equals(channel.getProviderType())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "仅微信支付订单支持在线退款");
         }
         // 3. 校验退款金额
@@ -146,9 +145,9 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         }
 
         // 5. 读取微信支付渠道配置并发起退款
-        PaymentChannel channel = paymentChannelRepository.findByChannelCodeAndIsDeleted(WXPAY_CHANNEL, 0)
-                .filter(PaymentChannel::isEnabled)
-                .orElseThrow(() -> new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE, "微信支付渠道未启用，无法退款"));
+        if (!channel.isEnabled()) {
+            throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE, "微信支付渠道未启用，无法退款");
+        }
         WxpayService.WxpayConfig config = paymentServiceImpl.buildWxpayConfig(channel);
 
         String outRefundNo = "RF" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(1000, 10000);
@@ -222,6 +221,15 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         map.put("status", o.getStatus().name());
         map.put("order_type", o.getOrderType().name());
         map.put("payment_method", o.getPaymentMethod());
+        // 支付渠道 provider_type（native_wxpay/native_alipay/epay/usdt），供前端判断是否可发起退款
+        if (o.getPaymentMethod() != null) {
+            map.put("provider_type", paymentChannelRepository
+                    .findByChannelCodeAndIsDeleted(o.getPaymentMethod(), 0)
+                    .map(PaymentChannel::getProviderType)
+                    .orElse(null));
+        } else {
+            map.put("provider_type", null);
+        }
         map.put("created_at", o.getCreatedAt());
         map.put("email", o.getEmail());
         map.put("points_deducted", o.getPointsDeducted());

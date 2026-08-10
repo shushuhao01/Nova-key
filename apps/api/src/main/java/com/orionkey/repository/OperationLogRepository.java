@@ -32,4 +32,10 @@ public interface OperationLogRepository extends JpaRepository<OperationLog, UUID
                                      @Param("startDate") LocalDateTime startDate,
                                      @Param("endDate") LocalDateTime endDate,
                                      Pageable pageable);
+
+    /** 统计创建时间早于指定时间的日志数（定时清理用） */
+    long countByCreatedAtBefore(LocalDateTime time);
+
+    /** 删除创建时间早于指定时间的日志，返回删除条数（定时清理用） */
+    long deleteByCreatedAtBefore(LocalDateTime time);
 }

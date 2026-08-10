@@ -17,10 +17,22 @@ public class AdminDistributionController {
 
     private final DistributionService distributionService;
 
-    // ── 概览统计 ──
+    // ── 概览统计（支持快捷日期区间与自定义日期，range: today/yesterday/thisMonth/lastMonth/thisYear/all/custom） ──
     @GetMapping("/overview")
-    public ApiResponse<?> getOverview() {
-        return ApiResponse.success(distributionService.adminGetOverviewStats());
+    public ApiResponse<?> getOverview(
+            @RequestParam(required = false) String range,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to) {
+        return ApiResponse.success(distributionService.adminGetOverviewStats(range, from, to));
+    }
+
+    // ── 近期分销订单明细（推广链接成交订单） ──
+    @GetMapping("/recent-orders")
+    public ApiResponse<?> recentOrders(
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to,
+            @RequestParam(defaultValue = "10") int limit) {
+        return ApiResponse.success(distributionService.adminRecentDistributionOrders(from, to, limit));
     }
 
     // ── 规则配置 ──
@@ -54,9 +66,11 @@ public class AdminDistributionController {
     public ApiResponse<?> listDistributors(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
-        return ApiResponse.success(distributionService.adminListDistributors(status, keyword, page, pageSize));
+        return ApiResponse.success(distributionService.adminListDistributors(status, keyword, from, to, page, pageSize));
     }
 
     @GetMapping("/distributors/{id}")
@@ -85,9 +99,10 @@ public class AdminDistributionController {
     // ── 商品佣金配置 ──
     @GetMapping("/products")
     public ApiResponse<?> listProductCommissions(
+            @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
-        return ApiResponse.success(distributionService.adminListProductCommissions(page, pageSize));
+        return ApiResponse.success(distributionService.adminListProductCommissions(page, pageSize, keyword));
     }
 
     @PutMapping("/products/{productId}")
@@ -104,9 +119,11 @@ public class AdminDistributionController {
     public ApiResponse<?> listCommissions(
             @RequestParam(value = "distributor_id", required = false) UUID distributorId,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
-        return ApiResponse.success(distributionService.adminListCommissions(distributorId, status, page, pageSize));
+        return ApiResponse.success(distributionService.adminListCommissions(distributorId, status, from, to, page, pageSize));
     }
 
     @GetMapping("/commissions/stats")
@@ -118,9 +135,11 @@ public class AdminDistributionController {
     @GetMapping("/withdrawals")
     public ApiResponse<?> listWithdrawals(
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
-        return ApiResponse.success(distributionService.adminListWithdrawals(status, page, pageSize));
+        return ApiResponse.success(distributionService.adminListWithdrawals(status, from, to, page, pageSize));
     }
 
     @PutMapping("/withdrawals/{id}/approve")

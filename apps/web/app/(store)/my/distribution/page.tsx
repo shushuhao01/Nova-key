@@ -173,7 +173,7 @@ export default function DistributionPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             欢迎回来，{profile.username || user.username} · 佣金比例
             <span className="ml-1 font-medium text-primary">
-              {(profile.custom_rate != null ? profile.custom_rate : profile.default_rate).toFixed(2)}%
+              {((profile.custom_rate ?? profile.default_rate) || 0).toFixed(2)}%
             </span>
           </p>
         </div>
@@ -613,7 +613,7 @@ function ProductsTab({ profile }: { profile: any }) {
   }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const effectiveRate = (p: any) => (p.custom_rate != null ? p.custom_rate : p.default_rate)
+  const effectiveRate = (p: any) => ((p.custom_rate ?? p.default_rate) || 0)
 
   return (
     <div className="flex flex-col gap-4">

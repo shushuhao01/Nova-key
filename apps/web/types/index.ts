@@ -770,6 +770,8 @@ export interface AdminOrderItem extends OrderDetail {
   user_id: string | null
   username: string | null
   is_risk_flagged: boolean
+  // 支付渠道提供商类型（native_wxpay/native_alipay/epay/usdt），用于判断是否可发起退款
+  provider_type?: string | null
   // 订单完成 / 退款信息
   completed_at?: string | null
   refunded_amount?: number
@@ -830,6 +832,14 @@ export interface OperationLog {
   detail?: string
   ip_address: string
   created_at: string
+}
+
+/** 操作日志定时清理配置 */
+export interface OperationLogCleanupConfig {
+  /** 是否启用定时清理（默认 true） */
+  enabled: boolean
+  /** 保留时长（小时），超过该时长的日志被清理（默认 24） */
+  hours: number
 }
 
 // ============================================================

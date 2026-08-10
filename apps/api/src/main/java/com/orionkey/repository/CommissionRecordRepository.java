@@ -22,15 +22,33 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
     @Query("SELECT cr FROM CommissionRecord cr WHERE " +
             "(:distributorId IS NULL OR cr.distributorId = :distributorId) " +
             "AND (:status IS NULL OR cr.status = :status) " +
+            "AND (:from IS NULL OR cr.createdAt >= :from) " +
+            "AND (:to IS NULL OR cr.createdAt < :to) " +
             "ORDER BY cr.createdAt DESC")
     Page<CommissionRecord> findAdminList(@Param("distributorId") UUID distributorId,
                                          @Param("status") CommissionStatus status,
+                                         @Param("from") LocalDateTime from,
+                                         @Param("to") LocalDateTime to,
                                          Pageable pageable);
 
     @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
             "WHERE cr.distributorId = :distributorId AND cr.status = :status")
     BigDecimal sumByDistributorAndStatus(@Param("distributorId") UUID distributorId,
                                          @Param("status") CommissionStatus status);
+
+    /** 区间内佣金总额（不含已取消，按佣金创建时间） */
+    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
+            "WHERE cr.status != com.orionkey.constant.CommissionStatus.CANCELLED " +
+            "AND cr.createdAt >= :from AND cr.createdAt < :to")
+    BigDecimal sumCommissionAmountBetween(@Param("from") LocalDateTime from,
+                                          @Param("to") LocalDateTime to);
+
+    /** 区间内待结算佣金（不含已取消，按佣金创建时间） */
+    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
+            "WHERE cr.status = com.orionkey.constant.CommissionStatus.PENDING " +
+            "AND cr.createdAt >= :from AND cr.createdAt < :to")
+    BigDecimal sumPendingBetween(@Param("from") LocalDateTime from,
+                                 @Param("to") LocalDateTime to);
 
     /**
      * 待结算佣金：订单已完成（COMPLETED）且完成时间超过结算延迟期。

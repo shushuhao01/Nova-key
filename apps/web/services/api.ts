@@ -32,6 +32,7 @@ import type {
   SystemMessageItem,
   NotificationTestResult,
   OperationLog,
+  OperationLogCleanupConfig,
   RiskConfig,
   WholesaleRule,
   CaptchaResult,
@@ -715,8 +716,12 @@ export const adminPaymentApi = {
 
 export const adminNotificationApi = {
   // 模板
-  getTemplates: () =>
-    request<NotificationTemplateItem[]>("/admin/notifications/templates"),
+  getTemplates: (params: { page?: number; page_size?: number; category?: string; enabled?: boolean }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<NotificationTemplateItem>>(`/admin/notifications/templates?${qs}`)
+  },
+  createTemplate: (data: { code: string; name: string; category: string; title?: string; content?: string; channels?: string; enabled?: boolean; auto_trigger?: boolean }) =>
+    request<null>("/admin/notifications/templates", { method: "POST", body: JSON.stringify(data) }),
   updateTemplate: (id: string, data: { enabled?: boolean; channels?: string; title?: string; content?: string }) =>
     request<null>(`/admin/notifications/templates/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   // 渠道
@@ -767,6 +772,14 @@ export const adminLogApi = {
     const qs = buildQuery(params)
     return request<PaginatedData<OperationLog>>(`/admin/operation-logs?${qs}`)
   },
+  // 定时清理配置
+  getCleanupConfig: () =>
+    request<OperationLogCleanupConfig>("/admin/operation-logs/cleanup-config"),
+  saveCleanupConfig: (data: { enabled: boolean; hours: number }) =>
+    request<null>("/admin/operation-logs/cleanup-config", { method: "PUT", body: JSON.stringify(data) }),
+  // 立即清理过期日志（按当前保留时长）
+  cleanupNow: () =>
+    request<{ deleted: number }>("/admin/operation-logs/cleanup", { method: "POST" }),
 }
 
 // ============================================================
@@ -809,14 +822,21 @@ export { ApiError }
 // ============================================================
 
 export const adminDistributionApi = {
-  getOverview: () => request<any>("/admin/distribution/overview"),
+  getOverview: (params: { range?: string; from?: string; to?: string } = {}) => {
+    const qs = buildQuery(params)
+    return request<any>(`/admin/distribution/overview?${qs}`)
+  },
+  getRecentOrders: (params: { from?: string; to?: string; limit?: number } = {}) => {
+    const qs = buildQuery(params)
+    return request<any>(`/admin/distribution/recent-orders?${qs}`)
+  },
   getRules: () => request<any>("/admin/distribution/rules"),
   updateRules: (data: Record<string, any>) =>
     request<void>("/admin/distribution/rules", { method: "PUT", body: JSON.stringify(data) }),
   getTiers: () => request<any[]>("/admin/distribution/tiers"),
   updateTiers: (tiers: any[]) =>
     request<void>("/admin/distribution/tiers", { method: "PUT", body: JSON.stringify({ tiers }) }),
-  listDistributors: (params: { status?: string; keyword?: string; page?: number; page_size?: number }) => {
+  listDistributors: (params: { status?: string; keyword?: string; from?: string; to?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/distributors?${qs}`)
   },
@@ -825,18 +845,18 @@ export const adminDistributionApi = {
     request<void>(`/admin/distribution/distributors/${id}/status`, { method: "PUT", body: JSON.stringify({ status, reason: reason || "" }) }),
   updateDistributorRate: (id: string, custom_rate?: number, sub_rate?: number) =>
     request<void>(`/admin/distribution/distributors/${id}/rate`, { method: "PUT", body: JSON.stringify({ custom_rate, sub_rate }) }),
-  listProducts: (params: { page?: number; page_size?: number }) => {
+  listProducts: (params: { keyword?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/products?${qs}`)
   },
   updateProductCommission: (productId: string, custom_rate?: number | null, excluded?: boolean) =>
     request<void>(`/admin/distribution/products/${productId}`, { method: "PUT", body: JSON.stringify({ custom_rate, excluded }) }),
-  listCommissions: (params: { distributor_id?: string; status?: string; page?: number; page_size?: number }) => {
+  listCommissions: (params: { distributor_id?: string; status?: string; from?: string; to?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/commissions?${qs}`)
   },
   commissionStats: () => request<any>("/admin/distribution/commissions/stats"),
-  listWithdrawals: (params: { status?: string; page?: number; page_size?: number }) => {
+  listWithdrawals: (params: { status?: string; from?: string; to?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/withdrawals?${qs}`)
   },

@@ -25,8 +25,18 @@ public class AdminNotificationController {
     // ═══════════ 模板 ═══════════
 
     @GetMapping("/templates")
-    public ApiResponse<?> listTemplates() {
-        return ApiResponse.success(notificationService.listTemplates());
+    public ApiResponse<?> listTemplates(@RequestParam(defaultValue = "1") int page,
+                                        @RequestParam(defaultValue = "10") int pageSize,
+                                        @RequestParam(required = false) String category,
+                                        @RequestParam(required = false) Boolean enabled) {
+        return ApiResponse.success(notificationService.listTemplates(page, pageSize, category, enabled));
+    }
+
+    @LogOperation(action = "notify.create", targetType = "NOTIFY_TEMPLATE", detail = "#body.get('name')")
+    @PostMapping("/templates")
+    public ApiResponse<Void> createTemplate(@RequestBody Map<String, Object> body) {
+        notificationService.createTemplate(body);
+        return ApiResponse.success();
     }
 
     @LogOperation(action = "notify.update", targetType = "NOTIFY_TEMPLATE", targetId = "#id", detail = "'更新消息通知模板'")

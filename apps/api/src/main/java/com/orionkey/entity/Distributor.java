@@ -73,6 +73,13 @@ public class Distributor extends BaseEntity {
 
     private LocalDateTime disabledAt;
 
+    /** 拒绝原因（审核拒绝时填写，用户前台可见） */
+    @Column(columnDefinition = "TEXT")
+    private String rejectReason;
+
+    /** 拒绝时间 */
+    private LocalDateTime rejectedAt;
+
     /** 邀请码（用于下级扫码加入） */
     @Column(length = 16)
     private String inviteCode;

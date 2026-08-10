@@ -5,7 +5,8 @@ import {
   Users2, Search, Check, X, Ban, Pencil, ChevronLeft, ChevronRight,
   Package, Coins, Wallet, Settings, Plus, Trash2, Save, TrendingUp,
   Clock, CheckCircle2, UserCheck, UserX, Percent, RefreshCw, ShoppingBag,
-  HandCoins, Loader2, ScrollText, ShieldCheck, Layers,
+  HandCoins, Loader2, ScrollText, ShieldCheck, Layers, CalendarRange,
+  ArrowUpRight, ArrowDownRight,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -19,14 +20,79 @@ type DistributorStatus = "PENDING" | "APPROVED" | "REJECTED" | "DISABLED"
 type CommissionStatus = "PENDING" | "SETTLED" | "CANCELED"
 type WithdrawalStatus = "PENDING" | "APPROVED" | "REJECTED" | "PROCESSING" | "SUCCESS" | "FAILED"
 
+interface OverviewCard {
+  value: number
+  today: number
+  prev: number
+  money: boolean
+}
+
 interface OverviewData {
-  total_distributors: number
-  pending_count: number
-  total_commission: number
-  pending_settlement: number
-  available_balance: number
-  frozen_balance: number
-  withdrawn_amount: number
+  range: string
+  from: string | null
+  to: string | null
+  cards: Record<string, OverviewCard>
+  today_sales: number
+  today_commission: number
+  today_new_distributors: number
+}
+
+interface RecentDistributionOrder {
+  order_id: string
+  paid_at: string
+  status: string
+  amount: number
+  product_title: string
+  quantity: number
+  distributor_name: string
+  distributor_code: string | null
+  customer: string
+  commission: number
+}
+
+/** 快捷日期区间 */
+type RangeKey = "all" | "today" | "yesterday" | "thisMonth" | "lastMonth" | "thisYear" | "custom"
+
+const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
+  { key: "today", label: "今日" },
+  { key: "yesterday", label: "昨日" },
+  { key: "thisMonth", label: "本月" },
+  { key: "lastMonth", label: "上月" },
+  { key: "thisYear", label: "今年" },
+  { key: "all", label: "全部" },
+  { key: "custom", label: "自定义" },
+]
+
+const fmtDateStr = (dt: Date) =>
+  `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`
+
+/** 快捷区间 → [from, to] 日期字符串（列表接口按 from/to 筛选） */
+function rangeToDates(range: RangeKey): { from?: string; to?: string } {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const d = now.getDate()
+  switch (range) {
+    case "today": return { from: fmtDateStr(new Date(y, m, d)), to: fmtDateStr(new Date(y, m, d)) }
+    case "yesterday": {
+      const dt = new Date(y, m, d - 1)
+      return { from: fmtDateStr(dt), to: fmtDateStr(dt) }
+    }
+    case "thisMonth": return { from: fmtDateStr(new Date(y, m, 1)), to: fmtDateStr(new Date(y, m, d)) }
+    case "lastMonth": {
+      const lm = new Date(y, m - 1, 1)
+      const le = new Date(y, m, 0)
+      return { from: fmtDateStr(lm), to: fmtDateStr(le) }
+    }
+    case "thisYear": return { from: fmtDateStr(new Date(y, 0, 1)), to: fmtDateStr(new Date(y, m, d)) }
+    default: return {}
+  }
+}
+
+const orderStatusMap: Record<string, { label: string; cls: string }> = {
+  PAID: { label: "已支付", cls: "bg-blue-500/10 text-blue-600" },
+  DELIVERED: { label: "已发货", cls: "bg-amber-500/10 text-amber-600" },
+  COMPLETED: { label: "已完成", cls: "bg-emerald-500/10 text-emerald-600" },
 }
 
 interface Distributor {
@@ -51,14 +117,13 @@ interface Distributor {
 }
 
 interface DistributionProduct {
-  id: string
   product_id: string
-  title: string
+  product_title: string
+  base_price: number
+  enabled: boolean
   default_rate: number
   custom_rate: number | null
   excluded: boolean
-  cover_image: string | null
-  price: number
 }
 
 interface CommissionRecord {
@@ -134,6 +199,27 @@ export default function AdminDistributionPage() {
   const [tab, setTab] = useState<Tab>("overview")
   const [rulesOpen, setRulesOpen] = useState(false)
 
+  // 日期筛选（概览卡片 + 各列表联动）
+  const [range, setRange] = useState<RangeKey>("all")
+  const [customFrom, setCustomFrom] = useState("")
+  const [customTo, setCustomTo] = useState("")
+  const [dateVersion, setDateVersion] = useState(0)
+
+  const listDates = range === "custom"
+    ? { from: customFrom || undefined, to: customTo || undefined }
+    : rangeToDates(range)
+
+  const overviewParams = {
+    range,
+    from: listDates.from,
+    to: listDates.to,
+  }
+
+  const applyDateFilter = () => {
+    setDateVersion(v => v + 1)
+    setRange(range) // 保持当前区间，触发列表重新加载
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
@@ -155,15 +241,90 @@ export default function AdminDistributionPage() {
         </div>
       </div>
 
-      {tab === "overview" && <OverviewTab />}
-      {tab === "distributors" && <DistributorsTab />}
+      {/* 快捷日期筛选栏（概览 + 推广员 + 佣金记录 + 提现管理联动，商品佣金/规则设置不参与） */}
+      {tab === "overview" || tab === "distributors" || tab === "commissions" || tab === "withdrawals" ? (
+        <DateFilterBar
+          range={range}
+          onRange={setRange}
+          from={customFrom}
+          onFrom={setCustomFrom}
+          to={customTo}
+          onTo={setCustomTo}
+          onApply={applyDateFilter}
+        />
+      ) : null}
+
+      {tab === "overview" && <OverviewTab params={overviewParams} dateVersion={dateVersion} />}
+      {tab === "distributors" && <DistributorsTab dateFrom={listDates.from} dateTo={listDates.to} dateVersion={dateVersion} />}
       {tab === "products" && <ProductsTab />}
-      {tab === "commissions" && <CommissionsTab />}
-      {tab === "withdrawals" && <WithdrawalsTab />}
+      {tab === "commissions" && <CommissionsTab dateFrom={listDates.from} dateTo={listDates.to} dateVersion={dateVersion} />}
+      {tab === "withdrawals" && <WithdrawalsTab dateFrom={listDates.from} dateTo={listDates.to} dateVersion={dateVersion} />}
       {tab === "rules" && <RulesTab />}
 
       {/* 管理员版分销规则弹窗 */}
       <AdminRulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
+    </div>
+  )
+}
+
+// ═══════════════════════ 快捷日期筛选栏 ═══════════════════════
+
+function DateFilterBar({
+  range, onRange, from, onFrom, to, onTo, onApply,
+}: {
+  range: RangeKey
+  onRange: (r: RangeKey) => void
+  from: string
+  onFrom: (v: string) => void
+  to: string
+  onTo: (v: string) => void
+  onApply: () => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm">
+      <CalendarRange className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <div className="flex flex-wrap gap-1">
+        {RANGE_OPTIONS.map(opt => (
+          <button
+            key={opt.key}
+            type="button"
+            onClick={() => onRange(opt.key)}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              range === opt.key
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      {range === "custom" && (
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => onFrom(e.target.value)}
+            className="h-9 rounded-lg border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <span className="text-xs text-muted-foreground">至</span>
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => onTo(e.target.value)}
+            className="h-9 rounded-lg border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={onApply}
+        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+      >
+        <RefreshCw className="h-3.5 w-3.5" />
+        应用筛选
+      </button>
     </div>
   )
 }
@@ -199,14 +360,31 @@ function TabSwitch({ tab, setTab }: { tab: Tab; setTab: (v: Tab) => void }) {
 
 // ═══════════════════════ 概览 TAB ═══════════════════════
 
-function OverviewTab() {
+const CARD_DEFS: { key: string; label: string; icon: typeof Users2; color: string }[] = [
+  { key: "total_sales", label: "总销售额", icon: TrendingUp, color: "text-blue-600 bg-blue-500/10" },
+  { key: "total_distributors", label: "分销员总数", icon: Users2, color: "text-blue-600 bg-blue-500/10" },
+  { key: "pending_count", label: "待审核数", icon: Clock, color: "text-amber-600 bg-amber-500/10" },
+  { key: "total_commission", label: "总佣金", icon: Coins, color: "text-emerald-600 bg-emerald-500/10" },
+  { key: "pending_settlement", label: "待结算", icon: Clock, color: "text-purple-600 bg-purple-500/10" },
+  { key: "available_balance", label: "可提现", icon: Wallet, color: "text-cyan-600 bg-cyan-500/10" },
+  { key: "frozen_balance", label: "冻结中", icon: Ban, color: "text-slate-600 bg-slate-500/10" },
+  { key: "withdrawn_amount", label: "已提现", icon: CheckCircle2, color: "text-green-600 bg-green-500/10" },
+]
+
+function OverviewTab({ params, dateVersion }: { params: { range: RangeKey; from?: string; to?: string }; dateVersion: number }) {
   const [data, setData] = useState<OverviewData | null>(null)
+  const [orders, setOrders] = useState<RecentDistributionOrder[]>([])
+  const [ordersLoading, setOrdersLoading] = useState(false)
   const [loading, setLoading] = useState(true)
 
   const fetch = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await adminDistributionApi.getOverview()
+      const res = await adminDistributionApi.getOverview({
+        range: params.range,
+        from: params.from,
+        to: params.to,
+      })
       setData(res as OverviewData)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载失败")
@@ -214,22 +392,28 @@ function OverviewTab() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [params.range, params.from, params.to])
 
-  useEffect(() => { fetch() }, [fetch])
+  const fetchOrders = useCallback(async () => {
+    setOrdersLoading(true)
+    try {
+      const res = await adminDistributionApi.getRecentOrders({
+        from: params.from,
+        to: params.to,
+        limit: 10,
+      })
+      setOrders((res?.list || []) as RecentDistributionOrder[])
+    } catch {
+      setOrders([])
+    } finally {
+      setOrdersLoading(false)
+    }
+  }, [params.from, params.to])
 
-  const cards = useMemo(() => {
-    if (!data) return []
-    return [
-      { label: "分销员总数", value: String(data.total_distributors ?? 0), icon: Users2, color: "text-blue-600 bg-blue-500/10" },
-      { label: "待审核数", value: String(data.pending_count ?? 0), icon: Clock, color: "text-amber-600 bg-amber-500/10" },
-      { label: "总佣金", value: fmtMoney(data.total_commission), icon: Coins, color: "text-emerald-600 bg-emerald-500/10" },
-      { label: "待结算", value: fmtMoney(data.pending_settlement), icon: Clock, color: "text-purple-600 bg-purple-500/10" },
-      { label: "可提现", value: fmtMoney(data.available_balance), icon: Wallet, color: "text-cyan-600 bg-cyan-500/10" },
-      { label: "冻结中", value: fmtMoney(data.frozen_balance), icon: Ban, color: "text-slate-600 bg-slate-500/10" },
-      { label: "已提现", value: fmtMoney(data.withdrawn_amount), icon: CheckCircle2, color: "text-green-600 bg-green-500/10" },
-    ]
-  }, [data])
+  useEffect(() => { fetch() }, [fetch, dateVersion])
+  useEffect(() => { fetchOrders() }, [fetchOrders, dateVersion])
+
+  const rangeLabel = RANGE_OPTIONS.find(r => r.key === params.range)?.label || "全部"
 
   if (loading) {
     return (
@@ -242,10 +426,16 @@ function OverviewTab() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-foreground">数据概览</h2>
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">数据概览</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            当前统计范围：{rangeLabel}
+            {data?.from && data.to && `（${data.from} ~ ${data.to}）`}
+          </p>
+        </div>
         <button
           type="button"
-          onClick={fetch}
+          onClick={() => { fetch(); fetchOrders() }}
           className="inline-flex h-9 items-center gap-2 rounded-lg border border-input px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <RefreshCw className="h-4 w-4" />
@@ -253,20 +443,115 @@ function OverviewTab() {
         </button>
       </div>
 
+      {/* 汇总卡片 */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {cards.map(c => (
-          <div key={c.label} className="rounded-lg border border-border bg-card p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">{c.label}</span>
-              <span className={cn("flex h-8 w-8 items-center justify-center rounded-md", c.color)}>
-                <c.icon className="h-4 w-4" />
-              </span>
+        {CARD_DEFS.map(def => {
+          const card = data?.cards?.[def.key]
+          if (!card) return null
+          return (
+            <div key={def.key} className="rounded-lg border border-border bg-card p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">{def.label}</span>
+                <span className={cn("flex h-8 w-8 items-center justify-center rounded-md", def.color)}>
+                  <def.icon className="h-4 w-4" />
+                </span>
+              </div>
+              <p className="mt-3 text-2xl font-bold text-foreground">
+                {card.money ? fmtMoney(card.value) : card.value}
+              </p>
+              <div className="mt-2 flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">
+                  今日 {card.money ? fmtMoney(card.today) : card.today}
+                </span>
+                <TrendBadge value={card.value} prev={card.prev} />
+              </div>
             </div>
-            <p className="mt-3 text-2xl font-bold text-foreground">{c.value}</p>
-          </div>
-        ))}
+          )
+        })}
+      </div>
+
+      {/* 近期分销订单明细 */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <ShoppingBag className="h-4 w-4 text-primary" />
+            近期分销订单明细
+          </h3>
+          <span className="text-xs text-muted-foreground">按当前日期范围，最多显示 10 条</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">订单</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">分销人</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">客户</th>
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground">金额</th>
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground">佣金</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">状态</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">支付时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ordersLoading ? (
+                <tr><td colSpan={8} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+              ) : orders.length === 0 ? (
+                <tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">当前范围暂无分销订单</td></tr>
+              ) : (
+                orders.map(o => {
+                  const st = orderStatusMap[o.status] || { label: o.status, cls: "bg-muted text-muted-foreground" }
+                  return (
+                    <tr key={o.order_id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs text-foreground">{o.order_id.slice(0, 8)}</td>
+                      <td className="max-w-[220px] truncate px-4 py-3 text-xs text-muted-foreground" title={o.product_title}>
+                        {o.product_title}
+                        {o.quantity > 1 && <span className="ml-1 text-muted-foreground/60">×{o.quantity}</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-foreground">{o.distributor_name}</span>
+                          <span className="text-xs text-muted-foreground">{o.distributor_code}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{o.customer}</td>
+                      <td className="px-4 py-3 text-right font-medium text-foreground">{fmtMoney(o.amount)}</td>
+                      <td className="px-4 py-3 text-right font-medium text-emerald-600">{fmtMoney(o.commission)}</td>
+                      <td className="px-4 py-3">
+                        <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
+                          {st.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(o.paid_at)}</td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
+  )
+}
+
+/** 环比徽标：与上一周期比较 */
+function TrendBadge({ value, prev }: { value: number; prev: number }) {
+  if (!prev) return <span className="text-xs text-muted-foreground">环比 —</span>
+  const pct = ((value - prev) / prev) * 100
+  const up = pct >= 0
+  const abs = Math.abs(pct)
+  return (
+    <span
+      title="与上一周期对比"
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium",
+        up ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-500"
+      )}
+    >
+      {up ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+      环比 {abs >= 100 ? abs.toFixed(0) : abs.toFixed(1)}%
+    </span>
   )
 }
 
@@ -279,7 +564,7 @@ const distributorStatusMap: Record<DistributorStatus, { label: string; cls: stri
   DISABLED: { label: "已禁用", cls: "bg-muted text-muted-foreground" },
 }
 
-function DistributorsTab() {
+function DistributorsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; dateTo?: string; dateVersion: number }) {
   const [list, setList] = useState<Distributor[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -296,6 +581,8 @@ function DistributorsTab() {
         page_size: ITEMS_PER_PAGE,
         keyword: keyword || undefined,
         status: statusFilter || undefined,
+        from: dateFrom,
+        to: dateTo,
       })
       setList((data.list || []) as Distributor[])
       setTotal(data.pagination?.total ?? 0)
@@ -306,14 +593,14 @@ function DistributorsTab() {
     } finally {
       setLoading(false)
     }
-  }, [currentPage, keyword, statusFilter])
+  }, [currentPage, keyword, statusFilter, dateFrom, dateTo])
 
   useEffect(() => {
     const timer = setTimeout(() => setCurrentPage(1), 300)
     return () => clearTimeout(timer)
-  }, [keyword, statusFilter])
+  }, [keyword, statusFilter, dateFrom, dateTo])
 
-  useEffect(() => { fetchList() }, [fetchList])
+  useEffect(() => { fetchList() }, [fetchList, dateVersion])
 
   const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
 
@@ -364,6 +651,14 @@ function DistributorsTab() {
             <option value="DISABLED">已禁用</option>
           </select>
         </div>
+        <button
+          type="button"
+          onClick={fetchList}
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-input px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <RefreshCw className="h-4 w-4" />
+          刷新
+        </button>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -587,8 +882,10 @@ function ProductsTab() {
   const [list, setList] = useState<DistributionProduct[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [keyword, setKeyword] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [editModal, setEditModal] = useState<DistributionProduct | null>(null)
+  const [addModalOpen, setAddModalOpen] = useState(false)
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -596,6 +893,7 @@ function ProductsTab() {
       const data = await adminDistributionApi.listProducts({
         page: currentPage,
         page_size: ITEMS_PER_PAGE,
+        keyword: keyword || undefined,
       })
       setList((data.list || []) as DistributionProduct[])
       setTotal(data.pagination?.total ?? 0)
@@ -606,7 +904,12 @@ function ProductsTab() {
     } finally {
       setLoading(false)
     }
-  }, [currentPage])
+  }, [currentPage, keyword])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setCurrentPage(1), 300)
+    return () => clearTimeout(timer)
+  }, [keyword])
 
   useEffect(() => { fetchList() }, [fetchList])
 
@@ -624,10 +927,41 @@ function ProductsTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-foreground">商品佣金配置</h2>
           <p className="text-sm text-muted-foreground">为商品设置自定义佣金比例或排除分销</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAddModalOpen(true)}
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-all hover:brightness-110"
+          >
+            <Plus className="h-4 w-4" />
+            添加分销商品
+          </button>
+          <button
+            type="button"
+            onClick={fetchList}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-input px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <RefreshCw className="h-4 w-4" />
+            刷新
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="搜索商品名称"
+            className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+          />
         </div>
       </div>
 
@@ -653,23 +987,19 @@ function ProductsTab() {
                 list.map((p) => {
                   const effective = p.custom_rate != null ? p.custom_rate : p.default_rate
                   return (
-                    <tr key={p.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                    <tr key={p.product_id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          {p.cover_image ? (
-                            <img src={p.cover_image} alt="" className="h-10 w-10 rounded-md object-cover" />
-                          ) : (
-                            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted">
-                              <Package className="h-5 w-5 text-muted-foreground" />
-                            </div>
-                          )}
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted">
+                            <Package className="h-5 w-5 text-muted-foreground" />
+                          </div>
                           <div className="flex flex-col">
-                            <span className="font-medium text-foreground line-clamp-1">{p.title}</span>
+                            <span className="font-medium text-foreground line-clamp-1">{p.product_title}</span>
                             <span className="text-xs text-muted-foreground">ID: {p.product_id}</span>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">{fmtMoney(p.price)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{fmtMoney(p.base_price)}</td>
                       <td className="px-4 py-3 text-muted-foreground">{p.default_rate.toFixed(2)}%</td>
                       <td className="px-4 py-3">
                         {p.custom_rate != null ? (
@@ -735,6 +1065,13 @@ function ProductsTab() {
           onSaved={() => { setEditModal(null); fetchList() }}
         />
       )}
+
+      {addModalOpen && (
+        <AddDistributionProductModal
+          onClose={() => setAddModalOpen(false)}
+          onSaved={() => { setAddModalOpen(false); fetchList() }}
+        />
+      )}
     </div>
   )
 }
@@ -779,8 +1116,8 @@ function ProductCommissionModal({ product, onClose, onSaved }: {
           </button>
         </div>
         <div className="mb-4 rounded-lg bg-muted/40 p-3 text-sm">
-          <p className="font-medium text-foreground line-clamp-1">{product.title}</p>
-          <p className="mt-1 text-xs text-muted-foreground">默认佣金比例：{product.default_rate.toFixed(2)}% · 售价 {fmtMoney(product.price)}</p>
+          <p className="font-medium text-foreground line-clamp-1">{product.product_title}</p>
+          <p className="mt-1 text-xs text-muted-foreground">默认佣金比例：{product.default_rate.toFixed(2)}% · 售价 {fmtMoney(product.base_price)}</p>
         </div>
         <div className="flex flex-col gap-4">
           <div>
@@ -841,6 +1178,129 @@ function ProductCommissionModal({ product, onClose, onSaved }: {
   )
 }
 
+/**
+ * 添加分销商品弹窗 — 搜索全站商品，选中后纳入分销
+ */
+function AddDistributionProductModal({ onClose, onSaved }: {
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [keyword, setKeyword] = useState("")
+  const [list, setList] = useState<DistributionProduct[]>([])
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState<string | null>(null)
+
+  const fetchList = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await adminDistributionApi.listProducts({
+        page: 1,
+        page_size: 20,
+        keyword: keyword || undefined,
+      })
+      setList((data.list || []) as DistributionProduct[])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "加载失败")
+      setList([])
+    } finally {
+      setLoading(false)
+    }
+  }, [keyword])
+
+  useEffect(() => {
+    const timer = setTimeout(fetchList, 300)
+    return () => clearTimeout(timer)
+  }, [keyword, fetchList])
+
+  const handleAdd = async (p: DistributionProduct) => {
+    setSubmitting(p.product_id)
+    try {
+      // 排除状态的商品纳入分销；已可分销的商品保持原状
+      if (p.excluded) {
+        await adminDistributionApi.updateProductCommission(p.product_id, p.custom_rate, false)
+      }
+      toast.success("已添加为分销商品")
+      onSaved()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    } finally {
+      setSubmitting(null)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex max-h-[82vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <h2 className="text-lg font-bold text-foreground">添加分销商品</h2>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="border-b border-border p-4">
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="搜索商品名称"
+              className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          ) : list.length === 0 ? (
+            <div className="py-16 text-center text-sm text-muted-foreground">未找到商品</div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {list.map(p => (
+                <div key={p.product_id} className="flex items-center justify-between rounded-lg border border-border p-3 transition-colors hover:bg-muted/20">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted">
+                      <Package className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{p.product_title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {fmtMoney(p.base_price)} · 默认比例 {p.default_rate.toFixed(2)}%
+                        {p.excluded && (
+                          <span className="ml-1.5 rounded bg-red-500/10 px-1.5 py-0.5 text-[11px] font-medium text-red-500">已排除</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={submitting === p.product_id || !p.excluded}
+                    onClick={() => handleAdd(p)}
+                    className={cn(
+                      "ml-3 inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors",
+                      p.excluded
+                        ? "bg-primary text-primary-foreground hover:brightness-110 disabled:opacity-50"
+                        : "bg-muted text-muted-foreground cursor-default"
+                    )}
+                  >
+                    {submitting === p.product_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    {p.excluded ? "添加" : "已添加"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ═══════════════════════ 佣金记录 TAB ═══════════════════════
 
 const commissionStatusMap: Record<CommissionStatus, { label: string; cls: string }> = {
@@ -849,7 +1309,7 @@ const commissionStatusMap: Record<CommissionStatus, { label: string; cls: string
   CANCELED: { label: "已取消", cls: "bg-red-500/10 text-red-500" },
 }
 
-function CommissionsTab() {
+function CommissionsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; dateTo?: string; dateVersion: number }) {
   const [list, setList] = useState<CommissionRecord[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -866,6 +1326,8 @@ function CommissionsTab() {
         page_size: ITEMS_PER_PAGE,
         distributor_id: distributorId || undefined,
         status: statusFilter || undefined,
+        from: dateFrom,
+        to: dateTo,
       })
       setList((data.list || []) as CommissionRecord[])
       setTotal(data.pagination?.total ?? 0)
@@ -876,7 +1338,7 @@ function CommissionsTab() {
     } finally {
       setLoading(false)
     }
-  }, [currentPage, distributorId, statusFilter])
+  }, [currentPage, distributorId, statusFilter, dateFrom, dateTo])
 
   const fetchStats = useCallback(async () => {
     try {
@@ -890,9 +1352,9 @@ function CommissionsTab() {
   useEffect(() => {
     const timer = setTimeout(() => setCurrentPage(1), 300)
     return () => clearTimeout(timer)
-  }, [distributorId, statusFilter])
+  }, [distributorId, statusFilter, dateFrom, dateTo])
 
-  useEffect(() => { fetchList() }, [fetchList])
+  useEffect(() => { fetchList() }, [fetchList, dateVersion])
   useEffect(() => { fetchStats() }, [fetchStats])
 
   const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
@@ -943,6 +1405,14 @@ function CommissionsTab() {
             <option value="CANCELED">已取消</option>
           </select>
         </div>
+        <button
+          type="button"
+          onClick={fetchList}
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-input px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <RefreshCw className="h-4 w-4" />
+          刷新
+        </button>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -1017,7 +1487,7 @@ const withdrawalStatusMap: Record<WithdrawalStatus, { label: string; cls: string
   FAILED: { label: "已失败", cls: "bg-red-500/10 text-red-500" },
 }
 
-function WithdrawalsTab() {
+function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; dateTo?: string; dateVersion: number }) {
   const [list, setList] = useState<Withdrawal[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -1033,6 +1503,8 @@ function WithdrawalsTab() {
         page: currentPage,
         page_size: ITEMS_PER_PAGE,
         status: statusFilter || undefined,
+        from: dateFrom,
+        to: dateTo,
       })
       setList((data.list || []) as Withdrawal[])
       setTotal(data.pagination?.total ?? 0)
@@ -1043,14 +1515,14 @@ function WithdrawalsTab() {
     } finally {
       setLoading(false)
     }
-  }, [currentPage, statusFilter])
+  }, [currentPage, statusFilter, dateFrom, dateTo])
 
   useEffect(() => {
     const timer = setTimeout(() => setCurrentPage(1), 300)
     return () => clearTimeout(timer)
-  }, [statusFilter])
+  }, [statusFilter, dateFrom, dateTo])
 
-  useEffect(() => { fetchList() }, [fetchList])
+  useEffect(() => { fetchList() }, [fetchList, dateVersion])
 
   const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
 
@@ -1081,6 +1553,14 @@ function WithdrawalsTab() {
           <option value="SUCCESS">已结算</option>
           <option value="FAILED">已失败</option>
         </select>
+        <button
+          type="button"
+          onClick={fetchList}
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-input px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <RefreshCw className="h-4 w-4" />
+          刷新
+        </button>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -1500,11 +1980,16 @@ function RulesTab() {
   return (
     <div className="flex flex-col gap-6">
       {/* 基础规则 */}
-      <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
-        <div className="mb-5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Settings className="h-5 w-5 text-primary" />
-            <h2 className="text-base font-semibold text-foreground">基础规则</h2>
+      <div className="rounded-xl border border-border bg-card shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-4">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Settings className="h-4 w-4" />
+              </span>
+              基础规则
+            </h2>
+            <p className="mt-1 pl-10 text-xs text-muted-foreground">分销功能总开关、佣金比例与结算提现相关规则</p>
           </div>
           <button
             type="button"
@@ -1517,164 +2002,189 @@ function RulesTab() {
           </button>
         </div>
 
-        <div className="grid gap-5 sm:grid-cols-2">
-          <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4">
-            <div>
-              <p className="text-sm font-medium text-foreground">启用分销</p>
-              <p className="mt-1 text-xs text-muted-foreground">关闭后所有分销链接将失效</p>
+        {/* 1. 功能开关 */}
+        <div className="border-b border-border px-6 py-5">
+          <div className="mb-4 flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-primary" />
+            <h3 className="text-sm font-semibold text-foreground">功能开关</h3>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4 transition-colors hover:bg-muted/30">
+              <div>
+                <p className="text-sm font-medium text-foreground">启用分销</p>
+                <p className="mt-1 text-xs text-muted-foreground">关闭后所有分销链接将失效</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => updRule("enabled", !rules.enabled)}
+                className={cn(
+                  "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                  rules.enabled ? "bg-primary" : "bg-muted-foreground/30"
+                )}
+              >
+                <span className={cn(
+                  "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                  rules.enabled ? "translate-x-5" : "translate-x-0.5"
+                )} />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => updRule("enabled", !rules.enabled)}
-              className={cn(
-                "relative h-6 w-11 rounded-full transition-colors",
-                rules.enabled ? "bg-primary" : "bg-muted-foreground/30"
-              )}
-            >
-              <span className={cn(
-                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                rules.enabled ? "translate-x-5" : "translate-x-0.5"
-              )} />
-            </button>
-          </div>
 
-          <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4">
-            <div>
-              <p className="text-sm font-medium text-foreground">自动审核</p>
-              <p className="mt-1 text-xs text-muted-foreground">开启后新申请自动通过</p>
+            <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4 transition-colors hover:bg-muted/30">
+              <div>
+                <p className="text-sm font-medium text-foreground">自动审核</p>
+                <p className="mt-1 text-xs text-muted-foreground">开启后新申请自动通过</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => updRule("auto_approve", !rules.auto_approve)}
+                className={cn(
+                  "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                  rules.auto_approve ? "bg-primary" : "bg-muted-foreground/30"
+                )}
+              >
+                <span className={cn(
+                  "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                  rules.auto_approve ? "translate-x-5" : "translate-x-0.5"
+                )} />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => updRule("auto_approve", !rules.auto_approve)}
-              className={cn(
-                "relative h-6 w-11 rounded-full transition-colors",
-                rules.auto_approve ? "bg-primary" : "bg-muted-foreground/30"
-              )}
-            >
-              <span className={cn(
-                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                rules.auto_approve ? "translate-x-5" : "translate-x-0.5"
-              )} />
-            </button>
-          </div>
 
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">默认佣金比例 (%)</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step="0.01"
-              value={rules.default_rate}
-              onChange={(e) => updRule("default_rate", parseFloat(e.target.value) || 0)}
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">未单独配置的商品/分销员使用此比例</p>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">下级抽成比例 (%)</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step="0.01"
-              value={rules.default_sub_rate}
-              onChange={(e) => updRule("default_sub_rate", parseFloat(e.target.value) || 0)}
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">一级分销员从下级佣金中抽成的默认比例</p>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">最低提现金额 (元)</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={rules.min_withdraw_amount}
-              onChange={(e) => updRule("min_withdraw_amount", parseFloat(e.target.value) || 0)}
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">单笔提现申请的最低金额</p>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">佣金结算延迟 (天)</label>
-            <input
-              type="number"
-              min={0}
-              value={rules.settle_delay_days}
-              onChange={(e) => updRule("settle_delay_days", parseInt(e.target.value) || 0)}
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">订单支付完成后 N 天佣金才可提现</p>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">客户保护期 (天)</label>
-            <input
-              type="number"
-              min={0}
-              value={rules.binding_protection_days}
-              onChange={(e) => updRule("binding_protection_days", parseInt(e.target.value) || 0)}
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">客户绑定推广员后 N 天内不可被其他推广员抢走</p>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">提现手续费率 (%)</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step="0.01"
-              value={rules.withdraw_fee_rate}
-              onChange={(e) => updRule("withdraw_fee_rate", parseFloat(e.target.value) || 0)}
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">0 = 免费提现</p>
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4">
-            <div>
-              <p className="text-sm font-medium text-foreground">开启二级分销</p>
-              <p className="mt-1 text-xs text-muted-foreground">一级分销员可从下级佣金中抽成</p>
+            <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4 transition-colors hover:bg-muted/30">
+              <div>
+                <p className="text-sm font-medium text-foreground">开启二级分销</p>
+                <p className="mt-1 text-xs text-muted-foreground">一级分销员可从下级佣金中抽成</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => updRule("sub_distribution_enabled", !rules.sub_distribution_enabled)}
+                className={cn(
+                  "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                  rules.sub_distribution_enabled ? "bg-primary" : "bg-muted-foreground/30"
+                )}
+              >
+                <span className={cn(
+                  "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                  rules.sub_distribution_enabled ? "translate-x-5" : "translate-x-0.5"
+                )} />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => updRule("sub_distribution_enabled", !rules.sub_distribution_enabled)}
-              className={cn(
-                "relative h-6 w-11 rounded-full transition-colors",
-                rules.sub_distribution_enabled ? "bg-primary" : "bg-muted-foreground/30"
-              )}
-            >
-              <span className={cn(
-                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                rules.sub_distribution_enabled ? "translate-x-5" : "translate-x-0.5"
-              )} />
-            </button>
-          </div>
 
-          <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4">
-            <div>
-              <p className="text-sm font-medium text-foreground">开启阶梯佣金</p>
-              <p className="mt-1 text-xs text-muted-foreground">同一客户多次购买，佣金比例按阶梯递减</p>
+            <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-4 transition-colors hover:bg-muted/30">
+              <div>
+                <p className="text-sm font-medium text-foreground">开启阶梯佣金</p>
+                <p className="mt-1 text-xs text-muted-foreground">同一客户多次购买，佣金比例按阶梯递减</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => updRule("tier_enabled", !rules.tier_enabled)}
+                className={cn(
+                  "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                  rules.tier_enabled ? "bg-primary" : "bg-muted-foreground/30"
+                )}
+              >
+                <span className={cn(
+                  "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                  rules.tier_enabled ? "translate-x-5" : "translate-x-0.5"
+                )} />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => updRule("tier_enabled", !rules.tier_enabled)}
-              className={cn(
-                "relative h-6 w-11 rounded-full transition-colors",
-                rules.tier_enabled ? "bg-primary" : "bg-muted-foreground/30"
-              )}
-            >
-              <span className={cn(
-                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                rules.tier_enabled ? "translate-x-5" : "translate-x-0.5"
-              )} />
-            </button>
+          </div>
+        </div>
+
+        {/* 2. 佣金比例 */}
+        <div className="border-b border-border px-6 py-5">
+          <div className="mb-4 flex items-center gap-2">
+            <Percent className="h-4 w-4 text-primary" />
+            <h3 className="text-sm font-semibold text-foreground">佣金比例</h3>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div className="rounded-lg border border-border bg-muted/20 p-4">
+              <label className="mb-1.5 block text-sm font-medium text-foreground">默认佣金比例 (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                value={rules.default_rate}
+                onChange={(e) => updRule("default_rate", parseFloat(e.target.value) || 0)}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">未单独配置的商品 / 分销员使用此比例</p>
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/20 p-4">
+              <label className="mb-1.5 block text-sm font-medium text-foreground">下级抽成比例 (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                value={rules.default_sub_rate}
+                onChange={(e) => updRule("default_sub_rate", parseFloat(e.target.value) || 0)}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">一级分销员从下级佣金中抽成的默认比例</p>
+            </div>
+          </div>
+        </div>
+
+        {/* 3. 结算与提现 */}
+        <div className="px-6 py-5">
+          <div className="mb-4 flex items-center gap-2">
+            <Coins className="h-4 w-4 text-primary" />
+            <h3 className="text-sm font-semibold text-foreground">结算与提现</h3>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">佣金结算延迟 (天)</label>
+              <input
+                type="number"
+                min={0}
+                value={rules.settle_delay_days}
+                onChange={(e) => updRule("settle_delay_days", parseInt(e.target.value) || 0)}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">订单支付完成后 N 天佣金才可提现</p>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">最低提现金额 (元)</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={rules.min_withdraw_amount}
+                onChange={(e) => updRule("min_withdraw_amount", parseFloat(e.target.value) || 0)}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">单笔提现申请的最低金额</p>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">提现手续费率 (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                value={rules.withdraw_fee_rate}
+                onChange={(e) => updRule("withdraw_fee_rate", parseFloat(e.target.value) || 0)}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">0 = 免费提现</p>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">客户保护期 (天)</label>
+              <input
+                type="number"
+                min={0}
+                value={rules.binding_protection_days}
+                onChange={(e) => updRule("binding_protection_days", parseInt(e.target.value) || 0)}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">客户绑定推广员后 N 天内不可被其他推广员抢走</p>
+            </div>
           </div>
         </div>
       </div>

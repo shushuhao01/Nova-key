@@ -1,12 +1,13 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send, Bell, Webhook, CheckCircle2, XCircle } from "lucide-react"
+import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send, Bell, Webhook, CheckCircle2, XCircle, Plus, ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { adminConfigApi, adminProductApi, adminNotificationApi, withMockFallback } from "@/services/api"
 import { mockSiteConfigKVs } from "@/lib/mock-data"
 import { useLocale } from "@/lib/context"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog"
 import type { SiteConfigKV, NotificationTemplateItem, NotificationChannelItem, NotificationTestResult } from "@/types"
 
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp", "image/svg+xml"]
@@ -38,35 +39,62 @@ export default function AdminSiteConfigPage() {
   const popupTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   // 消息通知（notify tab）独立数据
+  const NOTIFY_PAGE_SIZE = 10
   const [notifyChannels, setNotifyChannels] = useState<NotificationChannelItem[]>([])
   const [notifyTemplates, setNotifyTemplates] = useState<NotificationTemplateItem[]>([])
   const [notifyLoading, setNotifyLoading] = useState(false)
   const [notifySaved, setNotifySaved] = useState(false)
   const [notifyTestResult, setNotifyTestResult] = useState<NotificationTestResult | null>(null)
   const [notifyTesting, setNotifyTesting] = useState(false)
+  // 模板分页 / 筛选
+  const [notifyPage, setNotifyPage] = useState(1)
+  const [notifyTemplateTotal, setNotifyTemplateTotal] = useState(0)
+  const [notifyCategoryFilter, setNotifyCategoryFilter] = useState("")
+  const [notifyEnabledFilter, setNotifyEnabledFilter] = useState("")
+  // 新增模板弹窗
+  const [notifyCreateOpen, setNotifyCreateOpen] = useState(false)
+  const [notifyCreating, setNotifyCreating] = useState(false)
+  const [createForm, setCreateForm] = useState({
+    code: "",
+    name: "",
+    category: "USER",
+    title: "",
+    content: "",
+    channels: "DINGTALK,WECOM,EMAIL",
+    enabled: false,
+    auto_trigger: false,
+  })
 
-  const loadNotifyData = useCallback(async () => {
+  const loadNotifyTemplates = useCallback(async (page: number, category: string, enabledFilter: string) => {
     setNotifyLoading(true)
     try {
-      const [channels, templates] = await Promise.all([
-        adminNotificationApi.getChannels(),
-        adminNotificationApi.getTemplates(),
-      ])
-      setNotifyChannels(channels)
-      setNotifyTemplates(templates)
+      const data = await adminNotificationApi.getTemplates({
+        page,
+        page_size: NOTIFY_PAGE_SIZE,
+        category: category || undefined,
+        enabled: enabledFilter === "enabled" ? true : enabledFilter === "disabled" ? false : undefined,
+      })
+      setNotifyTemplates(data.list)
+      setNotifyTemplateTotal(data.pagination.total)
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "通知配置加载失败")
+      toast.error(err instanceof Error ? err.message : "通知模板加载失败")
     } finally {
       setNotifyLoading(false)
     }
   }, [])
 
-  // 首次切换到「消息通知」tab 时加载数据
+  // 首次切换到「消息通知」tab 时加载渠道，模板列表按分页/筛选加载
+  const notifyLoadedRef = useRef(false)
   useEffect(() => {
-    if (tab === "notify" && notifyChannels.length === 0 && notifyTemplates.length === 0) {
-      loadNotifyData()
+    if (tab !== "notify") return
+    if (!notifyLoadedRef.current) {
+      notifyLoadedRef.current = true
+      adminNotificationApi.getChannels().then(setNotifyChannels).catch((err: unknown) => {
+        toast.error(err instanceof Error ? err.message : "通知渠道加载失败")
+      })
     }
-  }, [tab, notifyChannels.length, notifyTemplates.length, loadNotifyData])
+    loadNotifyTemplates(notifyPage, notifyCategoryFilter, notifyEnabledFilter)
+  }, [tab, notifyPage, notifyCategoryFilter, notifyEnabledFilter, loadNotifyTemplates])
 
   const fetchConfig = useCallback(async () => {
     setLoading(true)
@@ -209,6 +237,7 @@ export default function AdminSiteConfigPage() {
         })
       }
       toast.success("通知配置已保存")
+      loadNotifyTemplates(notifyPage, notifyCategoryFilter, notifyEnabledFilter)
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "保存失败")
     } finally {
@@ -231,6 +260,62 @@ export default function AdminSiteConfigPage() {
       toast.error(err instanceof Error ? err.message : "测试发送失败")
     } finally {
       setNotifyTesting(false)
+    }
+  }
+
+  // ─── 新增模板弹窗 ───
+
+  const openCreateDialog = () => {
+    setCreateForm({
+      code: "",
+      name: "",
+      category: "USER",
+      title: "",
+      content: "",
+      channels: "DINGTALK,WECOM,EMAIL",
+      enabled: false,
+      auto_trigger: false,
+    })
+    setNotifyCreateOpen(true)
+  }
+
+  const toggleCreateChannel = (chType: string) => {
+    setCreateForm(prev => {
+      const cur = (prev.channels || "").split(",").map(s => s.trim()).filter(Boolean)
+      const next = cur.includes(chType) ? cur.filter(c => c !== chType) : [...cur, chType]
+      return { ...prev, channels: next.join(",") }
+    })
+  }
+
+  const handleCreateTemplate = async () => {
+    if (!createForm.code.trim() || !createForm.name.trim()) {
+      toast.error("模板编码与名称不能为空")
+      return
+    }
+    setNotifyCreating(true)
+    try {
+      await adminNotificationApi.createTemplate({
+        code: createForm.code,
+        name: createForm.name,
+        category: createForm.category,
+        title: createForm.title,
+        content: createForm.content,
+        channels: createForm.channels,
+        enabled: createForm.enabled,
+        auto_trigger: createForm.auto_trigger,
+      })
+      toast.success("模板创建成功")
+      setNotifyCreateOpen(false)
+      setNotifyTestResult(null)
+      if (notifyPage !== 1) {
+        setNotifyPage(1)
+      } else {
+        loadNotifyTemplates(1, notifyCategoryFilter, notifyEnabledFilter)
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "创建失败")
+    } finally {
+      setNotifyCreating(false)
     }
   }
 
@@ -1017,17 +1102,64 @@ export default function AdminSiteConfigPage() {
 
           {/* ② 模板列表 */}
           <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-            <div className="flex items-center gap-2">
-              <Bell className="h-5 w-5 text-primary" />
-              <h2 className="text-base font-semibold text-foreground">消息通知模板</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Bell className="h-5 w-5 text-primary" />
+                <h2 className="text-base font-semibold text-foreground">消息通知模板</h2>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">共 {notifyTemplateTotal} 个</span>
+              </div>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+                onClick={openCreateDialog}
+              >
+                <Plus className="h-4 w-4" />
+                新增模板
+              </button>
             </div>
             <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
               勾选「启用」后，对应事件发生时将按勾选的渠道通知管理员；不启用则不通知（系统消息铃铛始终记录，可在总览右上角查看）。
               「自动触发」模板由系统按周期/条件自动发送，无需业务事件。
             </p>
+
+            {/* 筛选 */}
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <select
+                  className="h-9 appearance-none rounded-lg border border-input bg-background pl-3 pr-8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={notifyCategoryFilter}
+                  onChange={(e) => { setNotifyCategoryFilter(e.target.value); setNotifyPage(1) }}
+                >
+                  <option value="">全部分类</option>
+                  <option value="USER">用户</option>
+                  <option value="ORDER">订单</option>
+                  <option value="DISTRIBUTION">分销</option>
+                  <option value="SYSTEM">系统</option>
+                  <option value="REPORT">报表</option>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
+              <div className="relative">
+                <select
+                  className="h-9 appearance-none rounded-lg border border-input bg-background pl-3 pr-8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={notifyEnabledFilter}
+                  onChange={(e) => { setNotifyEnabledFilter(e.target.value); setNotifyPage(1) }}
+                >
+                  <option value="">全部状态</option>
+                  <option value="enabled">已启用</option>
+                  <option value="disabled">未启用</option>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
+            </div>
+
             {notifyLoading ? (
               <div className="mt-4 flex h-24 items-center justify-center">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : notifyTemplates.length === 0 ? (
+              <div className="mt-4 rounded-lg border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
+                暂无符合条件的模板
               </div>
             ) : (
               <div className="mt-4 flex flex-col gap-3">
@@ -1050,6 +1182,7 @@ export default function AdminSiteConfigPage() {
                           {t.auto_trigger && (
                             <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-600">自动触发</span>
                           )}
+                          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">{t.code}</span>
                         </div>
                         <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">{t.content}</p>
                       </div>
@@ -1100,6 +1233,54 @@ export default function AdminSiteConfigPage() {
                 ))}
               </div>
             )}
+
+            {/* 分页 */}
+            {Math.ceil(notifyTemplateTotal / NOTIFY_PAGE_SIZE) > 1 && (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+                <span className="text-sm text-muted-foreground">
+                  共 {notifyTemplateTotal} 条，每页 {NOTIFY_PAGE_SIZE} 条
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setNotifyPage(p => Math.max(1, p - 1))}
+                    disabled={notifyPage === 1}
+                    className="flex h-8 w-8 items-center justify-center rounded-md border border-input text-muted-foreground hover:bg-accent disabled:opacity-50"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  {Array.from({ length: Math.ceil(notifyTemplateTotal / NOTIFY_PAGE_SIZE) }, (_, i) => i + 1)
+                    .filter(page => page === 1 || page === Math.ceil(notifyTemplateTotal / NOTIFY_PAGE_SIZE) || Math.abs(page - notifyPage) <= 1)
+                    .map((page, index, array) => (
+                      <div key={page} className="flex items-center gap-1">
+                        {index > 0 && array[index - 1] !== page - 1 && (
+                          <span className="px-1 text-muted-foreground">...</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setNotifyPage(page)}
+                          className={cn(
+                            "flex h-8 w-8 items-center justify-center rounded-md text-sm font-medium",
+                            notifyPage === page
+                              ? "bg-primary text-primary-foreground"
+                              : "border border-input text-foreground hover:bg-accent"
+                          )}
+                        >
+                          {page}
+                        </button>
+                      </div>
+                    ))}
+                  <button
+                    type="button"
+                    onClick={() => setNotifyPage(p => Math.min(Math.ceil(notifyTemplateTotal / NOTIFY_PAGE_SIZE), p + 1))}
+                    disabled={notifyPage === Math.ceil(notifyTemplateTotal / NOTIFY_PAGE_SIZE)}
+                    className="flex h-8 w-8 items-center justify-center rounded-md border border-input text-muted-foreground hover:bg-accent disabled:opacity-50"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ③ 测试结果 */}
@@ -1146,6 +1327,144 @@ export default function AdminSiteConfigPage() {
           </div>
         </div>
       )}
+
+      {/* 新增模板弹窗 */}
+      <Dialog open={notifyCreateOpen} onOpenChange={setNotifyCreateOpen}>
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>新增通知模板</DialogTitle>
+            <DialogDescription>创建自定义管理员通知模板，编码创建后不可修改。</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">模板编码 <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                placeholder="如 CUSTOM_ALERT（自动转为大写）"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground uppercase placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-ring"
+                value={createForm.code}
+                onChange={(e) => setCreateForm(f => ({ ...f, code: e.target.value }))}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">模板名称 <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                placeholder="如 自定义预警通知"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                value={createForm.name}
+                onChange={(e) => setCreateForm(f => ({ ...f, name: e.target.value }))}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">模板分类</label>
+              <select
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                value={createForm.category}
+                onChange={(e) => setCreateForm(f => ({ ...f, category: e.target.value }))}
+              >
+                <option value="USER">用户</option>
+                <option value="ORDER">订单</option>
+                <option value="DISTRIBUTION">分销</option>
+                <option value="SYSTEM">系统</option>
+                <option value="REPORT">报表</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">标题模板</label>
+              <input
+                type="text"
+                placeholder="支持 {site_name} 等变量，留空则使用模板名称"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                value={createForm.title}
+                onChange={(e) => setCreateForm(f => ({ ...f, title: e.target.value }))}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">正文模板</label>
+              <textarea
+                placeholder={"支持 {site_name} / {time} 等变量，{变量} 由触发事件传入实际值替换"}
+                className="min-h-24 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                value={createForm.content}
+                onChange={(e) => setCreateForm(f => ({ ...f, content: e.target.value }))}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-foreground">发送渠道</label>
+              <div className="flex flex-wrap gap-4">
+                {notifyChannels.map((ch) => (
+                  <label key={ch.channel_type} className="flex cursor-pointer items-center gap-1.5 text-sm text-foreground">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 rounded border-input accent-primary"
+                      checked={createForm.channels.split(",").map(s => s.trim()).filter(Boolean).includes(ch.channel_type)}
+                      onChange={() => toggleCreateChannel(ch.channel_type)}
+                    />
+                    {ch.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+              <div>
+                <label className="text-sm font-medium text-foreground">启用模板</label>
+                <p className="text-xs text-muted-foreground">启用后按勾选渠道通知管理员，不启用仅记录系统消息</p>
+              </div>
+              <button
+                type="button"
+                className={cn(
+                  "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                  createForm.enabled ? "bg-primary" : "bg-muted"
+                )}
+                onClick={() => setCreateForm(f => ({ ...f, enabled: !f.enabled }))}
+              >
+                <span className={cn(
+                  "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                  createForm.enabled && "translate-x-5"
+                )} />
+              </button>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+              <div>
+                <label className="text-sm font-medium text-foreground">自动触发</label>
+                <p className="text-xs text-muted-foreground">由系统按周期/条件自动发送，无需业务事件触发</p>
+              </div>
+              <button
+                type="button"
+                className={cn(
+                  "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                  createForm.auto_trigger ? "bg-primary" : "bg-muted"
+                )}
+                onClick={() => setCreateForm(f => ({ ...f, auto_trigger: !f.auto_trigger }))}
+              >
+                <span className={cn(
+                  "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                  createForm.auto_trigger && "translate-x-5"
+                )} />
+              </button>
+            </div>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <button
+                type="button"
+                className="rounded-lg border border-input bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors"
+              >
+                取消
+              </button>
+            </DialogClose>
+            <button
+              type="button"
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+              onClick={handleCreateTemplate}
+              disabled={notifyCreating}
+            >
+              {notifyCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              {notifyCreating ? "创建中..." : "创建模板"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

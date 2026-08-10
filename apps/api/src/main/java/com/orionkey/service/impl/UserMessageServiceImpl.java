@@ -88,7 +88,15 @@ public class UserMessageServiceImpl implements UserMessageService {
     @Override
     public Page<UserMessage> listMessages(UUID userId, String category, boolean unreadOnly, int page, int pageSize) {
         PageRequest pageable = PageRequest.of(Math.max(0, page - 1), pageSize, Sort.by(Sort.Direction.DESC, "createdAt"));
-        return messageRepository.findByUserId(userId, category, unreadOnly, pageable);
+        UserMessageCategory cat = null;
+        if (category != null && !category.isBlank()) {
+            try {
+                cat = UserMessageCategory.valueOf(category);
+            } catch (IllegalArgumentException ignored) {
+                // 非法分类按全部处理
+            }
+        }
+        return messageRepository.findByUserId(userId, cat, unreadOnly, pageable);
     }
 
     @Override

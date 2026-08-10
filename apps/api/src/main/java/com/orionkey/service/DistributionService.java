@@ -1,6 +1,7 @@
 package com.orionkey.service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -13,7 +14,7 @@ public interface DistributionService {
     Map<String, Object> getDistributorStats(UUID userId);
 
     // ── 管理后台：分销员管理 ──
-    Map<String, Object> adminListDistributors(String status, String keyword, int page, int pageSize);
+    Map<String, Object> adminListDistributors(String status, String keyword, LocalDate from, LocalDate to, int page, int pageSize);
     Map<String, Object> adminGetDistributor(UUID id);
     void adminUpdateDistributorStatus(UUID id, String status, String reason);
     void adminUpdateDistributorRate(UUID id, BigDecimal customRate, BigDecimal subRate);
@@ -23,22 +24,24 @@ public interface DistributionService {
     void updateRules(Map<String, Object> request);
 
     // ── 管理后台：商品佣金 ──
-    Map<String, Object> adminListProductCommissions(int page, int pageSize);
+    Map<String, Object> adminListProductCommissions(int page, int pageSize, String keyword);
     void adminUpdateProductCommission(UUID productId, BigDecimal customRate, boolean excluded);
 
     // ── 管理后台：佣金记录 ──
-    Map<String, Object> adminListCommissions(UUID distributorId, String status, int page, int pageSize);
+    Map<String, Object> adminListCommissions(UUID distributorId, String status, LocalDate from, LocalDate to, int page, int pageSize);
     Map<String, Object> adminCommissionStats();
 
     // ── 管理后台：提现管理 ──
-    Map<String, Object> adminListWithdrawals(String status, int page, int pageSize);
+    Map<String, Object> adminListWithdrawals(String status, LocalDate from, LocalDate to, int page, int pageSize);
     void adminApproveWithdrawal(UUID id);
     void adminRejectWithdrawal(UUID id, String reason);
     /** 手动结算：管理员确认已线下支付，从冻结余额扣减，状态改为 SUCCESS */
     void adminManualSettle(UUID id, BigDecimal actualAmount);
 
     // ── 管理后台：统计 ──
-    Map<String, Object> adminGetOverviewStats();
+    Map<String, Object> adminGetOverviewStats(String range, LocalDate from, LocalDate to);
+    /** 近期分销订单明细（推广链接成交订单，含商品/分销人/客户/金额/佣金/状态） */
+    Map<String, Object> adminRecentDistributionOrders(LocalDate from, LocalDate to, int limit);
 
     // ── 前台：推广商品 ──
     Map<String, Object> listPromotionProducts(int page, int pageSize);

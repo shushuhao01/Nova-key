@@ -3,8 +3,11 @@ package com.orionkey.service.impl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orionkey.constant.CardKeyStatus;
+import com.orionkey.constant.ErrorCode;
 import com.orionkey.constant.OrderStatus;
+import com.orionkey.common.PageResult;
 import com.orionkey.entity.*;
+import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.*;
 import com.orionkey.service.EmailService;
 import com.orionkey.service.NotificationService;
@@ -18,6 +21,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
@@ -210,25 +214,54 @@ public class NotificationServiceImpl implements NotificationService {
 
     // ═══════════ 模板 / 渠道 / 消息 管理（供 Controller 调用） ═══════════
 
-    /** 模板列表（前台展示用，剔除 content 返回给管理端） */
+    /** 模板列表（分页 + 分类/启用状态筛选） */
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listTemplates() {
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (NotificationTemplate t : templateRepository.findAllByOrderBySortOrderAscCreatedAtAsc()) {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("id", t.getId());
-            m.put("code", t.getCode());
-            m.put("name", t.getName());
-            m.put("category", t.getCategory());
-            m.put("title", t.getTitle());
-            m.put("content", t.getContent());
-            m.put("channels", t.getChannels());
-            m.put("enabled", t.isEnabled());
-            m.put("auto_trigger", t.isAutoTrigger());
-            m.put("sort_order", t.getSortOrder());
-            out.add(m);
+    public PageResult<Map<String, Object>> listTemplates(int page, int pageSize, String category, Boolean enabled) {
+        Pageable pageable = PageRequest.of(Math.max(page - 1, 0), Math.min(Math.max(pageSize, 1), 100),
+                Sort.by(Sort.Direction.ASC, "sortOrder").and(Sort.by(Sort.Direction.ASC, "createdAt")));
+        Page<NotificationTemplate> pageResult = templateRepository.findByFilters(
+                StringUtils.hasText(category) ? category : null, enabled, pageable);
+        List<Map<String, Object>> list = pageResult.getContent().stream().map(this::toTemplateMap).toList();
+        return PageResult.of(list, pageResult.getNumber() + 1, pageResult.getSize(), pageResult.getTotalElements());
+    }
+
+    /** 新增自定义模板（编码唯一；排到模板列表末尾） */
+    @Transactional
+    public NotificationTemplate createTemplate(Map<String, Object> body) {
+        String code = str(body.get("code")).toUpperCase(Locale.ROOT).replaceAll("\\s+", "_");
+        String name = str(body.get("name"));
+        if (code.isBlank() || name.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "模板编码与名称不能为空");
         }
-        return out;
+        if (templateRepository.findByCode(code).isPresent()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "模板编码已存在: " + code);
+        }
+        NotificationTemplate t = new NotificationTemplate();
+        t.setCode(code);
+        t.setName(name);
+        t.setCategory(str(body.get("category")).isBlank() ? "USER" : str(body.get("category")));
+        t.setTitle(str(body.get("title")).isBlank() ? name : str(body.get("title")));
+        t.setContent(str(body.get("content")).isBlank() ? name : str(body.get("content")));
+        t.setChannels(str(body.get("channels")).isBlank() ? ALL_CHANNELS : str(body.get("channels")));
+        t.setEnabled(Boolean.TRUE.equals(body.get("enabled")));
+        t.setAutoTrigger(Boolean.TRUE.equals(body.get("auto_trigger")));
+        t.setSortOrder(templateRepository.findMaxSortOrder() + 10);
+        return templateRepository.save(t);
+    }
+
+    private Map<String, Object> toTemplateMap(NotificationTemplate t) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", t.getId());
+        m.put("code", t.getCode());
+        m.put("name", t.getName());
+        m.put("category", t.getCategory());
+        m.put("title", t.getTitle());
+        m.put("content", t.getContent());
+        m.put("channels", t.getChannels());
+        m.put("enabled", t.isEnabled());
+        m.put("auto_trigger", t.isAutoTrigger());
+        m.put("sort_order", t.getSortOrder());
+        return m;
     }
 
     /** 更新模板（enabled / channels） */
