@@ -112,11 +112,13 @@ if [ "$MODE" = "settle" ]; then
 
   echo -e "\n${ARROW} [结算验证] 结算前置处理..."
   # 结算真实条件：订单 COMPLETED 且 completed_at 超过结算延迟期（findPendingSettlement）。
-  # orders 表有 CHECK 约束 orders_status_check：必须同时 backdate created_at/paid_at/delivered_at，
-  # 否则 completed_at(8天前) 早于 未回拨的 created_at/paid_at(现在) 违反约束导致 UPDATE 失败。
-  echo "  orders_status_check 约束定义:"
-  psql_run "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='orders_status_check'" | sed 's/^/    /'
-  UPDATE_ORD=$(PGPASSWORD="$DB_PASS" "$PSQL_BIN" -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -t -A -c "UPDATE orders SET status='COMPLETED', created_at=now()-interval '9 days', paid_at=now()-interval '9 days', delivered_at=now()-interval '9 days', completed_at=now()-interval '8 days' WHERE id IN ($O_IDS)" 2>&1)
+  # ⚠ 生产 bug：orders 表 CHECK 约束只允许 PENDING/PAID/DELIVERED/EXPIRED，禁止 COMPLETED，
+  #   导致结算定时任务永远匹配不到记录。此处幂等重建约束（与 OrderStatus 枚举一致），
+  #   同时把测试订单置 COMPLETED 并 backdate 时间（paid_at<completed_at 满足约束）。
+  psql_run "ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check" >/dev/null
+  psql_run "ALTER TABLE orders ADD CONSTRAINT orders_status_check CHECK (status IN ('PENDING','PAID','DELIVERED','COMPLETED','EXPIRED','REFUNDED','PARTIALLY_REFUNDED'))" >/dev/null
+  echo -e "  ${OK} orders_status_check 约束已重建（允许 COMPLETED 等全部枚举值）"
+  UPDATE_ORD=$(PGPASSWORD="$DB_PASS" "$PSQL_BIN" -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -t -A -c "UPDATE orders SET status='COMPLETED', paid_at=now()-interval '9 days', delivered_at=now()-interval '9 days', completed_at=now()-interval '8 days' WHERE id IN ($O_IDS)" 2>&1)
   echo -e "  ${ARROW} UPDATE orders 输出: $(echo "$UPDATE_ORD" | head -c 200)"
   psql_run "UPDATE commission_records SET created_at=now()-interval '8 days' WHERE order_id IN ($O_IDS)" >/dev/null
   echo -e "  ${OK} 佣金已 backdate 8 天"
