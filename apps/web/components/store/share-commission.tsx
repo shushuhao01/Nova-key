@@ -3,62 +3,10 @@
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Share2 } from "lucide-react"
-import { cn } from "@/lib/utils"
 import { useAuth, useLocale } from "@/lib/context"
 import { toast } from "sonner"
 import { distributionApi, distributorApi, getApiErrorMessage } from "@/services/api"
 import { PosterModal } from "@/components/store/poster-modal"
-
-interface ShareCommissionBadgeProps {
-  productId: string
-  productTitle: string
-  productPrice: number
-  className?: string
-}
-
-/**
- * 分享赚佣金标签 — 显示在商品卡片上
- * - 未登录/非分销员：显示最高预估佣金
- * - 已登录分销员：显示实际佣金
- */
-export function ShareCommissionBadge({ productId, productPrice, className }: ShareCommissionBadgeProps) {
-  const { user } = useAuth()
-  const [commission, setCommission] = useState<number | null>(null)
-  const [maxCommission, setMaxCommission] = useState<number | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    distributionApi.commissionPreview([productId]).then(data => {
-      if (cancelled || !data?.items?.length) return
-      const item = data.items[0]
-      if (item.is_excluded || data.is_distribution_enabled === false) {
-        setCommission(null)
-        setMaxCommission(null)
-        return
-      }
-      setCommission(item.commission_preview || 0)
-      setMaxCommission(item.max_commission || 0)
-    }).catch(() => {
-      // 静默失败
-    })
-    return () => { cancelled = true }
-  }, [productId])
-
-  // 未登录或非分销员 → 显示最高佣金
-  // 已登录分销员 → 显示实际佣金
-  const amount = user ? commission : maxCommission
-  if (!amount || amount <= 0) return null
-
-  return (
-    <span className={cn(
-      "inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-      className
-    )}>
-      <Share2 className="h-3 w-3" />
-      分享赚 ¥{amount.toFixed(2)}
-    </span>
-  )
-}
 
 interface ShareCommissionButtonProps {
   productId: string

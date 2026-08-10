@@ -5,7 +5,6 @@ import { Zap, Package, AlertTriangle, Play } from "lucide-react"
 import type { ProductCard as ProductCardType } from "@/types"
 import { useLocale } from "@/lib/context"
 import { cn, getCurrencySymbol } from "@/lib/utils"
-import { ShareCommissionBadge } from "@/components/store/share-commission"
 
 interface ProductCardProps {
   product: ProductCardType
@@ -91,13 +90,6 @@ export function ProductCard({ product }: ProductCardProps) {
             </span>
           )}
         </div>
-
-        {/* Share commission badge */}
-        <ShareCommissionBadge
-          productId={product.id}
-          productTitle={product.title}
-          productPrice={product.base_price}
-        />
 
         {/* Price + Buy Now */}
         <div className="mt-auto flex items-center justify-between border-t border-border/40 pt-2">
