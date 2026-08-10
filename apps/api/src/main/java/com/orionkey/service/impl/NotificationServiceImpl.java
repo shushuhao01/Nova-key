@@ -164,7 +164,37 @@ public class NotificationServiceImpl implements NotificationService {
                 template("DATA_SUMMARY", "数据汇总与环比", "REPORT",
                         "数据汇总与环比",
                         "{site_name} 数据汇总（{date}）\n今日销售额：¥{sales}（环比 {yoy}%）\n今日成交订单：{orders} 笔\n新增用户：{users} 人\n访问 UV：{uv}",
-                        ALL_CHANNELS, false, 100)
+                        ALL_CHANNELS, false, 100),
+                // ── 分销推广（管理员视角） ──
+                template("DIST_APPLIED", "分销员申请通知", "DISTRIBUTION",
+                        "新分销员申请",
+                        "{site_name}：新用户 {user_email}（{distributor_code}）提交了分销员申请，请及时审核。\n申请时间：{time}",
+                        ALL_CHANNELS, false, 110),
+                template("DIST_STATUS_CHANGED", "分销员状态变更", "DISTRIBUTION",
+                        "分销员状态变更",
+                        "{site_name}：分销员 {user_email}（{distributor_code}）状态已变更为 {status}。\n变更时间：{time}",
+                        ALL_CHANNELS, false, 120),
+                template("WITHDRAWAL_PENDING", "提现申请待审核", "DISTRIBUTION",
+                        "提现申请待审核",
+                        "{site_name}：分销员 {distributor_code}（{user_email}）提交提现申请 ¥{amount}，请及时处理。\n申请时间：{time}",
+                        ALL_CHANNELS, false, 130),
+                // ── 分销提现（用户站内信 + 邮箱） ──
+                template("WITHDRAWAL_APPLIED", "提现申请提交成功", "DISTRIBUTION",
+                        "提现申请已提交",
+                        "{site_name}：您的提现申请 ¥{amount} 已提交，平台将在审核通过后打款至您的微信零钱。\n申请时间：{time}",
+                        ALL_CHANNELS, false, 140),
+                template("WITHDRAWAL_APPROVED", "提现审核通过", "DISTRIBUTION",
+                        "提现审核通过",
+                        "{site_name}：您的提现申请 ¥{amount} 已审核通过，正在为您打款至微信零钱。\n审核时间：{time}",
+                        ALL_CHANNELS, false, 150),
+                template("WITHDRAWAL_SUCCESS", "提现到账通知", "DISTRIBUTION",
+                        "提现已到账",
+                        "{site_name}：您的提现 ¥{amount} 已成功打款至微信零钱，请注意查收。\n到账时间：{time}",
+                        ALL_CHANNELS, false, 160),
+                template("WITHDRAWAL_REJECTED", "提现申请被拒", "DISTRIBUTION",
+                        "提现申请未通过",
+                        "{site_name}：您的提现申请 ¥{amount} 未通过审核。\n原因：{reason}\n处理时间：{time}",
+                        ALL_CHANNELS, false, 170)
         );
         for (Map<String, Object> t : list) {
             String code = (String) t.get("code");

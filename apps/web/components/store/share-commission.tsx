@@ -29,7 +29,7 @@ export function ShareCommissionBadge({ productId, productPrice, className }: Sha
     distributionApi.commissionPreview([productId]).then(data => {
       if (cancelled || !data?.items?.length) return
       const item = data.items[0]
-      if (item.is_excluded || !data.is_distribution_enabled) {
+      if (item.is_excluded || data.is_distribution_enabled === false) {
         setCommission(null)
         setMaxCommission(null)
         return
@@ -83,7 +83,7 @@ export function ShareCommissionButton({ productId, productTitle, productPrice }:
     distributionApi.commissionPreview([productId]).then(data => {
       if (cancelled || !data?.items?.length) return
       const item = data.items[0]
-      if (item.is_excluded || !data.is_distribution_enabled) return
+      if (item.is_excluded || data.is_distribution_enabled === false) return
       setCommission(item.commission_preview || 0)
       setMaxCommission(item.max_commission || 0)
     }).catch(() => {})

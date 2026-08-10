@@ -18,14 +18,10 @@ public interface NotificationTemplateRepository extends JpaRepository<Notificati
     List<NotificationTemplate> findAllByOrderBySortOrderAscCreatedAtAsc();
 
     /** 模板列表分页 + 分类/启用状态筛选（category 空串按不筛选处理） */
-    @Query(value = "SELECT * FROM notification_templates t WHERE " +
-            "(CAST(:category AS text) IS NULL OR CAST(:category AS text) = '' OR t.category = CAST(:category AS text)) " +
-            "AND (CAST(:enabled AS boolean) IS NULL OR t.is_enabled = CAST(:enabled AS boolean)) " +
-            "ORDER BY t.sort_order ASC, t.created_at ASC",
-            countQuery = "SELECT COUNT(*) FROM notification_templates t WHERE " +
-            "(CAST(:category AS text) IS NULL OR CAST(:category AS text) = '' OR t.category = CAST(:category AS text)) " +
-            "AND (CAST(:enabled AS boolean) IS NULL OR t.is_enabled = CAST(:enabled AS boolean))",
-            nativeQuery = true)
+    @Query("SELECT t FROM NotificationTemplate t WHERE " +
+            "(:category IS NULL OR :category = '' OR t.category = :category) " +
+            "AND (:enabled IS NULL OR t.enabled = :enabled) " +
+            "ORDER BY t.sortOrder ASC, t.createdAt ASC")
     Page<NotificationTemplate> findByFilters(@Param("category") String category,
                                              @Param("enabled") Boolean enabled,
                                              Pageable pageable);

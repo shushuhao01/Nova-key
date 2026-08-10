@@ -26,6 +26,10 @@ public interface DistributionService {
     // ── 管理后台：商品佣金 ──
     Map<String, Object> adminListProductCommissions(int page, int pageSize, String keyword);
     void adminUpdateProductCommission(UUID productId, BigDecimal customRate, boolean excluded);
+    /** 商品推广员排行（推广该商品的每个分销员明细） */
+    Map<String, Object> adminProductPromoters(UUID productId, int page, int pageSize);
+    /** 商品佣金概览统计（点击/下单/转化/佣金 + 今日 + 环比） */
+    Map<String, Object> adminProductStats(String range, LocalDate from, LocalDate to);
 
     // ── 管理后台：佣金记录 ──
     Map<String, Object> adminListCommissions(UUID distributorId, String status, LocalDate from, LocalDate to, int page, int pageSize);

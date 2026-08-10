@@ -21,12 +21,12 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
 
     @Query("SELECT cr FROM CommissionRecord cr WHERE " +
             "(:distributorId IS NULL OR cr.distributorId = :distributorId) " +
-            "AND (:status IS NULL OR cr.status = :status) " +
+            "AND (:status = '' OR cr.status = :status) " +
             "AND (:from IS NULL OR cr.createdAt >= :from) " +
             "AND (:to IS NULL OR cr.createdAt < :to) " +
             "ORDER BY cr.createdAt DESC")
     Page<CommissionRecord> findAdminList(@Param("distributorId") UUID distributorId,
-                                         @Param("status") CommissionStatus status,
+                                         @Param("status") String status,
                                          @Param("from") LocalDateTime from,
                                          @Param("to") LocalDateTime to,
                                          Pageable pageable);

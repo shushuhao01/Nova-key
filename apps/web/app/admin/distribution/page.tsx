@@ -127,6 +127,13 @@ interface DistributionProduct {
   /** 是否存在 product_commission 配置记录（false = 从未添加，默认不分销） */
   commission_set: boolean
   excluded: boolean
+  /** 推广数据（通过推广链接累计） */
+  promotion_sales: number
+  promotion_commission: number
+  click_count: number
+  paid_count: number
+  promoter_count: number
+  conversion_rate: number
 }
 
 interface CommissionRecord {
@@ -881,6 +888,12 @@ function RateEditModal({ distributor, onClose, onSaved }: {
 
 // ═══════════════════════ 商品佣金 TAB ═══════════════════════
 
+interface StatItem {
+  total: number
+  today: number
+  prev: number
+}
+
 function ProductsTab() {
   const [list, setList] = useState<DistributionProduct[]>([])
   const [total, setTotal] = useState(0)
@@ -889,6 +902,33 @@ function ProductsTab() {
   const [currentPage, setCurrentPage] = useState(1)
   const [editModal, setEditModal] = useState<DistributionProduct | null>(null)
   const [addModalOpen, setAddModalOpen] = useState(false)
+
+  // 汇总统计（默认本月，支持快捷日期）
+  const [statsRange, setStatsRange] = useState<RangeKey>("thisMonth")
+  const [stats, setStats] = useState<{ clicks: StatItem; paid_count: StatItem; conversion_rate: StatItem; commission_amount: StatItem } | null>(null)
+  const [statsLoading, setStatsLoading] = useState(false)
+
+  // 推广员排行弹窗
+  const [promoterProduct, setPromoterProduct] = useState<DistributionProduct | null>(null)
+
+  const fetchStats = useCallback(async () => {
+    setStatsLoading(true)
+    try {
+      const dates = rangeToDates(statsRange)
+      const data = await adminDistributionApi.productStats({
+        range: statsRange,
+        from: dates.from,
+        to: dates.to,
+      })
+      setStats(data)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "统计数据加载失败")
+    } finally {
+      setStatsLoading(false)
+    }
+  }, [statsRange])
+
+  useEffect(() => { fetchStats() }, [fetchStats])
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -930,8 +970,81 @@ function ProductsTab() {
     }
   }
 
+  // 环比涨跌幅（%）
+  const deltaPercent = (item: StatItem | undefined) => {
+    if (!item) return 0
+    const prev = Number(item.prev) || 0
+    const total = Number(item.total) || 0
+    if (prev <= 0) return total > 0 ? 100 : 0
+    return ((total - prev) / prev) * 100
+  }
+
+  const statCards: { key: "clicks" | "paid_count" | "conversion_rate" | "commission_amount"; label: string; render: (item: StatItem) => string }[] = [
+    { key: "clicks", label: "点击率", render: (i) => `${Number(i.total || 0).toLocaleString()} 次` },
+    { key: "paid_count", label: "下单数量", render: (i) => `${Number(i.total || 0).toLocaleString()} 单` },
+    { key: "conversion_rate", label: "转化率", render: (i) => `${Number(i.total || 0).toFixed(2)}%` },
+    { key: "commission_amount", label: "佣金金额", render: (i) => fmtMoney(Number(i.total || 0)) },
+  ]
+
   return (
     <div className="flex flex-col gap-4">
+      {/* ① 汇总统计卡片（快捷日期筛选 + 今日 + 环比） */}
+      <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <CalendarRange className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-semibold text-foreground">推广汇总</span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {RANGE_OPTIONS.filter(o => o.key !== "custom").map(opt => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setStatsRange(opt.key)}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  statsRange === opt.key
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {statsLoading && !stats ? (
+          <div className="flex items-center justify-center py-10">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+        ) : (
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {statCards.map(card => {
+              const item = stats?.[card.key]
+              const delta = deltaPercent(item)
+              const up = delta > 0
+              const down = delta < 0
+              return (
+                <div key={card.key} className="rounded-lg border border-border bg-background p-4">
+                  <p className="text-sm text-muted-foreground">{card.label}</p>
+                  <p className="mt-1 text-2xl font-bold text-foreground">{card.render(item!) || "—"}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span>今日 <b className="text-foreground">{item ? Number(item.today || 0).toLocaleString() : 0}</b></span>
+                    <span className={cn(
+                      "inline-flex items-center gap-0.5 font-medium",
+                      up ? "text-emerald-600" : down ? "text-red-500" : "text-muted-foreground"
+                    )}>
+                      {up ? <ArrowUpRight className="h-3.5 w-3.5" /> : down ? <ArrowDownRight className="h-3.5 w-3.5" /> : null}
+                      环比 {Math.abs(delta).toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-foreground">商品佣金配置</h2>
@@ -975,22 +1088,38 @@ function ProductsTab() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">售价</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">默认比例</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">自定义比例</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">分销状态</th>
-                <th className="px-4 py-3 text-right font-medium text-muted-foreground">操作</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">售价</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">默认比例</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">自定义比例</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">分销状态</th>
+                <th className="whitespace-nowrap px-4 py-3 text-center font-medium text-primary">推广销售额</th>
+                <th className="whitespace-nowrap px-4 py-3 text-center font-medium text-primary">总佣金</th>
+                <th className="whitespace-nowrap px-4 py-3 text-center font-medium text-primary">点击</th>
+                <th className="whitespace-nowrap px-4 py-3 text-center font-medium text-primary">付款</th>
+                <th className="whitespace-nowrap px-4 py-3 text-center font-medium text-primary">转化率</th>
+                <th className="whitespace-nowrap px-4 py-3 text-center font-medium text-primary">推广人数</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right font-medium text-muted-foreground">操作</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+                <tr><td colSpan={12} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
               ) : list.length === 0 ? (
-                <tr><td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">暂无商品数据</td></tr>
+                <tr><td colSpan={12} className="py-8 text-center text-sm text-muted-foreground">暂无商品数据</td></tr>
               ) : (
                 list.map((p) => {
                   const effective = p.custom_rate != null ? p.custom_rate : p.default_rate
+                  const linkCell = (label: string, title: string) => (
+                    <button
+                      type="button"
+                      onClick={() => setPromoterProduct(p)}
+                      title={title}
+                      className="font-semibold text-primary underline decoration-primary/30 underline-offset-2 transition-colors hover:text-primary/80"
+                    >
+                      {label}
+                    </button>
+                  )
                   return (
                     <tr key={p.product_id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
                       <td className="px-4 py-3">
@@ -1009,14 +1138,14 @@ function ProductsTab() {
                             </div>
                           )}
                           <div className="flex flex-col">
-                            <span className="font-medium text-foreground line-clamp-1">{p.product_title}</span>
+                            <span className="max-w-[200px] truncate font-medium text-foreground">{p.product_title}</span>
                             <span className="text-xs text-muted-foreground">ID: {p.product_id}</span>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">{fmtMoney(p.base_price)}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{p.default_rate.toFixed(2)}%</td>
-                      <td className="px-4 py-3">
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{fmtMoney(p.base_price)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{p.default_rate.toFixed(2)}%</td>
+                      <td className="whitespace-nowrap px-4 py-3">
                         {p.custom_rate != null ? (
                           <span className="inline-flex items-center gap-1.5 font-medium text-primary">
                             <Percent className="h-3 w-3" />
@@ -1026,7 +1155,7 @@ function ProductsTab() {
                           <span className="text-xs text-muted-foreground">— 使用默认</span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="whitespace-nowrap px-4 py-3">
                         {!p.commission_set ? (
                           <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                             <Package className="mr-1 h-3 w-3" />
@@ -1044,7 +1173,13 @@ function ProductsTab() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="whitespace-nowrap px-4 py-3 text-center">{linkCell(fmtMoney(p.promotion_sales ?? 0), "查看该商品推广员销售额排行")}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-center">{linkCell(fmtMoney(p.promotion_commission ?? 0), "查看该商品推广员佣金排行")}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-center">{linkCell(String(p.click_count ?? 0), "查看该商品推广员点击排行")}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-center">{linkCell(String(p.paid_count ?? 0), "查看该商品推广员付款排行")}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-center">{linkCell(`${Number(p.conversion_rate ?? 0).toFixed(2)}%`, "查看该商品推广员转化率排行")}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-center">{linkCell(String(p.promoter_count ?? 0), "查看该商品推广员列表")}</td>
+                      <td className="whitespace-nowrap px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
                           <button type="button" onClick={() => setEditModal(p)} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="编辑佣金">
                             <Pencil className="h-4 w-4" />
@@ -1092,6 +1227,133 @@ function ProductsTab() {
           onSaved={() => { setAddModalOpen(false); fetchList() }}
         />
       )}
+
+      {/* 推广员排行弹窗 */}
+      {promoterProduct && (
+        <PromoterRankModal
+          product={promoterProduct}
+          onClose={() => setPromoterProduct(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ═══════════════════════ 推广员排行弹窗 ═══════════════════════
+
+function PromoterRankModal({ product, onClose }: {
+  product: DistributionProduct
+  onClose: () => void
+}) {
+  const [rows, setRows] = useState<any[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+
+  const fetchRows = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await adminDistributionApi.productPromoters(product.product_id, { page, page_size: 10 })
+      setRows((data.list || []) as any[])
+      setTotal(data.pagination?.total ?? 0)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "推广员列表加载失败")
+      setRows([])
+      setTotal(0)
+    } finally {
+      setLoading(false)
+    }
+  }, [product.product_id, page])
+
+  useEffect(() => { fetchRows() }, [fetchRows])
+
+  const totalPages = Math.max(1, Math.ceil(total / 10))
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <div className="min-w-0">
+            <h2 className="flex items-center gap-2 text-base font-bold text-foreground">
+              <Users2 className="h-5 w-5 text-primary" />
+              推广员排行
+            </h2>
+            <p className="mt-0.5 max-w-md truncate text-xs text-muted-foreground">
+              {product.product_title}（{fmtMoney(product.base_price)}）· 按推广销售额降序
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-auto p-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-16 text-sm text-muted-foreground">
+              <Users2 className="h-8 w-8 opacity-40" />
+              暂无推广员推广该商品
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">排名</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">推广员</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">销售额</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">佣金</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">点击</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">付款</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">转化率</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">推广时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, idx) => (
+                  <tr key={r.distributor_id || idx} className="border-b border-border/50 last:border-0 hover:bg-muted/20">
+                    <td className="px-3 py-2.5">
+                      <span className={cn(
+                        "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold",
+                        idx === 0 ? "bg-amber-500/20 text-amber-600"
+                          : idx === 1 ? "bg-slate-400/20 text-slate-500"
+                            : idx === 2 ? "bg-orange-400/20 text-orange-500"
+                              : "bg-muted text-muted-foreground"
+                      )}>
+                        {(page - 1) * 10 + idx + 1}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex flex-col">
+                        <span className="font-medium text-foreground">{r.username || r.email || "匿名用户"}</span>
+                        <span className="text-xs text-muted-foreground">{r.distributor_code || ""}{r.link_url ? " · 已生成专属链接" : ""}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-semibold text-foreground">{fmtMoney(r.total_sales)}</td>
+                    <td className="px-3 py-2.5 text-right text-emerald-600">{fmtMoney(r.total_commission)}</td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground">{r.click_count ?? 0}</td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground">{r.paid_count ?? 0}</td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground">{Number(r.conversion_rate ?? 0).toFixed(2)}%</td>
+                    <td className="px-3 py-2.5 text-right text-xs text-muted-foreground">{fmtDate(r.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-border px-5 py-3">
+          <span className="text-sm text-muted-foreground">共 {total} 位推广员，每页 10 条</span>
+          <Pager page={page} totalPages={totalPages} onChange={setPage} />
+        </div>
+      </div>
     </div>
   )
 }

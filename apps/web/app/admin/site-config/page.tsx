@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send, Bell, Webhook, CheckCircle2, XCircle, Plus, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
-import { adminConfigApi, adminProductApi, adminNotificationApi, withMockFallback } from "@/services/api"
+import { adminConfigApi, adminProductApi, adminNotificationApi, adminWechatMpApi, withMockFallback } from "@/services/api"
 import { mockSiteConfigKVs } from "@/lib/mock-data"
 import { useLocale } from "@/lib/context"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog"
@@ -23,7 +23,7 @@ function validateImageFile(file: File): string | null {
   return null
 }
 
-type TabKey = "basic" | "announcement" | "points" | "contact" | "email" | "maintenance" | "notify"
+type TabKey = "basic" | "announcement" | "points" | "contact" | "email" | "maintenance" | "notify" | "wechatMp"
 
 export default function AdminSiteConfigPage() {
   const { t } = useLocale()
@@ -95,6 +95,76 @@ export default function AdminSiteConfigPage() {
     }
     loadNotifyTemplates(notifyPage, notifyCategoryFilter, notifyEnabledFilter)
   }, [tab, notifyPage, notifyCategoryFilter, notifyEnabledFilter, loadNotifyTemplates])
+
+  // ─── 公众号配置（wechatMp tab）数据 ───
+  const [mpConfig, setMpConfig] = useState({ appid: "", appsecret: "", follow_qr: "", template_id: "", configured: false })
+  const [mpSaving, setMpSaving] = useState(false)
+  const [mpTesting, setMpTesting] = useState(false)
+  const [mpFollowUploading, setMpFollowUploading] = useState(false)
+  const [mpTestResult, setMpTestResult] = useState<{ passed: boolean; items: { name: string; status: string; message: string }[] } | null>(null)
+  const mpLoadedRef = useRef(false)
+
+  useEffect(() => {
+    if (tab !== "wechatMp") return
+    if (!mpLoadedRef.current) {
+      mpLoadedRef.current = true
+      adminWechatMpApi.getConfig()
+        .then((cfg: any) => setMpConfig({
+          appid: cfg?.appid || "",
+          appsecret: cfg?.appsecret || "",
+          follow_qr: cfg?.follow_qr || "",
+          template_id: cfg?.template_id || "",
+          configured: !!cfg?.configured,
+        }))
+        .catch((err: unknown) => toast.error(err instanceof Error ? err.message : "公众号配置加载失败"))
+    }
+  }, [tab])
+
+  const handleSaveMp = async () => {
+    setMpSaving(true)
+    try {
+      await adminWechatMpApi.updateConfig({
+        appid: mpConfig.appid.trim(),
+        appsecret: mpConfig.appsecret.trim(),
+        follow_qr: mpConfig.follow_qr.trim(),
+        template_id: mpConfig.template_id.trim(),
+      })
+      setMpTestResult(null)
+      toast.success("公众号配置已保存")
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "保存失败")
+    } finally {
+      setMpSaving(false)
+    }
+  }
+
+  const handleTestMp = async () => {
+    setMpTesting(true)
+    setMpTestResult(null)
+    try {
+      const result = await adminWechatMpApi.test()
+      setMpTestResult(result)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "测试失败")
+    } finally {
+      setMpTesting(false)
+    }
+  }
+
+  const handleMpFollowUpload = async (file: File) => {
+    const err = validateImageFile(file)
+    if (err) { toast.error(err); return }
+    setMpFollowUploading(true)
+    try {
+      const result = await adminProductApi.uploadImage(file)
+      setMpConfig((c) => ({ ...c, follow_qr: result.url }))
+      toast.success("上传成功")
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "上传失败")
+    } finally {
+      setMpFollowUploading(false)
+    }
+  }
 
   const fetchConfig = useCallback(async () => {
     setLoading(true)
@@ -349,6 +419,7 @@ export default function AdminSiteConfigPage() {
           { key: "email" as const, label: t("admin.emailSettings") },
           { key: "maintenance" as const, label: t("admin.maintenanceTab") },
           { key: "notify" as const, label: "消息通知" },
+          { key: "wechatMp" as const, label: "公众号配置" },
         ]).map((tabItem) => (
           <button
             key={tabItem.key}
@@ -1325,6 +1396,143 @@ export default function AdminSiteConfigPage() {
             </button>
             {notifySaved && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
           </div>
+        </div>
+      )}
+
+      {/* 公众号配置 */}
+      {tab === "wechatMp" && (
+        <div className="flex flex-col gap-4">
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Bell className="h-5 w-5 text-primary" />
+              <h2 className="text-base font-semibold text-foreground">微信公众号（服务号）配置</h2>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              绑定微信服务号后，分销员可在「分销中心 → 提现记录」扫码绑定微信（收款到零钱），并可上传公众号二维码引导客户关注。
+            </p>
+            <div className="mt-5 flex flex-col gap-4 max-w-xl">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">公众号 AppID</label>
+                <input
+                  type="text"
+                  placeholder="wx 开头的一串字符（公众号后台 → 设置与开发 → 基本配置）"
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={mpConfig.appid}
+                  onChange={(e) => setMpConfig((c) => ({ ...c, appid: e.target.value }))}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">公众号 AppSecret</label>
+                <input
+                  type="password"
+                  placeholder="AppSecret（注意不要带空格或换行）"
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={mpConfig.appsecret}
+                  onChange={(e) => setMpConfig((c) => ({ ...c, appsecret: e.target.value }))}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">公众号消息模板 ID（可选）</label>
+                <input
+                  type="text"
+                  placeholder="在微信公众平台申请「模板消息」后填写模板 ID（如 R34xxxxx）"
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={mpConfig.template_id}
+                  onChange={(e) => setMpConfig((c) => ({ ...c, template_id: e.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">申请模板消息需满足微信公众平台条件，配置后可用于向用户发送通知。</p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">公众号关注二维码</label>
+                <div className="flex items-start gap-4">
+                  {mpConfig.follow_qr ? (
+                    <img src={mpConfig.follow_qr} alt="公众号二维码" className="h-28 w-28 rounded-lg border border-border object-cover" />
+                  ) : (
+                    <div className="flex h-28 w-28 items-center justify-center rounded-lg border border-dashed border-input bg-muted/40">
+                      <ImagePlus className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-2">
+                    <label className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-accent">
+                      {mpFollowUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                      上传二维码
+                      <input
+                        type="file"
+                        accept={ALLOWED_IMAGE_ACCEPT}
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          e.target.value = ""
+                          if (file) await handleMpFollowUpload(file)
+                        }}
+                      />
+                    </label>
+                    {mpConfig.follow_qr && (
+                      <button
+                        type="button"
+                        onClick={() => setMpConfig((c) => ({ ...c, follow_qr: "" }))}
+                        className="text-left text-xs text-red-500 hover:underline"
+                      >
+                        移除二维码
+                      </button>
+                    )}
+                    <p className="text-xs text-muted-foreground">上传公众号二维码后，分销中心将展示「关注公众号」引导。</p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleSaveMp}
+                  disabled={mpSaving}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:brightness-110 disabled:opacity-50"
+                >
+                  {mpSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  保存公众号配置
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTestMp}
+                  disabled={mpTesting || mpSaving}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-input px-4 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+                >
+                  {mpTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  测试连接
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 测试结果 */}
+          {mpTestResult && (
+            <div className={cn("rounded-xl border bg-card p-6 shadow-sm", mpTestResult.passed ? "border-emerald-500/40" : "border-red-500/40")}>
+              <div className="flex items-center gap-2">
+                {mpTestResult.passed
+                  ? <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                  : <XCircle className="h-5 w-5 text-red-500" />}
+                <h2 className="text-base font-semibold text-foreground">
+                  公众号连接测试：{mpTestResult.passed ? "通过" : "未通过"}
+                </h2>
+              </div>
+              <div className="mt-4 flex flex-col gap-2">
+                {mpTestResult.items.map((item, idx) => (
+                  <div key={idx} className="flex items-start gap-2 rounded-lg border border-border px-3 py-2">
+                    {item.status === "PASS"
+                      ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                      : item.status === "INFO"
+                        ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                        : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />}
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">{item.name}</p>
+                      <p className={cn("text-xs", item.status === "PASS" ? "text-emerald-600" : item.status === "INFO" ? "text-amber-600" : "text-red-500")}>
+                        {item.message}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -10,6 +10,7 @@ import com.orionkey.repository.*;
 import com.orionkey.service.DistributionService;
 import com.orionkey.service.NotificationService;
 import com.orionkey.service.UserMessageService;
+import com.orionkey.service.WechatMpConfigService;
 import com.orionkey.service.WxpayService;
 import com.orionkey.service.WxpayService.WxpayConfig;
 import com.orionkey.service.WxpayService.WxpayTransferResult;
@@ -60,6 +61,7 @@ public class DistributionServiceImpl implements DistributionService {
     private final WxpayService wxpayService;
     private final PaymentServiceImpl paymentServiceImpl;
     private final SiteConfigRepository siteConfigRepository;
+    private final WechatMpConfigService wechatMpConfigService;
     private final RestTemplate restTemplate;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
@@ -208,7 +210,8 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListDistributors(String status, String keyword, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         DistributorStatus statusEnum = parseStatus(status);
-        Page<Distributor> dp = distributorRepository.findAdminList(statusEnum, keyword,
+        Page<Distributor> dp = distributorRepository.findAdminList(statusEnum != null ? statusEnum.name() : "",
+                keyword != null ? keyword : "",
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
                 pageable);
@@ -383,9 +386,117 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("custom_rate", rateToPercent(pc != null ? pc.getCustomRate() : null));
             m.put("excluded", pc != null && pc.isExcluded());
             m.put("default_rate", rateToPercent(defaultRate));
+            // 推广数据（通过推广链接产生的累计统计）
+            List<Object[]> agg = promotionLinkRepository.aggregateByProduct(p.getId());
+            BigDecimal sales = agg.get(0)[0] instanceof Number ? (BigDecimal) agg.get(0)[0] : BigDecimal.ZERO;
+            BigDecimal commission = agg.get(0)[1] instanceof Number ? (BigDecimal) agg.get(0)[1] : BigDecimal.ZERO;
+            long clicks = ((Number) agg.get(0)[2]).longValue();
+            long paid = ((Number) agg.get(0)[3]).longValue();
+            long promoters = ((Number) agg.get(0)[4]).longValue();
+            m.put("promotion_sales", sales.setScale(2, RoundingMode.HALF_UP));
+            m.put("promotion_commission", commission.setScale(2, RoundingMode.HALF_UP));
+            m.put("click_count", clicks);
+            m.put("paid_count", paid);
+            m.put("promoter_count", promoters);
+            m.put("conversion_rate", clicks > 0 ? new BigDecimal(paid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(clicks), 2, RoundingMode.HALF_UP) : BigDecimal.ZERO.setScale(2));
             return m;
         }).toList();
         return pageResult(items, pp.getTotalElements(), page, pageSize);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> adminProductPromoters(UUID productId, int page, int pageSize) {
+        Pageable pageable = toPageable(page, pageSize);
+        Page<PromotionLink> lp = promotionLinkRepository.findByProductIdOrderByTotalSalesDesc(productId, pageable);
+        Set<UUID> distIds = lp.getContent().stream().map(PromotionLink::getDistributorId).collect(Collectors.toSet());
+        Map<UUID, Distributor> distMap = distIds.isEmpty() ? Map.of()
+                : distributorRepository.findAllById(distIds).stream().collect(Collectors.toMap(Distributor::getId, d -> d));
+        Map<UUID, User> userMap = distIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(distMap.values().stream().map(Distributor::getUserId).collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(User::getId, u -> u));
+
+        List<Map<String, Object>> items = lp.getContent().stream().map(pl -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            Distributor d = distMap.get(pl.getDistributorId());
+            User u = d != null ? userMap.get(d.getUserId()) : null;
+            m.put("distributor_id", pl.getDistributorId());
+            m.put("distributor_code", d != null ? d.getDistributorCode() : null);
+            m.put("username", u != null ? u.getUsername() : null);
+            m.put("email", u != null ? u.getEmail() : null);
+            m.put("link_url", buildPromotionUrl(pl.getLinkCode()));
+            m.put("total_sales", pl.getTotalSales() != null ? pl.getTotalSales().setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO);
+            m.put("total_commission", pl.getTotalCommission() != null ? pl.getTotalCommission().setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO);
+            long clicks = pl.getClickCount();
+            long paid = pl.getPaidCount();
+            m.put("click_count", clicks);
+            m.put("paid_count", paid);
+            m.put("conversion_rate", clicks > 0
+                    ? new BigDecimal(paid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(clicks), 2, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO.setScale(2));
+            m.put("created_at", pl.getCreatedAt());
+            return m;
+        }).toList();
+        return pageResult(items, lp.getTotalElements(), page, pageSize);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> adminProductStats(String range, LocalDate from, LocalDate to) {
+        // 区间 [from, to)；为空则不限（全部）
+        LocalDateTime fromDt = from != null ? from.atStartOfDay() : null;
+        LocalDateTime toDt = to != null ? to.plusDays(1).atStartOfDay() : null;
+        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        LocalDateTime now = LocalDateTime.now();
+
+        // 上一周期（环比）：与所选区间等长
+        LocalDateTime prevFrom = null;
+        LocalDateTime prevTo = null;
+        if (fromDt != null && toDt != null) {
+            long span = java.time.Duration.between(fromDt, toDt).toDays();
+            prevTo = fromDt;
+            prevFrom = fromDt.minusDays(span);
+        }
+
+        long clicks = clickRepository.countByRange(fromDt, toDt);
+        long paid = orderRepository.countDistributionOrdersRange(fromDt, toDt);
+        BigDecimal conversion = clicks > 0
+                ? new BigDecimal(paid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(clicks), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO.setScale(2);
+        BigDecimal commission = nullSafe(commissionRecordRepository.sumCommissionAmountBetween(
+                fromDt != null ? fromDt : LocalDateTime.of(1970, 1, 1, 0, 0),
+                toDt != null ? toDt : now.plusYears(100)));
+
+        long todayClicks = clickRepository.countBetween(todayStart, now);
+        long todayPaid = orderRepository.countDistributionOrdersRange(todayStart, now);
+        BigDecimal todayConversion = todayClicks > 0
+                ? new BigDecimal(todayPaid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(todayClicks), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO.setScale(2);
+        BigDecimal todayCommission = nullSafe(commissionRecordRepository.sumCommissionAmountBetween(todayStart, now));
+
+        long prevClicks = prevFrom != null ? clickRepository.countBetween(prevFrom, prevTo) : 0;
+        long prevPaid = prevFrom != null ? orderRepository.countDistributionOrdersRange(prevFrom, prevTo) : 0;
+        BigDecimal prevConversion = prevClicks > 0
+                ? new BigDecimal(prevPaid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(prevClicks), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO.setScale(2);
+        BigDecimal prevCommission = prevFrom != null
+                ? nullSafe(commissionRecordRepository.sumCommissionAmountBetween(prevFrom, prevTo)) : BigDecimal.ZERO;
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("range", range);
+        m.put("clicks", statValue(clicks, todayClicks, prevClicks));
+        m.put("paid_count", statValue(paid, todayPaid, prevPaid));
+        m.put("conversion_rate", statValue(conversion, todayConversion, prevConversion));
+        m.put("commission_amount", statValue(commission, todayCommission, prevCommission));
+        return m;
+    }
+
+    private Map<String, Object> statValue(Object total, Object today, Object prev) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("total", total);
+        m.put("today", today);
+        m.put("prev", prev);
+        return m;
     }
 
     @Override
@@ -413,7 +524,8 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListCommissions(UUID distributorId, String status, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         CommissionStatus statusEnum = parseCommissionStatus(status);
-        Page<CommissionRecord> cp = commissionRecordRepository.findAdminList(distributorId, statusEnum,
+        Page<CommissionRecord> cp = commissionRecordRepository.findAdminList(distributorId,
+                statusEnum != null ? statusEnum.name() : "",
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
                 pageable);
@@ -474,7 +586,7 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListWithdrawals(String status, LocalDate from, LocalDate to, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
         WithdrawalStatus statusEnum = parseWithdrawalStatus(status);
-        Page<WithdrawalRecord> wp = withdrawalRecordRepository.findAdminList(statusEnum,
+        Page<WithdrawalRecord> wp = withdrawalRecordRepository.findAdminList(statusEnum != null ? statusEnum.name() : "",
                 from != null ? from.atStartOfDay() : null,
                 to != null ? to.plusDays(1).atStartOfDay() : null,
                 pageable);
@@ -1003,13 +1115,27 @@ public class DistributionServiceImpl implements DistributionService {
         String linkUrl = buildPromotionUrl(link.getLinkCode());
         DistributionRule rule = getOrCreateRule();
 
+        // 全店海报热销商品：已开启分销的商品取前 3 个（最新添加优先）
+        List<Map<String, Object>> hotProducts = productRepository.findPublicProducts(null, Pageable.unpaged()).getContent().stream()
+                .filter(p -> isProductDistributable(p.getId()))
+                .sorted(Comparator.comparing(Product::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .limit(3)
+                .map(p -> {
+                    Map<String, Object> hp = new LinkedHashMap<>();
+                    hp.put("product_id", p.getId());
+                    hp.put("product_title", p.getTitle());
+                    hp.put("cover_url", p.getCoverUrl());
+                    hp.put("base_price", p.getBasePrice());
+                    return hp;
+                })
+                .toList();
+
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("link_url", linkUrl);
         m.put("qr_url", buildQrUrl(linkUrl));
-        m.put("distributor_code", d.getDistributorCode());
         m.put("store_name", siteName());
         m.put("store_logo", siteLogo());
-        m.put("default_rate", rateToPercent(rule.getDefaultRate()));
+        m.put("hot_products", hotProducts);
         return m;
     }
 
@@ -1122,7 +1248,7 @@ public class DistributionServiceImpl implements DistributionService {
         Page<CommissionRecord> cp;
         if (statusEnum != null) {
             // 复用 admin 查询（distributorId + status，无时间范围限制）
-            cp = commissionRecordRepository.findAdminList(me, statusEnum, null, null, pageable);
+            cp = commissionRecordRepository.findAdminList(me, statusEnum.name(), null, null, pageable);
         } else {
             cp = commissionRecordRepository.findByDistributorIdOrderByCreatedAtDesc(me, pageable);
         }
@@ -2194,6 +2320,20 @@ public class DistributionServiceImpl implements DistributionService {
      * 渠道未配置或缺少 app_secret 时返回 null。
      */
     private WechatOauthConfig findWechatOauthConfig() {
+        // 优先使用「公众号配置」（网站设置 → 公众号配置），未配置则回退到支付渠道
+        try {
+            if (wechatMpConfigService.isConfigured()) {
+                Map<String, Object> cfg = wechatMpConfigService.getConfig();
+                String appid = String.valueOf(cfg.get("appid"));
+                String secret = String.valueOf(cfg.get("appsecret"));
+                if (appid != null && !appid.isBlank() && !"null".equals(appid)
+                        && secret != null && !secret.isBlank() && !"null".equals(secret)) {
+                    return new WechatOauthConfig(appid, secret);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load wechat mp config: {}", e.getMessage());
+        }
         try {
             PaymentChannel channel = paymentChannelRepository
                     .findByChannelCodeAndIsDeleted("native_wxpay", 0).orElse(null);

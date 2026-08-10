@@ -12,7 +12,7 @@ import {
 import { toast } from "sonner"
 import { useLocale } from "@/lib/context"
 import { useRequireAuth } from "@/lib/hooks"
-import { distributorApi, getApiErrorMessage } from "@/services/api"
+import { distributorApi, wechatMpApi, getApiErrorMessage } from "@/services/api"
 import { cn } from "@/lib/utils"
 
 const PROMOTION_BASE_URL = "https://noepay.cn/p"
@@ -846,18 +846,18 @@ function ProductsTab({ profile }: { profile: any }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">价格</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金比例</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">预计佣金</th>
+                  <th className="w-[32%] min-w-[180px] px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">价格</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">佣金比例</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">预计佣金</th>
                   {subTab === "mine" && (
                     <>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">成交</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">点击</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">转化率</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">成交</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">点击</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">转化率</th>
                     </>
                   )}
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">操作</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -882,20 +882,20 @@ function ProductsTab({ profile }: { profile: any }) {
                               <Package className="h-5 w-5 text-muted-foreground" />
                             </div>
                           )}
-                          <p className="line-clamp-2 min-w-0 max-w-[220px] font-medium text-foreground">{p.product_title || p.title}</p>
+                          <p className="line-clamp-2 min-w-0 w-full font-medium text-foreground">{p.product_title || p.title}</p>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">{fmtMoney(p.base_price ?? p.price)}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{effectiveRate(p).toFixed(2)}%</td>
-                      <td className="px-4 py-3 font-medium text-emerald-600">{fmtMoney(p.commission_amount)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{fmtMoney(p.base_price ?? p.price)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{effectiveRate(p).toFixed(2)}%</td>
+                      <td className="whitespace-nowrap px-4 py-3 font-medium text-emerald-600">{fmtMoney(p.commission_amount)}</td>
                       {subTab === "mine" && (
                         <>
-                          <td className="px-4 py-3 text-muted-foreground">{paid} 单</td>
-                          <td className="px-4 py-3 text-muted-foreground">{clicks} 次</td>
-                          <td className="px-4 py-3 text-muted-foreground">{conv}%</td>
+                          <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{paid} 单</td>
+                          <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{clicks} 次</td>
+                          <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{conv}%</td>
                         </>
                       )}
-                      <td className="px-4 py-3">
+                      <td className="whitespace-nowrap px-4 py-3">
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
@@ -1057,126 +1057,261 @@ function PosterModal({
 
     let cancelled = false
     const W = 600
-    const H = type === "product" ? 880 : 820
+    const H = type === "product" ? 1000 : 1060
     canvas.width = W
     canvas.height = H
 
     const truncate = (s: string, n: number) => (s && s.length > n ? `${s.slice(0, n)}…` : s || "")
 
-    const paint = (cover: HTMLImageElement | null) => {
+    // 按最大宽度换行（返回多行文本）
+    const wrapLines = (text: string, maxWidth: number) => {
+      const chars = Array.from(text || "")
+      const lines: string[] = []
+      let cur = ""
+      for (const ch of chars) {
+        const test = cur + ch
+        if (ctx.measureText(test).width > maxWidth && cur) {
+          lines.push(cur)
+          cur = ch
+        } else {
+          cur = test
+        }
+      }
+      if (cur) lines.push(cur)
+      return lines
+    }
+
+    // 最多展示 n 行，超出部分省略号截断
+    const clampLines = (lines: string[], n: number) =>
+      lines.slice(0, n).map((l, i) => (i === n - 1 && lines.length > n ? `${l.slice(0, -1)}…` : l))
+
+    const roundRect = (x: number, y: number, w: number, h: number, r: number) => {
+      ctx.beginPath()
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(x, y, w, h, r)
+      } else {
+        ctx.rect(x, y, w, h)
+      }
+      ctx.fill()
+    }
+
+    const paint = (images: Record<string, HTMLImageElement | null>, qr: HTMLImageElement | null) => {
       if (cancelled) return
+      ctx.textBaseline = "alphabetic"
+      ctx.textAlign = "center"
       ctx.fillStyle = "#ffffff"
       ctx.fillRect(0, 0, W, H)
 
-      // 顶部品牌条
-      ctx.fillStyle = "#f97316"
-      ctx.fillRect(0, 0, W, 118)
+      // 顶部品牌条（橙色渐变，仅展示店铺名，不显示推广员ID/佣金）
+      const grad = ctx.createLinearGradient(0, 0, W, 0)
+      grad.addColorStop(0, "#f97316")
+      grad.addColorStop(1, "#f43f5e")
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, W, 110)
       ctx.fillStyle = "#ffffff"
-      ctx.textAlign = "center"
-      ctx.font = "bold 32px sans-serif"
-      ctx.fillText(truncate(data?.store_name || (type === "product" ? "精选好物" : "全店推广"), 14), W / 2, 60)
-      ctx.font = "17px sans-serif"
-      ctx.fillText(`推广员 ${data?.distributor_code || ""}`, W / 2, 92)
+      ctx.font = "bold 34px sans-serif"
+      ctx.fillText(truncate(data?.store_name || "精选好物", 16), W / 2, 64)
+      ctx.font = "15px sans-serif"
+      ctx.fillText(type === "product" ? "好物推荐 · 扫码即购" : "精选好物 · 专属推荐", W / 2, 96)
 
-      let y = 160
       if (type === "product") {
-        // 商品主图
+        // 商品封面（圆角大图）
+        const cover = data?.cover_url ? images[data.cover_url] : undefined
+        const size = 360
+        const cy = 140
+        ctx.fillStyle = "#f3f4f6"
+        ctx.fillRect((W - size) / 2, cy, size, size)
         if (cover) {
-          const iw = cover.naturalWidth || W
-          const ih = cover.naturalHeight || W
-          const size = 320
+          const iw = cover.naturalWidth || size
+          const ih = cover.naturalHeight || size
           const scale = Math.max(size / iw, size / ih)
           const dw = iw * scale
           const dh = ih * scale
-          ctx.drawImage(cover, (W - dw) / 2, y, dw, dh)
-          y += size + 22
+          ctx.save()
+          ctx.beginPath()
+          ctx.roundRect((W - size) / 2, cy, size, size, 16)
+          ctx.clip()
+          ctx.drawImage(cover, (W - dw) / 2, cy + (size - dh) / 2, dw, dh)
+          ctx.restore()
         } else {
-          y += 26
           ctx.fillStyle = "#9ca3af"
           ctx.font = "18px sans-serif"
-          ctx.fillText("（商品图片缺失）", W / 2, y)
-          y += 44
+          ctx.fillText("（商品图片缺失）", W / 2, cy + size / 2)
         }
-        // 商品标题
-        ctx.fillStyle = "#111827"
+
+        // 商品名称（最多两行，居中换行）
+        let y = 558
         ctx.font = "bold 28px sans-serif"
-        ctx.fillText(truncate(data?.product_title || "", 18), W / 2, y)
-        y += 52
-        // 价格 + 佣金
-        ctx.fillStyle = "#ef4444"
-        ctx.font = "bold 36px sans-serif"
-        ctx.fillText(`¥${Number(data?.base_price || 0).toFixed(2)}`, W / 2, y + 20)
-        y += 62
-        ctx.fillStyle = "#f97316"
-        ctx.font = "19px sans-serif"
-        ctx.fillText(
-          `推广佣金 ${Number(data?.commission_rate || 0).toFixed(2)}%（约赚 ¥${Number(data?.commission_amount || 0).toFixed(2)}）`,
-          W / 2, y
-        )
-        y += 70
-      } else {
-        // 全店海报：店铺 logo / 名称
-        if (cover) {
-          const size = 150
-          ctx.drawImage(cover, (W - size) / 2, y, size, size)
-          y += size + 28
-        } else {
+        ctx.fillStyle = "#111827"
+        clampLines(wrapLines(data?.product_title || "", W - 80), 2).forEach((l) => {
+          ctx.fillText(l, W / 2, y)
           y += 40
+        })
+
+        // 价格
+        y += 8
+        ctx.fillStyle = "#ef4444"
+        ctx.font = "bold 42px sans-serif"
+        ctx.fillText(`¥${Number(data?.base_price || 0).toFixed(2)}`, W / 2, y + 34)
+        y += 66
+
+        // 分割线
+        ctx.strokeStyle = "#f3f4f6"
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.moveTo(40, y)
+        ctx.lineTo(W - 40, y)
+        ctx.stroke()
+        y += 22
+
+        // 底部大二维码 + 引导词
+        const qsize = 240
+        const qx = (W - qsize) / 2
+        const qy = H - qsize - 150
+        ctx.fillStyle = "#ffffff"
+        ctx.strokeStyle = "#e5e7eb"
+        ctx.lineWidth = 2
+        ctx.strokeRect(qx - 10, qy - 10, qsize + 20, qsize + 20)
+        if (qr) {
+          ctx.drawImage(qr, qx, qy, qsize, qsize)
+        } else {
+          ctx.fillStyle = "#f3f4f6"
+          ctx.fillRect(qx, qy, qsize, qsize)
         }
         ctx.fillStyle = "#111827"
-        ctx.font = "bold 34px sans-serif"
-        ctx.fillText("精选好物 · 全场推广", W / 2, y)
-        y += 56
-        ctx.fillStyle = "#6b7280"
-        ctx.font = "22px sans-serif"
-        ctx.fillText(`全场商品佣金比例 ${Number(data?.default_rate || 0).toFixed(2)}%`, W / 2, y)
-        y += 64
+        ctx.font = "bold 20px sans-serif"
+        ctx.fillText("长按识别二维码 · 查看商品", W / 2, H - 96)
+        ctx.fillStyle = "#9ca3af"
+        ctx.font = "13px sans-serif"
+        ctx.fillText(truncate(linkUrl, 60), W / 2, H - 64)
+      } else {
+        // 全店海报：中间热销商品
         ctx.fillStyle = "#111827"
         ctx.font = "bold 26px sans-serif"
-        ctx.fillText("扫码进入商城", W / 2, y)
-        y += 56
+        ctx.fillText("热销推荐", W / 2, 150)
+        ctx.fillStyle = "#9ca3af"
+        ctx.font = "14px sans-serif"
+        ctx.fillText("为你精选 3 款好物", W / 2, 176)
+
+        const hot: any[] = (data?.hot_products || []).slice(0, 3)
+        const cw = 176
+        const gap = 14
+        const startX = (W - cw * 3 - gap * 2) / 2
+        const coverY = 200
+        if (hot.length === 0) {
+          ctx.fillStyle = "#9ca3af"
+          ctx.font = "18px sans-serif"
+          ctx.fillText("（暂无推广商品）", W / 2, coverY + 70)
+        }
+        hot.forEach((hp: any, i: number) => {
+          const x = startX + i * (cw + gap)
+          const img = hp.cover_url ? images[hp.cover_url] : undefined
+          ctx.fillStyle = "#f3f4f6"
+          ctx.fillRect(x, coverY, cw, cw)
+          if (img) {
+            const iw = img.naturalWidth || cw
+            const ih = img.naturalHeight || cw
+            const scale = Math.max(cw / iw, cw / ih)
+            const dw = iw * scale
+            const dh = ih * scale
+            ctx.drawImage(img, x + (cw - dw) / 2, coverY + (cw - dh) / 2, dw, dh)
+          }
+          // 商品名（两行）
+          ctx.fillStyle = "#111827"
+          ctx.font = "18px sans-serif"
+          const lines = clampLines(wrapLines(hp.product_title || "", cw - 8), 2)
+          lines.forEach((l, li) => {
+            ctx.fillText(l, x + cw / 2, coverY + cw + 30 + li * 26)
+          })
+          // 价格
+          ctx.fillStyle = "#ef4444"
+          ctx.font = "bold 20px sans-serif"
+          ctx.fillText(`¥${Number(hp.base_price || 0).toFixed(2)}`, x + cw / 2, coverY + cw + 32 + lines.length * 26)
+        })
+
+        // 主二维码 + 引导词
+        const qsize = 220
+        const qx = (W - qsize) / 2
+        const qy = 560
+        ctx.fillStyle = "#ffffff"
+        ctx.strokeStyle = "#e5e7eb"
+        ctx.lineWidth = 2
+        ctx.strokeRect(qx - 10, qy - 10, qsize + 20, qsize + 20)
+        if (qr) {
+          ctx.drawImage(qr, qx, qy, qsize, qsize)
+        } else {
+          ctx.fillStyle = "#f3f4f6"
+          ctx.fillRect(qx, qy, qsize, qsize)
+        }
+        ctx.fillStyle = "#111827"
+        ctx.font = "bold 20px sans-serif"
+        ctx.fillText("长按识别二维码 · 选购更多好物", W / 2, 818)
+
+        // 底部号召区：左侧号召行动 + 右侧小二维码
+        const bandY = 866
+        const bandH = 164
+        const bandGrad = ctx.createLinearGradient(0, bandY, W, bandY)
+        bandGrad.addColorStop(0, "#f97316")
+        bandGrad.addColorStop(1, "#f43f5e")
+        ctx.fillStyle = bandGrad
+        roundRect(0, bandY, W, bandH, 0)
+        ctx.fillStyle = "#ffffff"
+        ctx.textAlign = "left"
+        ctx.font = "bold 30px sans-serif"
+        ctx.fillText("扫码进店", 46, bandY + 66)
+        ctx.font = "17px sans-serif"
+        ctx.fillText("专属好物 · 尽在掌握", 46, bandY + 104)
+        const sq = 120
+        const sqX = W - 46 - sq
+        const sqY = bandY + (bandH - sq) / 2
+        ctx.fillStyle = "#ffffff"
+        ctx.fillRect(sqX - 6, sqY - 6, sq + 12, sq + 12)
+        if (qr) {
+          ctx.drawImage(qr, sqX, sqY, sq, sq)
+        }
+        // 底部专属链接
+        ctx.textAlign = "center"
+        ctx.fillStyle = "#9ca3af"
+        ctx.font = "13px sans-serif"
+        ctx.fillText(truncate(linkUrl, 60), W / 2, H - 20)
       }
+    }
 
-      // 底部二维码
-      const qsize = 240
-      const qx = (W - qsize) / 2
-      const qy = H - qsize - 128
-      // 二维码白底
-      ctx.fillStyle = "#ffffff"
-      ctx.strokeStyle = "#e5e7eb"
-      ctx.lineWidth = 2
-      ctx.strokeRect(qx - 10, qy - 10, qsize + 20, qsize + 20)
+    // 收集所有图片 URL（去重后加载，失败降级为占位）
+    const urls: string[] = []
+    const pushUrl = (u?: string) => { if (u && !urls.includes(u)) urls.push(u) }
+    pushUrl(data?.store_logo)
+    pushUrl(data?.cover_url)
+    ;(data?.hot_products || []).forEach((hp: any) => pushUrl(hp.cover_url))
 
+    const images: Record<string, HTMLImageElement | null> = {}
+    let loaded = 0
+    const tryPaint = () => {
+      if (loaded !== urls.length) return
       const qr = new Image()
       qr.crossOrigin = "anonymous"
       qr.onload = () => {
         if (cancelled) return
-        ctx.drawImage(qr, qx, qy, qsize, qsize)
-        ctx.fillStyle = "#4b5563"
-        ctx.font = "18px sans-serif"
-        ctx.fillText("长按识别二维码", W / 2, H - 100)
-        ctx.fillStyle = "#9ca3af"
-        ctx.font = "14px sans-serif"
-        ctx.fillText("分享海报给好友，好友扫码下单即可获得佣金", W / 2, H - 72)
-        setDrawing(false)
+        try { paint(images, qr); setDrawing(false) } catch { setFallback(true); setDrawing(false) }
       }
       qr.onerror = () => {
-        if (!cancelled) setDrawing(false)
+        if (cancelled) return
+        try { paint(images, null); setDrawing(false) } catch { setFallback(true); setDrawing(false) }
       }
       qr.src = `/qr-image?url=${encodeURIComponent(linkUrl)}&size=400`
     }
-
-    // 加载封面图（跨域失败时降级为纯文字海报）
-    const coverUrl = type === "product" ? data?.cover_url : data?.store_logo
-    if (coverUrl) {
+    if (urls.length === 0) {
+      tryPaint()
+      return
+    }
+    urls.forEach((u) => {
       const img = new Image()
       img.crossOrigin = "anonymous"
-      img.onload = () => { try { paint(img) } catch { setFallback(true); setDrawing(false) } }
-      img.onerror = () => paint(null)
-      img.src = coverUrl
-    } else {
-      paint(null)
-    }
+      img.onload = () => { images[u] = img; loaded++; tryPaint() }
+      img.onerror = () => { images[u] = null; loaded++; tryPaint() }
+      img.src = u
+    })
+
     return () => { cancelled = true }
   }, [data, type, linkUrl])
 
@@ -1415,6 +1550,17 @@ function WithdrawalsTab({ balance }: { balance: number }) {
   // 微信绑定状态
   const [wechat, setWechat] = useState<{ wechat_bound?: boolean; openid?: string | null; nickname?: string | null; bound_at?: string | null } | null>(null)
   const [binding, setBinding] = useState(false)
+  // 公众号关注引导
+  const [followInfo, setFollowInfo] = useState<{ configured?: boolean; follow_qr?: string } | null>(null)
+
+  const fetchFollowInfo = useCallback(async () => {
+    try {
+      const info = await wechatMpApi.getFollowInfo()
+      setFollowInfo(info)
+    } catch {
+      setFollowInfo(null)
+    }
+  }, [])
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -1441,6 +1587,7 @@ function WithdrawalsTab({ balance }: { balance: number }) {
 
   useEffect(() => { fetchList() }, [fetchList])
   useEffect(() => { fetchWechat() }, [fetchWechat])
+  useEffect(() => { fetchFollowInfo() }, [fetchFollowInfo])
 
   const handleBind = async () => {
     setBinding(true)
@@ -1567,6 +1714,26 @@ function WithdrawalsTab({ balance }: { balance: number }) {
           </button>
         )}
       </div>
+
+      {/* 关注公众号引导（后台配置了公众号二维码时展示） */}
+      {followInfo?.configured && followInfo.follow_qr && (
+        <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border bg-card p-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+              <QrCode className="h-5 w-5 text-primary" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-foreground">关注公众号</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">长按识别下方二维码关注，第一时间接收订单与佣金消息</p>
+            </div>
+          </div>
+          <img
+            src={followInfo.follow_qr}
+            alt="公众号二维码"
+            className="ml-auto h-24 w-24 shrink-0 rounded-lg border border-border bg-white object-contain"
+          />
+        </div>
+      )}
 
       {/* 列表 */}
       {loading ? (

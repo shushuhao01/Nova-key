@@ -410,6 +410,25 @@ export const siteApi = {
 }
 
 // ============================================================
+// WeChat MP (公众号配置 — 后台管理)
+// ============================================================
+
+export const adminWechatMpApi = {
+  getConfig: () => request<any>("/admin/wechat-mp/config"),
+  updateConfig: (data: { appid?: string; appsecret?: string; follow_qr?: string; template_id?: string }) =>
+    request<void>("/admin/wechat-mp/config", { method: "PUT", body: JSON.stringify(data) }),
+  test: () => request<any>("/admin/wechat-mp/test", { method: "POST" }),
+}
+
+// ============================================================
+// WeChat MP (公开：公众号关注信息，分销中心引导关注)
+// ============================================================
+
+export const wechatMpApi = {
+  getFollowInfo: () => request<any>("/wechat-mp/follow-info"),
+}
+
+// ============================================================
 // Payment Channels (public, for store display)
 // ============================================================
 
@@ -848,6 +867,14 @@ export const adminDistributionApi = {
   listProducts: (params: { keyword?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/products?${qs}`)
+  },
+  productStats: (params: { range?: string; from?: string; to?: string }) => {
+    const qs = buildQuery(params)
+    return request<any>(`/admin/distribution/products/stats?${qs}`)
+  },
+  productPromoters: (productId: string, params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/admin/distribution/products/${productId}/promoters?${qs}`)
   },
   updateProductCommission: (productId: string, custom_rate?: number | null, excluded?: boolean) =>
     request<void>(`/admin/distribution/products/${productId}`, { method: "PUT", body: JSON.stringify({ custom_rate, excluded }) }),

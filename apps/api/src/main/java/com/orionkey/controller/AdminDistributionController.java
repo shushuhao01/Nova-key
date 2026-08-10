@@ -105,6 +105,23 @@ public class AdminDistributionController {
         return ApiResponse.success(distributionService.adminListProductCommissions(page, pageSize, keyword));
     }
 
+    // ── 商品佣金概览统计（点击/下单/转化/佣金 + 今日 + 环比，支持快捷日期筛选） ──
+    @GetMapping("/products/stats")
+    public ApiResponse<?> productStats(
+            @RequestParam(required = false) String range,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to) {
+        return ApiResponse.success(distributionService.adminProductStats(range, from, to));
+    }
+
+    // ── 商品推广员排行（推广该商品的每个分销员明细） ──
+    @GetMapping("/products/{productId}/promoters")
+    public ApiResponse<?> productPromoters(@PathVariable UUID productId,
+                                           @RequestParam(defaultValue = "1") int page,
+                                           @RequestParam(value = "page_size", defaultValue = "10") int pageSize) {
+        return ApiResponse.success(distributionService.adminProductPromoters(productId, page, pageSize));
+    }
+
     @PutMapping("/products/{productId}")
     public ApiResponse<?> updateProductCommission(@PathVariable UUID productId, @RequestBody Map<String, Object> request) {
         BigDecimal customRate = request.get("custom_rate") != null
