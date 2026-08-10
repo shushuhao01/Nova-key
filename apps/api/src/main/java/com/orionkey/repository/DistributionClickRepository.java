@@ -19,13 +19,4 @@ public interface DistributionClickRepository extends JpaRepository<DistributionC
     /** 区间内点击总数（不限制区间，from 可为 null） */
     @Query("SELECT COUNT(c) FROM DistributionClick c WHERE (:from IS NULL OR c.createdAt >= :from) AND (:to IS NULL OR c.createdAt < :to)")
     long countByRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
-
-    /** 区间内商品推广链接点击总数（productId 非空=商品推广，不含全店推广；from 可为 null） */
-    @Query("SELECT COUNT(c) FROM DistributionClick c WHERE c.productId IS NOT NULL " +
-            "AND (:from IS NULL OR c.createdAt >= :from) AND (:to IS NULL OR c.createdAt < :to)")
-    long countByRangeProduct(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
-
-    /** 区间内商品推广链接点击总数（必填区间，不含全店推广） */
-    @Query("SELECT COUNT(c) FROM DistributionClick c WHERE c.productId IS NOT NULL AND c.createdAt >= :from AND c.createdAt < :to")
-    long countBetweenProduct(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 }

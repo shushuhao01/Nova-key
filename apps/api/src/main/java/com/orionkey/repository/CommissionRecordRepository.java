@@ -70,14 +70,6 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
     BigDecimal sumSettledBetween(@Param("from") LocalDateTime from,
                                  @Param("to") LocalDateTime to);
 
-    /** 区间内商品推广佣金总额（仅商品推广链接，productId 非空=商品推广，不含全店推广） */
-    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
-            "WHERE cr.status != com.orionkey.constant.CommissionStatus.CANCELLED " +
-            "AND cr.productId IS NOT NULL " +
-            "AND cr.createdAt >= :from AND cr.createdAt < :to")
-    BigDecimal sumProductCommissionBetween(@Param("from") LocalDateTime from,
-                                           @Param("to") LocalDateTime to);
-
     /**
      * 待结算佣金：订单已完成（COMPLETED）且完成时间超过结算延迟期。
      * 即"订单完成 + N 天"后佣金才可结算提现，防止退款套佣（退款会走 cancelCommissions 取消佣金）。

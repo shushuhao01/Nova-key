@@ -54,14 +54,6 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     long countDistributionOrdersRange(@Param("from") LocalDateTime from,
                                       @Param("to") LocalDateTime to);
 
-    /** 商品推广成交订单数（仅商品推广链接，不含全店推广；from/to 可空=不限） */
-    @Query("SELECT COUNT(o) FROM Order o WHERE o.promotionLinkId IS NOT NULL " +
-            "AND o.promotionLinkId IN (SELECT pl.id FROM PromotionLink pl WHERE pl.productId IS NOT NULL) " +
-            "AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) " +
-            "AND o.paidAt IS NOT NULL AND (:from IS NULL OR o.paidAt >= :from) AND (:to IS NULL OR o.paidAt < :to)")
-    long countProductDistributionOrdersRange(@Param("from") LocalDateTime from,
-                                             @Param("to") LocalDateTime to);
-
     // ── 客户管理（注册用户 / 匿名邮箱统计） ──
 
     /** 注册用户成交订单数（已支付/已发货/已完成） */
