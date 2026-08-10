@@ -91,8 +91,8 @@ export function ShareCommissionButton({ productId, productTitle, productPrice }:
   }, [productId])
 
   const amount = user ? commission : maxCommission
-  if (!amount || amount <= 0) return null
 
+  // ⚠️ hooks 必须在条件 return 之前声明（React 要求 hooks 调用顺序恒定）
   const handleShare = useCallback(async () => {
     if (!user) {
       toast.info("请先登录后再分享赚佣金")
@@ -118,6 +118,8 @@ export function ShareCommissionButton({ productId, productTitle, productPrice }:
     toast.success("链接已复制")
     setTimeout(() => setCopied(false), 2000)
   }, [linkUrl])
+
+  if (!amount || amount <= 0) return null
 
   return (
     <>
