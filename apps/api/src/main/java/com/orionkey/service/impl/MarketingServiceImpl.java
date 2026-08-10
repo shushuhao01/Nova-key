@@ -12,6 +12,7 @@ import com.orionkey.entity.UserCoupon;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.MarketingCampaignRepository;
 import com.orionkey.repository.MarketingRecipientRepository;
+import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.SiteConfigRepository;
 import com.orionkey.repository.UserCouponRepository;
 import com.orionkey.repository.UserRepository;
@@ -42,6 +43,7 @@ public class MarketingServiceImpl implements MarketingService {
     private final MarketingRecipientRepository recipientRepository;
     private final UserCouponRepository couponRepository;
     private final UserRepository userRepository;
+    private final OrderRepository orderRepository;
     private final SiteConfigRepository siteConfigRepository;
     private final MarketingMailSender mailSender;
     private final ObjectMapper objectMapper;
