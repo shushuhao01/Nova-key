@@ -1173,10 +1173,10 @@ function PosterModal({
         W / 2, 96)
 
       if (type === "product") {
-        // 商品封面（圆角大图 + 白边 + 爆款角标）
+        // 商品封面（居中圆角大图 + 白边 + 爆款角标）
         const cover = data?.cover_url ? images[data.cover_url] : undefined
-        const size = 330
-        const cy = 126
+        const size = 300
+        const cy = 132
         const cx = (W - size) / 2
         ctx.save()
         ctx.fillStyle = "#ffffff"
@@ -1216,87 +1216,78 @@ function PosterModal({
         ctx.font = "bold 16px sans-serif"
         ctx.fillText("爆款", cx + size - badgeW - 16 + badgeW / 2, cy + 16 + 21)
 
-        // 商品名称（最多两行，居中换行）
-        let y = 508
-        ctx.font = "bold 27px sans-serif"
+        // 商品名称（居中，最多两行）
+        let ty = 502
+        ctx.font = "bold 26px sans-serif"
         ctx.fillStyle = "#111827"
-        clampLines(wrapLines(data?.product_title || "", W - 80), 2).forEach((l) => {
-          ctx.fillText(l, W / 2, y)
-          y += 40
+        clampLines(wrapLines(data?.product_title || "", W - 90), 2).forEach((l) => {
+          ctx.fillText(l, W / 2, ty)
+          ty += 42
         })
 
-        // 价格行：限时特惠徽章 + 价格
-        y += 6
-        ctx.font = "bold 42px sans-serif"
-        ctx.fillStyle = "#ef4444"
-        const priceText = `¥${Number(data?.base_price || 0).toFixed(2)}`
-        const priceW = ctx.measureText(priceText).width
-        const badgeW2 = 84
-        const badgeH2 = 32
-        const badgeGap = 12
-        const badgeX = W / 2 - priceW / 2 - badgeW2 - badgeGap
-        const badgeY = y - 6
+        // 明显的促销词：橙色渐变横幅（商品下方）
+        const promoY = 574
+        const promoH = 84
+        const promoGrad = ctx.createLinearGradient(0, promoY, W, promoY)
+        promoGrad.addColorStop(0, "#f97316")
+        promoGrad.addColorStop(1, "#f43f5e")
         ctx.save()
         ctx.beginPath()
-        ctx.roundRect(badgeX, badgeY, badgeW2, badgeH2, 8)
-        ctx.fillStyle = "#ef4444"
+        ctx.roundRect(24, promoY, W - 48, promoH, 16)
+        ctx.fillStyle = promoGrad
         ctx.fill()
         ctx.restore()
         ctx.fillStyle = "#ffffff"
-        ctx.font = "bold 15px sans-serif"
-        ctx.fillText("限时特惠", badgeX + badgeW2 / 2, badgeY + 22)
-        ctx.fillStyle = "#ef4444"
-        ctx.font = "bold 42px sans-serif"
-        ctx.fillText(priceText, W / 2 + (badgeW2 + badgeGap) / 2, y + 34)
-        y += 58
+        ctx.font = "bold 27px sans-serif"
+        ctx.fillText("正品保障 · 自动发货 · 售后无忧", W / 2, promoY + 52)
 
-        // 促销词卡片
-        const promoX = 80
-        const promoW = W - promoX * 2
-        const promoY = y
-        const promoH = 88
+        // 单价：中间偏右，大号红色突出价格
+        const priceY = 742
+        ctx.textAlign = "right"
+        ctx.font = "18px sans-serif"
+        ctx.fillStyle = "#9ca3af"
+        ctx.fillText("单价", 296, priceY + 6)
+        ctx.fillStyle = "#ef4444"
+        ctx.font = "bold 56px sans-serif"
+        ctx.textAlign = "left"
+        ctx.fillText(`¥${Number(data?.base_price || 0).toFixed(2)}`, 312, priceY + 12)
+        ctx.textAlign = "center"
+
+        // 底部橙色号召区：左侧引导词 + 右侧二维码
+        const bandY = 802
+        const bandH = 210
+        const bandGrad = ctx.createLinearGradient(0, bandY, W, bandY)
+        bandGrad.addColorStop(0, "#f97316")
+        bandGrad.addColorStop(1, "#f43f5e")
+        ctx.fillStyle = bandGrad
+        ctx.fillRect(0, bandY, W, bandH)
+        ctx.fillStyle = "#ffffff"
+        ctx.textAlign = "left"
+        ctx.font = "bold 32px sans-serif"
+        ctx.fillText("扫码立即购买", 44, bandY + 76)
+        ctx.font = "17px sans-serif"
+        ctx.fillText("长按识别二维码 · 查看商品", 44, bandY + 118)
+        const qsize = 148
+        const qx = W - 44 - qsize
+        const qy = bandY + (bandH - qsize) / 2
         ctx.save()
         ctx.beginPath()
-        ctx.roundRect(promoX, promoY, promoW, promoH, 14)
-        ctx.fillStyle = "#fff7ed"
+        ctx.roundRect(qx - 8, qy - 8, qsize + 16, qsize + 16, 12)
+        ctx.fillStyle = "#ffffff"
         ctx.fill()
         ctx.restore()
-        ctx.fillStyle = "#ea580c"
-        ctx.font = "bold 19px sans-serif"
-        ctx.fillText("正品保障 · 自动发货", W / 2, promoY + 36)
-        ctx.fillStyle = "#b45309"
-        ctx.font = "14px sans-serif"
-        ctx.fillText("7×24 小时在线 · 售后无忧", W / 2, promoY + 66)
-
-        // 分割线
-        const lineY = promoY + promoH + 16
-        ctx.strokeStyle = "#f3f4f6"
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.moveTo(40, lineY)
-        ctx.lineTo(W - 40, lineY)
-        ctx.stroke()
-
-        // 底部大二维码 + 引导词
-        const qsize = 190
-        const qx = (W - qsize) / 2
-        const qy = lineY + 18
-        ctx.fillStyle = "#ffffff"
-        ctx.strokeStyle = "#e5e7eb"
-        ctx.lineWidth = 2
-        ctx.strokeRect(qx - 10, qy - 10, qsize + 20, qsize + 20)
         if (qr) {
           ctx.drawImage(qr, qx, qy, qsize, qsize)
         } else {
           ctx.fillStyle = "#f3f4f6"
           ctx.fillRect(qx, qy, qsize, qsize)
         }
-        ctx.fillStyle = "#111827"
-        ctx.font = "bold 20px sans-serif"
-        ctx.fillText("长按识别二维码 · 查看商品", W / 2, H - 72)
+        ctx.textAlign = "center"
+
+        // 底部商品推广链接
         ctx.fillStyle = "#9ca3af"
         ctx.font = "13px sans-serif"
-        ctx.fillText(truncate(linkUrl, 60), W / 2, H - 38)
+        ctx.fillText(truncate(linkUrl, 60), W / 2, H - 24)
       } else if (type === "invite") {
         // 邀请海报：邀请好友加入分销，引导赚钱
         // 中部大徽章
