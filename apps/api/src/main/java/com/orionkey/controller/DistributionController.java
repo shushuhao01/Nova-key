@@ -30,7 +30,7 @@ public class DistributionController {
 
     // ── 公开：佣金预估 ──
     @GetMapping("/commission-preview")
-    public ApiResponse<?> commissionPreview(@RequestParam String productIds) {
+    public ApiResponse<?> commissionPreview(@RequestParam("product_ids") String productIds) {
         UUID userId = null;
         try {
             userId = RequestContext.getUserId();
