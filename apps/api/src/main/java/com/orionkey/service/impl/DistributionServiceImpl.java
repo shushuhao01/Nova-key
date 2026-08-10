@@ -71,6 +71,10 @@ public class DistributionServiceImpl implements DistributionService {
     private static final String CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
+    /** 时间区间查询哨兵值：from/to 为 null 时表示不限，PG 对 null 时间参数在 "IS NULL" 谓词下无法推断类型，必须传非空 */
+    private static final LocalDateTime RANGE_FROM_MIN = LocalDateTime.of(1970, 1, 1, 0, 0);
+    private static final LocalDateTime RANGE_TO_MAX = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
+
     // ════════════════════════════════════════════════════════════════
     //  ── 分销员 ──
     // ════════════════════════════════════════════════════════════════
@@ -213,8 +217,8 @@ public class DistributionServiceImpl implements DistributionService {
         // JPQL：枚举参数由 Hibernate 绑定类型，null 也携带类型，PG 不会报类型推断错误
         Page<Distributor> dp = distributorRepository.findAdminList(statusEnum,
                 keyword != null ? keyword : "",
-                from != null ? from.atStartOfDay() : null,
-                to != null ? to.plusDays(1).atStartOfDay() : null,
+                from != null ? from.atStartOfDay() : RANGE_FROM_MIN,
+                to != null ? to.plusDays(1).atStartOfDay() : RANGE_TO_MAX,
                 pageable);
 
         // 批量查用户信息
@@ -460,8 +464,10 @@ public class DistributionServiceImpl implements DistributionService {
         }
 
         // 分销推广统计（商品推广 + 全店推广，凡是通过分销推广链接成交的数据均计入）
-        long clicks = clickRepository.countByRange(fromDt, toDt);
-        long paid = orderRepository.countDistributionOrdersRange(fromDt, toDt);
+        long clicks = clickRepository.countByRange(fromDt != null ? fromDt : RANGE_FROM_MIN,
+                toDt != null ? toDt : RANGE_TO_MAX);
+        long paid = orderRepository.countDistributionOrdersRange(fromDt != null ? fromDt : RANGE_FROM_MIN,
+                toDt != null ? toDt : RANGE_TO_MAX);
         BigDecimal conversion = clicks > 0
                 ? new BigDecimal(paid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(clicks), 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO.setScale(2);
@@ -529,8 +535,8 @@ public class DistributionServiceImpl implements DistributionService {
         // JPQL：枚举参数由 Hibernate 绑定类型，null 也携带类型，PG 不会报类型推断错误
         Page<CommissionRecord> cp = commissionRecordRepository.findAdminList(distributorId,
                 statusEnum,
-                from != null ? from.atStartOfDay() : null,
-                to != null ? to.plusDays(1).atStartOfDay() : null,
+                from != null ? from.atStartOfDay() : RANGE_FROM_MIN,
+                to != null ? to.plusDays(1).atStartOfDay() : RANGE_TO_MAX,
                 pageable);
 
         Set<UUID> distIds = cp.getContent().stream().map(CommissionRecord::getDistributorId).collect(Collectors.toSet());
@@ -595,8 +601,8 @@ public class DistributionServiceImpl implements DistributionService {
         WithdrawalStatus statusEnum = parseWithdrawalStatus(status);
         // JPQL：枚举参数由 Hibernate 绑定类型，null 也携带类型，PG 不会报类型推断错误
         Page<WithdrawalRecord> wp = withdrawalRecordRepository.findAdminList(statusEnum,
-                from != null ? from.atStartOfDay() : null,
-                to != null ? to.plusDays(1).atStartOfDay() : null,
+                from != null ? from.atStartOfDay() : RANGE_FROM_MIN,
+                to != null ? to.plusDays(1).atStartOfDay() : RANGE_TO_MAX,
                 pageable);
 
         Set<UUID> distIds = wp.getContent().stream().map(WithdrawalRecord::getDistributorId).collect(Collectors.toSet());
@@ -1380,7 +1386,7 @@ public class DistributionServiceImpl implements DistributionService {
         Page<CommissionRecord> cp;
         if (statusEnum != null) {
             // 复用 admin 查询（distributorId + status，无时间范围限制）
-            cp = commissionRecordRepository.findAdminList(me, statusEnum, null, null, pageable);
+            cp = commissionRecordRepository.findAdminList(me, statusEnum, RANGE_FROM_MIN, RANGE_TO_MAX, pageable);
         } else {
             cp = commissionRecordRepository.findByDistributorIdOrderByCreatedAtDesc(me, pageable);
         }

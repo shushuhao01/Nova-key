@@ -18,14 +18,12 @@ public interface WithdrawalRecordRepository extends JpaRepository<WithdrawalReco
     Page<WithdrawalRecord> findByDistributorIdOrderByCreatedAtDesc(UUID distributorId, Pageable pageable);
 
     /**
-     * 管理后台提现记录列表。使用 JPQL（Hibernate 从方法签名绑定参数类型，
-     * null 参数也携带类型），从机制上规避 PG 原生 SQL 对 null 参数
-     * "could not determine data type of parameter" 的报错（System error 500）。
+     * 管理后台提现记录列表。from/to 由服务层传入非空哨兵值（null 时间参数出现在
+     * "IS NULL" 谓词时 PG 无法推断类型，报 could not determine data type of parameter）。
      */
     @Query("SELECT wr FROM WithdrawalRecord wr WHERE " +
             "(:status IS NULL OR wr.status = :status) " +
-            "AND (:from IS NULL OR wr.createdAt >= :from) " +
-            "AND (:to IS NULL OR wr.createdAt < :to) " +
+            "AND wr.createdAt >= :from AND wr.createdAt < :to " +
             "ORDER BY wr.createdAt DESC")
     Page<WithdrawalRecord> findAdminList(@Param("status") WithdrawalStatus status,
                                          @Param("from") java.time.LocalDateTime from,

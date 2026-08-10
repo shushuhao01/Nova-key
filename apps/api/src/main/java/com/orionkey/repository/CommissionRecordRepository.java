@@ -20,15 +20,13 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
     List<CommissionRecord> findByOrderId(UUID orderId);
 
     /**
-     * 管理后台佣金记录列表。使用 JPQL（Hibernate 从方法签名绑定参数类型，
-     * null 参数也携带类型），从机制上规避 PG 原生 SQL 对 null 参数
-     * "could not determine data type of parameter" 的报错（System error 500）。
+     * 管理后台佣金记录列表。from/to 由服务层传入非空哨兵值（null 时间参数出现在
+     * "IS NULL" 谓词时 PG 无法推断类型，报 could not determine data type of parameter）。
      */
     @Query("SELECT cr FROM CommissionRecord cr WHERE " +
             "(:distributorId IS NULL OR cr.distributorId = :distributorId) " +
             "AND (:status IS NULL OR cr.status = :status) " +
-            "AND (:from IS NULL OR cr.createdAt >= :from) " +
-            "AND (:to IS NULL OR cr.createdAt < :to) " +
+            "AND cr.createdAt >= :from AND cr.createdAt < :to " +
             "ORDER BY cr.createdAt DESC")
     Page<CommissionRecord> findAdminList(@Param("distributorId") UUID distributorId,
                                          @Param("status") CommissionStatus status,

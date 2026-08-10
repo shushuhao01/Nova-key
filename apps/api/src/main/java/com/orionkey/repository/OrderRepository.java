@@ -47,10 +47,10 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     BigDecimal sumDistributionSales(@Param("from") LocalDateTime from,
                                     @Param("to") LocalDateTime to);
 
-    /** 分销成交订单数（按支付时间区间，from/to 可空=不限） */
+    /** 分销成交订单数（按支付时间区间，from/to 由服务层传入非空哨兵值=不限） */
     @Query("SELECT COUNT(o) FROM Order o WHERE o.promotionLinkId IS NOT NULL " +
             "AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) " +
-            "AND o.paidAt IS NOT NULL AND (:from IS NULL OR o.paidAt >= :from) AND (:to IS NULL OR o.paidAt < :to)")
+            "AND o.paidAt IS NOT NULL AND o.paidAt >= :from AND o.paidAt < :to")
     long countDistributionOrdersRange(@Param("from") LocalDateTime from,
                                       @Param("to") LocalDateTime to);
 

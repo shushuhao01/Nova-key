@@ -31,15 +31,13 @@ public interface DistributorRepository extends JpaRepository<Distributor, UUID> 
     List<Distributor> findByParentId(UUID parentId);
 
     /**
-     * 管理后台分销员列表。使用 JPQL（Hibernate 从方法签名绑定参数类型，
-     * null 参数也携带类型），从机制上规避 PG 原生 SQL 对 null 参数
-     * "could not determine data type of parameter" 的报错（System error 500）。
+     * 管理后台分销员列表。from/to 由服务层传入非空哨兵值（null 时间参数出现在
+     * "IS NULL" 谓词时 PG 无法推断类型，报 could not determine data type of parameter）。
      */
     @Query("SELECT d FROM Distributor d WHERE " +
             "(:status IS NULL OR d.status = :status) " +
             "AND (:keyword IS NULL OR :keyword = '' OR LOWER(d.distributorCode) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
-            "AND (:from IS NULL OR d.createdAt >= :from) " +
-            "AND (:to IS NULL OR d.createdAt < :to) " +
+            "AND d.createdAt >= :from AND d.createdAt < :to " +
             "ORDER BY d.createdAt DESC")
     Page<Distributor> findAdminList(@Param("status") DistributorStatus status,
                                     @Param("keyword") String keyword,
