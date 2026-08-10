@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback, type ReactNode } from "react"
 import {
   Users2, Search, Check, X, Ban, Pencil, ChevronLeft, ChevronRight,
   Package, Coins, Wallet, Settings, Plus, Trash2, Save, TrendingUp,
   Clock, CheckCircle2, UserCheck, UserX, Percent, RefreshCw, ShoppingBag,
   HandCoins, Loader2, ScrollText, ShieldCheck, Layers, CalendarRange,
-  ArrowUpRight, ArrowDownRight,
+  ArrowUpRight, ArrowDownRight, Eye, User, AtSign, KeyRound, Link2,
+  Crown, Users,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -584,6 +585,7 @@ function DistributorsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string;
   const [statusFilter, setStatusFilter] = useState<DistributorStatus | "">("")
   const [currentPage, setCurrentPage] = useState(1)
   const [rateModal, setRateModal] = useState<Distributor | null>(null)
+  const [detailModal, setDetailModal] = useState<Distributor | null>(null)
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -740,6 +742,9 @@ function DistributorsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string;
                       <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(d.applied_at)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
+                          <button type="button" onClick={() => setDetailModal(d)} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="查看详情">
+                            <Eye className="h-4 w-4" />
+                          </button>
                           {d.status === "PENDING" && (
                             <>
                               <button type="button" onClick={() => handleStatus(d, "APPROVED")} className="flex h-8 w-8 items-center justify-center rounded-md text-emerald-600 hover:bg-emerald-500/10" title="审核通过">
@@ -787,6 +792,149 @@ function DistributorsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string;
           onSaved={() => { setRateModal(null); fetchList() }}
         />
       )}
+
+      {detailModal && (
+        <DistributorDetailModal
+          distributor={detailModal}
+          onClose={() => setDetailModal(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+/** 推广员详情弹窗：基础信息 + 佣金/余额数据 + 团队数据 */
+function DistributorDetailModal({ distributor, onClose }: {
+  distributor: Distributor
+  onClose: () => void
+}) {
+  const [detail, setDetail] = useState<Record<string, any> | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    adminDistributionApi.getDistributor(distributor.id)
+      .then((d) => { if (!cancelled) setDetail(d) })
+      .catch((err) => toast.error(err instanceof Error ? err.message : "加载详情失败"))
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [distributor.id])
+
+  // 详情接口字段优先，缺失时回退到列表数据
+  const v = (key: string) => detail?.[key] ?? (distributor as Record<string, any>)[key]
+  const st = distributorStatusMap[(v("status") as DistributorStatus) ?? distributor.status]
+  const rate = v("custom_rate") != null ? v("custom_rate") : v("default_rate")
+  const subRate = v("sub_rate")
+
+  const infoItems: { icon: ReactNode; label: string; value: ReactNode }[] = [
+    { icon: <AtSign className="h-4 w-4" />, label: "邮箱", value: v("email") || "—" },
+    { icon: <KeyRound className="h-4 w-4" />, label: "分销员编码", value: v("distributor_code") || "—" },
+    { icon: <Link2 className="h-4 w-4" />, label: "邀请码", value: v("invite_code") || "—" },
+    { icon: <Crown className="h-4 w-4" />, label: "上级分销员", value: v("parent_id") ? String(v("parent_id")).slice(0, 8) + "…" : "无" },
+    { icon: <User className="h-4 w-4" />, label: "微信绑定", value: v("wechat_bound") ? "已绑定" : "未绑定" },
+    { icon: <CalendarRange className="h-4 w-4" />, label: "申请时间", value: fmtDate(v("applied_at") || v("created_at")) },
+    { icon: <Clock className="h-4 w-4" />, label: "审核时间", value: fmtDate(v("approved_at")) },
+    { icon: <ShieldCheck className="h-4 w-4" />, label: "拒绝原因", value: v("reject_reason") || "—" },
+  ]
+
+  const statCards = [
+    { label: "总佣金", value: fmtMoney(v("total_commission")), cls: "text-primary" },
+    { label: "可提现", value: fmtMoney(v("available_balance")), cls: "text-emerald-600" },
+    { label: "冻结中", value: fmtMoney(v("frozen_balance")), cls: "text-slate-600" },
+    { label: "已提现", value: fmtMoney(v("withdrawn_amount")), cls: "text-amber-600" },
+    { label: "待结算", value: fmtMoney(v("pending_commission")), cls: "text-blue-600" },
+    { label: "已结算", value: fmtMoney(v("settled_commission")), cls: "text-violet-600" },
+  ]
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-2xl">
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <User className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-foreground">{distributor.username || "推广员"}</h2>
+                <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
+                  {st.label}
+                </span>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">用户 ID: {distributor.user_id}</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {loading && !detail ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-6">
+            {/* 佣金/余额数据 */}
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-muted-foreground">佣金与余额</h3>
+              <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+                {statCards.map((c) => (
+                  <div key={c.label} className="rounded-lg border border-border bg-muted/30 p-3">
+                    <p className="text-xs text-muted-foreground">{c.label}</p>
+                    <p className={cn("mt-1 text-sm font-semibold", c.cls)}>{c.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 佣金比例 */}
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-muted-foreground">佣金比例</h3>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border border-border p-3">
+                  <p className="text-xs text-muted-foreground">佣金比例</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">{Number(rate ?? 0).toFixed(2)}%</p>
+                  {v("custom_rate") != null && (
+                    <p className="mt-0.5 text-[11px] text-primary">自定义（默认 {Number(v("default_rate") ?? 0).toFixed(2)}%）</p>
+                  )}
+                </div>
+                <div className="rounded-lg border border-border p-3">
+                  <p className="text-xs text-muted-foreground">下级抽成比例</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">{Number(subRate ?? 0).toFixed(2)}%</p>
+                </div>
+                <div className="rounded-lg border border-border p-3">
+                  <p className="text-xs text-muted-foreground">团队数据</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">
+                    下级 {v("subordinate_count") ?? 0} · 客户 {v("customer_count") ?? 0}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 基本信息 */}
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-muted-foreground">基本信息</h3>
+              <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+                {infoItems.map((item) => (
+                  <div key={item.label} className="flex items-center gap-2.5 text-sm">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted/50 text-muted-foreground">
+                      {item.icon}
+                    </span>
+                    <span className="w-20 shrink-0 text-muted-foreground">{item.label}</span>
+                    <span className="min-w-0 break-all text-foreground">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-6 flex justify-end">
+          <button type="button" onClick={onClose} className="h-10 rounded-lg border border-input px-5 text-sm font-medium text-foreground hover:bg-accent">关闭</button>
+        </div>
+      </div>
     </div>
   )
 }
