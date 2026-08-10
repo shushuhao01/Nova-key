@@ -35,6 +35,7 @@ public class DataMigrationRunner implements ApplicationRunner {
         }
         migrateUserRoleColumn();
         migrateCouponCodes();
+        migrateDistributionEnumColumns();
     }
 
     /**
@@ -87,6 +88,57 @@ public class DataMigrationRunner implements ApplicationRunner {
             }
         } catch (Exception e) {
             log.warn("[Migration] coupon code generation skipped: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 分销模块状态列兜底迁移：与 users.role 同理，早期版本 Hibernate 可能把
+     * distributors.status / commission_records.status / withdrawal_records.status 建成
+     * 原生 PG 枚举类型（USER-DEFINED）。Hibernate 绑定 varchar/枚举参数与其比较时，
+     * PostgreSQL 会报 "operator does not exist ... = character varying" → 全局异常转
+     * "System error, please try again later"。
+     * 解决：启动时统一转换为 varchar(255)，并清理引用这些列的 CHECK 约束。
+     * 幂等安全：列已是 varchar 时自动跳过。
+     */
+    private void migrateDistributionEnumColumns() {
+        migrateEnumColumnToVarchar("distributors", "status");
+        migrateEnumColumnToVarchar("commission_records", "status");
+        migrateEnumColumnToVarchar("withdrawal_records", "status");
+    }
+
+    /**
+     * 将指定的 PG 原生枚举列转换为 varchar(255)，并清理引用该列的 CHECK 约束。
+     *
+     * @param tableName  表名（代码常量，非用户输入）
+     * @param columnName 列名（代码常量，非用户输入）
+     */
+    private void migrateEnumColumnToVarchar(String tableName, String columnName) {
+        try {
+            List<String> dataTypes = jdbcTemplate.queryForList(
+                    "SELECT data_type FROM information_schema.columns WHERE table_name = ? AND column_name = ?",
+                    String.class, tableName, columnName);
+            if (dataTypes.size() == 1 && "USER-DEFINED".equalsIgnoreCase(dataTypes.get(0))) {
+                log.warn("[Migration] {}.{} is a native PG enum type, converting to varchar(255)...", tableName, columnName);
+                jdbcTemplate.execute("ALTER TABLE " + tableName + " ALTER COLUMN " + columnName
+                        + " TYPE varchar(255) USING " + columnName + "::text");
+                log.info("[Migration] {}.{} converted to varchar(255)", tableName, columnName);
+            }
+            // 清除引用该列的 CHECK 约束（如 status IN ('PENDING','APPROVED')），防止其继续拒绝新值
+            try {
+                List<String> constraints = jdbcTemplate.queryForList(
+                        "SELECT conname FROM pg_constraint WHERE conrelid = ?::regclass AND contype = 'c' "
+                                + "AND pg_get_constraintdef(oid) ~ '\\m" + columnName + "\\M'",
+                        String.class, tableName);
+                for (String con : constraints) {
+                    log.warn("[Migration] dropping CHECK constraint \"{}\" on {}.{}", con, tableName, columnName);
+                    jdbcTemplate.execute("ALTER TABLE " + tableName + " DROP CONSTRAINT \"" + con.replace("\"", "\"\"") + "\"");
+                }
+            } catch (Exception e) {
+                log.warn("[Migration] {}.{} CHECK constraint cleanup skipped (non-PostgreSQL or no matching): {}",
+                        tableName, columnName, e.getMessage());
+            }
+        } catch (Exception e) {
+            log.warn("[Migration] {}.{} column check skipped: {}", tableName, columnName, e.getMessage());
         }
     }
 }

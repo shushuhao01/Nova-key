@@ -1057,7 +1057,7 @@ function PosterModal({
 
     let cancelled = false
     const W = 600
-    const H = type === "product" ? 1000 : 1060
+    const H = type === "product" ? 1080 : 1060
     canvas.width = W
     canvas.height = H
 
@@ -1115,12 +1115,19 @@ function PosterModal({
       ctx.fillText(type === "product" ? "好物推荐 · 扫码即购" : "精选好物 · 专属推荐", W / 2, 96)
 
       if (type === "product") {
-        // 商品封面（圆角大图）
+        // 商品封面（圆角大图 + 白边 + 爆款角标）
         const cover = data?.cover_url ? images[data.cover_url] : undefined
-        const size = 360
-        const cy = 140
+        const size = 330
+        const cy = 126
+        const cx = (W - size) / 2
+        ctx.save()
+        ctx.fillStyle = "#ffffff"
+        ctx.beginPath()
+        ctx.roundRect(cx - 6, cy - 6, size + 12, size + 12, 20)
+        ctx.fill()
+        ctx.restore()
         ctx.fillStyle = "#f3f4f6"
-        ctx.fillRect((W - size) / 2, cy, size, size)
+        ctx.fillRect(cx, cy, size, size)
         if (cover) {
           const iw = cover.naturalWidth || size
           const ih = cover.naturalHeight || size
@@ -1129,45 +1136,93 @@ function PosterModal({
           const dh = ih * scale
           ctx.save()
           ctx.beginPath()
-          ctx.roundRect((W - size) / 2, cy, size, size, 16)
+          ctx.roundRect(cx, cy, size, size, 16)
           ctx.clip()
-          ctx.drawImage(cover, (W - dw) / 2, cy + (size - dh) / 2, dw, dh)
+          ctx.drawImage(cover, cx + (size - dw) / 2, cy + (size - dh) / 2, dw, dh)
           ctx.restore()
         } else {
           ctx.fillStyle = "#9ca3af"
           ctx.font = "18px sans-serif"
           ctx.fillText("（商品图片缺失）", W / 2, cy + size / 2)
         }
+        // 右上角"爆款"角标
+        const badgeW = 58
+        const badgeH = 30
+        ctx.save()
+        ctx.beginPath()
+        ctx.roundRect(cx + size - badgeW - 16, cy + 16, badgeW, badgeH, 8)
+        ctx.fillStyle = "#ef4444"
+        ctx.fill()
+        ctx.restore()
+        ctx.fillStyle = "#ffffff"
+        ctx.font = "bold 16px sans-serif"
+        ctx.fillText("爆款", cx + size - badgeW - 16 + badgeW / 2, cy + 16 + 21)
 
         // 商品名称（最多两行，居中换行）
-        let y = 558
-        ctx.font = "bold 28px sans-serif"
+        let y = 508
+        ctx.font = "bold 27px sans-serif"
         ctx.fillStyle = "#111827"
         clampLines(wrapLines(data?.product_title || "", W - 80), 2).forEach((l) => {
           ctx.fillText(l, W / 2, y)
           y += 40
         })
 
-        // 价格
-        y += 8
+        // 价格行：限时特惠徽章 + 价格
+        y += 6
+        ctx.font = "bold 42px sans-serif"
+        ctx.fillStyle = "#ef4444"
+        const priceText = `¥${Number(data?.base_price || 0).toFixed(2)}`
+        const priceW = ctx.measureText(priceText).width
+        const badgeW2 = 84
+        const badgeH2 = 32
+        const badgeGap = 12
+        const badgeX = W / 2 - priceW / 2 - badgeW2 - badgeGap
+        const badgeY = y - 6
+        ctx.save()
+        ctx.beginPath()
+        ctx.roundRect(badgeX, badgeY, badgeW2, badgeH2, 8)
+        ctx.fillStyle = "#ef4444"
+        ctx.fill()
+        ctx.restore()
+        ctx.fillStyle = "#ffffff"
+        ctx.font = "bold 15px sans-serif"
+        ctx.fillText("限时特惠", badgeX + badgeW2 / 2, badgeY + 22)
         ctx.fillStyle = "#ef4444"
         ctx.font = "bold 42px sans-serif"
-        ctx.fillText(`¥${Number(data?.base_price || 0).toFixed(2)}`, W / 2, y + 34)
-        y += 66
+        ctx.fillText(priceText, W / 2 + (badgeW2 + badgeGap) / 2, y + 34)
+        y += 58
+
+        // 促销词卡片
+        const promoX = 80
+        const promoW = W - promoX * 2
+        const promoY = y
+        const promoH = 88
+        ctx.save()
+        ctx.beginPath()
+        ctx.roundRect(promoX, promoY, promoW, promoH, 14)
+        ctx.fillStyle = "#fff7ed"
+        ctx.fill()
+        ctx.restore()
+        ctx.fillStyle = "#ea580c"
+        ctx.font = "bold 19px sans-serif"
+        ctx.fillText("正品保障 · 自动发货", W / 2, promoY + 36)
+        ctx.fillStyle = "#b45309"
+        ctx.font = "14px sans-serif"
+        ctx.fillText("7×24 小时在线 · 售后无忧", W / 2, promoY + 66)
 
         // 分割线
+        const lineY = promoY + promoH + 16
         ctx.strokeStyle = "#f3f4f6"
         ctx.lineWidth = 2
         ctx.beginPath()
-        ctx.moveTo(40, y)
-        ctx.lineTo(W - 40, y)
+        ctx.moveTo(40, lineY)
+        ctx.lineTo(W - 40, lineY)
         ctx.stroke()
-        y += 22
 
         // 底部大二维码 + 引导词
-        const qsize = 240
+        const qsize = 190
         const qx = (W - qsize) / 2
-        const qy = H - qsize - 150
+        const qy = lineY + 18
         ctx.fillStyle = "#ffffff"
         ctx.strokeStyle = "#e5e7eb"
         ctx.lineWidth = 2
@@ -1180,10 +1235,10 @@ function PosterModal({
         }
         ctx.fillStyle = "#111827"
         ctx.font = "bold 20px sans-serif"
-        ctx.fillText("长按识别二维码 · 查看商品", W / 2, H - 96)
+        ctx.fillText("长按识别二维码 · 查看商品", W / 2, H - 72)
         ctx.fillStyle = "#9ca3af"
         ctx.font = "13px sans-serif"
-        ctx.fillText(truncate(linkUrl, 60), W / 2, H - 64)
+        ctx.fillText(truncate(linkUrl, 60), W / 2, H - 38)
       } else {
         // 全店海报：热销商品竖排卡片 + 促销词（不绘制中间大二维码，底部号召区保留唯一二维码）
         ctx.fillStyle = "#111827"
