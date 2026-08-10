@@ -1053,6 +1053,16 @@ function ProductsTab() {
           <p className="text-sm text-muted-foreground">为商品设置自定义佣金比例或排除分销</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-56">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="搜索商品名称"
+              className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+            />
+          </div>
           <button
             type="button"
             onClick={() => setAddModalOpen(true)}
@@ -1069,19 +1079,6 @@ function ProductsTab() {
             <RefreshCw className="h-4 w-4" />
             刷新
           </button>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="搜索商品名称"
-            className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-          />
         </div>
       </div>
 
@@ -1788,6 +1785,24 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
   const [rejectModal, setRejectModal] = useState<Withdrawal | null>(null)
   const [settleModal, setSettleModal] = useState<Withdrawal | null>(null)
 
+  // 汇总卡片：总销售额/总佣金/待结算/已结算（随日期筛选动态变化）
+  const [stats, setStats] = useState<{ total_sales: number; total_commission: number; pending_commission: number; settled_commission: number } | null>(null)
+  const [statsLoading, setStatsLoading] = useState(true)
+
+  const fetchStats = useCallback(async () => {
+    setStatsLoading(true)
+    try {
+      const data = await adminDistributionApi.withdrawalStats({ from: dateFrom, to: dateTo })
+      setStats(data)
+    } catch {
+      setStats(null)
+    } finally {
+      setStatsLoading(false)
+    }
+  }, [dateFrom, dateTo])
+
+  useEffect(() => { fetchStats() }, [fetchStats, dateVersion])
+
   const fetchList = useCallback(async () => {
     setLoading(true)
     try {
@@ -1854,6 +1869,39 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
           刷新
         </button>
       </div>
+
+      {/* 汇总卡片：总销售额 / 总佣金 / 待结算 / 已结算（随日期筛选动态变化） */}
+      {statsLoading && !stats ? (
+        <div className="flex items-center justify-center rounded-xl border border-border bg-card py-8 shadow-sm">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { key: "total_sales", label: "总销售额", icon: <HandCoins className="h-4 w-4" />, cls: "text-primary" },
+            { key: "total_commission", label: "总佣金", icon: <Coins className="h-4 w-4" />, cls: "text-emerald-600" },
+            { key: "pending_commission", label: "待结算", icon: <Clock className="h-4 w-4" />, cls: "text-amber-600" },
+            { key: "settled_commission", label: "已结算", icon: <Check className="h-4 w-4" />, cls: "text-blue-600" },
+          ].map(({ key, label, icon, cls }) => (
+            <div key={key} className="rounded-lg border border-border bg-card p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className={cn("inline-flex h-7 w-7 items-center justify-center rounded-full bg-muted", cls)}>{icon}</span>
+                <p className="text-sm text-muted-foreground">{label}</p>
+              </div>
+              <p className="mt-2 text-2xl font-bold text-foreground">{fmtMoney(Number(stats?.[key as keyof typeof stats] || 0))}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {dateFrom || dateTo
+                  ? dateFrom && dateTo
+                    ? `${dateFrom} ~ ${dateTo}`
+                    : dateFrom
+                      ? `${dateFrom} 起`
+                      : `截至 ${dateTo}`
+                  : "全部时间"}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="overflow-x-auto">

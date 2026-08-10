@@ -22,12 +22,12 @@ public interface WithdrawalRecordRepository extends JpaRepository<WithdrawalReco
      * 避免 System error 500（详见 DistributorRepository.findAdminList）。
      */
     @Query(value = "SELECT * FROM withdrawal_records WHERE " +
-            "(:status IS NULL OR status::text = CAST(:status AS text)) " +
+            "(:status IS NULL OR :status = '' OR status::text = CAST(:status AS text)) " +
             "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
             "AND (:to IS NULL OR created_at < CAST(:to AS timestamp)) " +
             "ORDER BY created_at DESC",
             countQuery = "SELECT COUNT(*) FROM withdrawal_records WHERE " +
-            "(:status IS NULL OR status::text = CAST(:status AS text)) " +
+            "(:status IS NULL OR :status = '' OR status::text = CAST(:status AS text)) " +
             "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
             "AND (:to IS NULL OR created_at < CAST(:to AS timestamp))",
             nativeQuery = true)

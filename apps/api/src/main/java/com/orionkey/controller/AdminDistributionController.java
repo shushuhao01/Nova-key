@@ -159,6 +159,14 @@ public class AdminDistributionController {
         return ApiResponse.success(distributionService.adminListWithdrawals(status, from, to, page, pageSize));
     }
 
+    // ── 提现管理汇总卡片（总销售额/总佣金/待结算/已结算，按日期区间动态统计） ──
+    @GetMapping("/withdrawals/stats")
+    public ApiResponse<?> withdrawalStats(
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to) {
+        return ApiResponse.success(distributionService.adminWithdrawalStats(from, to));
+    }
+
     @PutMapping("/withdrawals/{id}/approve")
     public ApiResponse<?> approveWithdrawal(@PathVariable UUID id) {
         distributionService.adminApproveWithdrawal(id);

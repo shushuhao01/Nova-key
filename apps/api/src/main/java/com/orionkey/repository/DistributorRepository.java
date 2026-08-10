@@ -39,13 +39,13 @@ public interface DistributorRepository extends JpaRepository<Distributor, UUID> 
      * 参数报 "could not determine data type of parameter"（System error）。
      */
     @Query(value = "SELECT * FROM distributors WHERE " +
-            "(:status IS NULL OR status::text = CAST(:status AS text)) " +
+            "(:status IS NULL OR :status = '' OR status::text = CAST(:status AS text)) " +
             "AND (:keyword IS NULL OR :keyword = '' OR LOWER(distributor_code) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
             "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
             "AND (:to IS NULL OR created_at < CAST(:to AS timestamp)) " +
             "ORDER BY created_at DESC",
             countQuery = "SELECT COUNT(*) FROM distributors WHERE " +
-            "(:status IS NULL OR status::text = CAST(:status AS text)) " +
+            "(:status IS NULL OR :status = '' OR status::text = CAST(:status AS text)) " +
             "AND (:keyword IS NULL OR :keyword = '' OR LOWER(distributor_code) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
             "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
             "AND (:to IS NULL OR created_at < CAST(:to AS timestamp))",

@@ -911,6 +911,10 @@ export const adminDistributionApi = {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/withdrawals?${qs}`)
   },
+  withdrawalStats: (params: { from?: string; to?: string }) => {
+    const qs = buildQuery(params)
+    return request<any>(`/admin/distribution/withdrawals/stats?${qs}`)
+  },
   approveWithdrawal: (id: string) =>
     request<void>(`/admin/distribution/withdrawals/${id}/approve`, { method: "PUT" }),
   rejectWithdrawal: (id: string, reason: string) =>

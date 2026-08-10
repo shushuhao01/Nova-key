@@ -459,29 +459,30 @@ public class DistributionServiceImpl implements DistributionService {
             prevFrom = fromDt.minusDays(span);
         }
 
-        long clicks = clickRepository.countByRange(fromDt, toDt);
-        long paid = orderRepository.countDistributionOrdersRange(fromDt, toDt);
+        // 商品推广统计（仅商品推广链接 productId 非空，不含全店推广链接数据）
+        long clicks = clickRepository.countByRangeProduct(fromDt, toDt);
+        long paid = orderRepository.countProductDistributionOrdersRange(fromDt, toDt);
         BigDecimal conversion = clicks > 0
                 ? new BigDecimal(paid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(clicks), 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO.setScale(2);
-        BigDecimal commission = nullSafe(commissionRecordRepository.sumCommissionAmountBetween(
+        BigDecimal commission = nullSafe(commissionRecordRepository.sumProductCommissionBetween(
                 fromDt != null ? fromDt : LocalDateTime.of(1970, 1, 1, 0, 0),
                 toDt != null ? toDt : now.plusYears(100)));
 
-        long todayClicks = clickRepository.countBetween(todayStart, now);
-        long todayPaid = orderRepository.countDistributionOrdersRange(todayStart, now);
+        long todayClicks = clickRepository.countBetweenProduct(todayStart, now);
+        long todayPaid = orderRepository.countProductDistributionOrdersRange(todayStart, now);
         BigDecimal todayConversion = todayClicks > 0
                 ? new BigDecimal(todayPaid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(todayClicks), 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO.setScale(2);
-        BigDecimal todayCommission = nullSafe(commissionRecordRepository.sumCommissionAmountBetween(todayStart, now));
+        BigDecimal todayCommission = nullSafe(commissionRecordRepository.sumProductCommissionBetween(todayStart, now));
 
-        long prevClicks = prevFrom != null ? clickRepository.countBetween(prevFrom, prevTo) : 0;
-        long prevPaid = prevFrom != null ? orderRepository.countDistributionOrdersRange(prevFrom, prevTo) : 0;
+        long prevClicks = prevFrom != null ? clickRepository.countBetweenProduct(prevFrom, prevTo) : 0;
+        long prevPaid = prevFrom != null ? orderRepository.countProductDistributionOrdersRange(prevFrom, prevTo) : 0;
         BigDecimal prevConversion = prevClicks > 0
                 ? new BigDecimal(prevPaid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(prevClicks), 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO.setScale(2);
         BigDecimal prevCommission = prevFrom != null
-                ? nullSafe(commissionRecordRepository.sumCommissionAmountBetween(prevFrom, prevTo)) : BigDecimal.ZERO;
+                ? nullSafe(commissionRecordRepository.sumProductCommissionBetween(prevFrom, prevTo)) : BigDecimal.ZERO;
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("range", range);
@@ -613,6 +614,25 @@ public class DistributionServiceImpl implements DistributionService {
             return m;
         }).toList();
         return pageResult(items, wp.getTotalElements(), page, pageSize);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> adminWithdrawalStats(LocalDate from, LocalDate to) {
+        // 区间 [from, to)；为空则统计全量（1970 → +100年）
+        LocalDateTime fromDt = from != null ? from.atStartOfDay() : LocalDateTime.of(1970, 1, 1, 0, 0);
+        LocalDateTime toDt = to != null ? to.plusDays(1).atStartOfDay() : LocalDateTime.now().plusYears(100);
+        BigDecimal totalSales = nullSafe(orderRepository.sumDistributionSales(fromDt, toDt));
+        BigDecimal totalCommission = nullSafe(commissionRecordRepository.sumCommissionAmountBetween(fromDt, toDt));
+        BigDecimal pendingCommission = nullSafe(commissionRecordRepository.sumPendingBetween(fromDt, toDt));
+        BigDecimal settledCommission = nullSafe(commissionRecordRepository.sumSettledBetween(fromDt, toDt));
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("total_sales", totalSales.setScale(2, RoundingMode.HALF_UP));
+        m.put("total_commission", totalCommission.setScale(2, RoundingMode.HALF_UP));
+        m.put("pending_commission", pendingCommission.setScale(2, RoundingMode.HALF_UP));
+        m.put("settled_commission", settledCommission.setScale(2, RoundingMode.HALF_UP));
+        return m;
     }
 
     @Override

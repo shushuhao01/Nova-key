@@ -1175,8 +1175,8 @@ function PosterModal({
       if (type === "product") {
         // 商品封面（居中圆角大图 + 柔和阴影 + 爆款角标）
         const cover = data?.cover_url ? images[data.cover_url] : undefined
-        const size = 320
-        const cy = 118
+        const size = 340
+        const cy = 130
         const cx = (W - size) / 2
         ctx.save()
         ctx.shadowColor = "rgba(0,0,0,0.14)"
@@ -1219,17 +1219,18 @@ function PosterModal({
         ctx.font = "bold 16px sans-serif"
         ctx.fillText("爆款", cx + size - badgeW - 16 + badgeW / 2, cy + 16 + 23)
 
-        // 商品名称（居中，最多两行）
-        let ty = 492
+        // 商品名称（左对齐，最多两行）
+        let ty = 516
+        ctx.textAlign = "left"
         ctx.font = "bold 26px sans-serif"
         ctx.fillStyle = "#111827"
-        clampLines(wrapLines(data?.product_title || "", W - 90), 2).forEach((l) => {
-          ctx.fillText(l, W / 2, ty)
+        clampLines(wrapLines(data?.product_title || "", W - 88), 2).forEach((l) => {
+          ctx.fillText(l, 44, ty)
           ty += 42
         })
 
         // 单价：中间偏右，大号红色突出
-        const priceY = 588
+        const priceY = 606
         ctx.font = "18px sans-serif"
         ctx.fillStyle = "#9ca3af"
         ctx.textAlign = "right"
@@ -1240,30 +1241,14 @@ function PosterModal({
         ctx.fillText(`¥${Number(data?.base_price || 0).toFixed(2)}`, 412, priceY + 12)
         ctx.textAlign = "center"
 
-        // 明显促销词：橙色渐变横幅（商品下方）
-        const promoY = 652
-        const promoH = 94
-        const promoGrad = ctx.createLinearGradient(0, promoY, W, promoY)
-        promoGrad.addColorStop(0, "#f97316")
-        promoGrad.addColorStop(1, "#f43f5e")
-        ctx.save()
-        ctx.shadowColor = "rgba(249,115,22,0.28)"
-        ctx.shadowBlur = 18
-        ctx.shadowOffsetY = 6
-        ctx.beginPath()
-        ctx.roundRect(24, promoY, W - 48, promoH, 18)
-        ctx.fillStyle = promoGrad
-        ctx.fill()
-        ctx.restore()
-        ctx.fillStyle = "#ffffff"
+        // 明显促销词：橙色文字（无背景），位于底部橙色区域上方
+        ctx.fillStyle = "#ea580c"
         ctx.font = "bold 26px sans-serif"
-        ctx.fillText("正品保障 · 自动发货 · 售后无忧", W / 2, promoY + 44)
-        ctx.font = "15px sans-serif"
-        ctx.fillText("7×24 小时在线 · 快速发货 · 极速到账", W / 2, promoY + 78)
+        ctx.fillText("正品保障 · 自动发货 · 售后无忧", W / 2, 690)
 
         // 底部橙色号召区：左侧引导词 + 右侧二维码
-        const bandY = 798
-        const bandH = 220
+        const bandY = 760
+        const bandH = 244
         const bandGrad = ctx.createLinearGradient(0, bandY, W, bandY)
         bandGrad.addColorStop(0, "#f97316")
         bandGrad.addColorStop(1, "#f43f5e")
@@ -1272,9 +1257,9 @@ function PosterModal({
         ctx.fillStyle = "#ffffff"
         ctx.textAlign = "left"
         ctx.font = "bold 31px sans-serif"
-        ctx.fillText("扫码立即购买", 44, bandY + 78)
+        ctx.fillText("扫码立即购买", 44, bandY + 86)
         ctx.font = "16px sans-serif"
-        ctx.fillText("长按识别二维码 · 查看商品", 44, bandY + 120)
+        ctx.fillText("长按识别二维码 · 查看商品", 44, bandY + 128)
         const qsize = 152
         const qx = W - 44 - qsize
         const qy = bandY + (bandH - qsize) / 2

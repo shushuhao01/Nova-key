@@ -26,13 +26,13 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
      */
     @Query(value = "SELECT * FROM commission_records WHERE " +
             "(:distributorId IS NULL OR distributor_id = CAST(:distributorId AS uuid)) " +
-            "AND (:status IS NULL OR status::text = CAST(:status AS text)) " +
+            "AND (:status IS NULL OR :status = '' OR status::text = CAST(:status AS text)) " +
             "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
             "AND (:to IS NULL OR created_at < CAST(:to AS timestamp)) " +
             "ORDER BY created_at DESC",
             countQuery = "SELECT COUNT(*) FROM commission_records WHERE " +
             "(:distributorId IS NULL OR distributor_id = CAST(:distributorId AS uuid)) " +
-            "AND (:status IS NULL OR status::text = CAST(:status AS text)) " +
+            "AND (:status IS NULL OR :status = '' OR status::text = CAST(:status AS text)) " +
             "AND (:from IS NULL OR created_at >= CAST(:from AS timestamp)) " +
             "AND (:to IS NULL OR created_at < CAST(:to AS timestamp))",
             nativeQuery = true)
@@ -62,6 +62,21 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
             "AND cr.createdAt >= :from AND cr.createdAt < :to")
     BigDecimal sumPendingBetween(@Param("from") LocalDateTime from,
                                  @Param("to") LocalDateTime to);
+
+    /** 区间内已结算佣金（按佣金创建时间） */
+    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
+            "WHERE cr.status = com.orionkey.constant.CommissionStatus.SETTLED " +
+            "AND cr.createdAt >= :from AND cr.createdAt < :to")
+    BigDecimal sumSettledBetween(@Param("from") LocalDateTime from,
+                                 @Param("to") LocalDateTime to);
+
+    /** 区间内商品推广佣金总额（仅商品推广链接，productId 非空=商品推广，不含全店推广） */
+    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
+            "WHERE cr.status != com.orionkey.constant.CommissionStatus.CANCELLED " +
+            "AND cr.productId IS NOT NULL " +
+            "AND cr.createdAt >= :from AND cr.createdAt < :to")
+    BigDecimal sumProductCommissionBetween(@Param("from") LocalDateTime from,
+                                           @Param("to") LocalDateTime to);
 
     /**
      * 待结算佣金：订单已完成（COMPLETED）且完成时间超过结算延迟期。

@@ -37,6 +37,8 @@ public interface DistributionService {
 
     // ── 管理后台：提现管理 ──
     Map<String, Object> adminListWithdrawals(String status, LocalDate from, LocalDate to, int page, int pageSize);
+    /** 提现管理汇总卡片：总销售额/总佣金/待结算/已结算（按日期区间动态统计） */
+    Map<String, Object> adminWithdrawalStats(LocalDate from, LocalDate to);
     void adminApproveWithdrawal(UUID id);
     void adminRejectWithdrawal(UUID id, String reason);
     /** 手动结算：管理员确认已线下支付，从冻结余额扣减，状态改为 SUCCESS */
