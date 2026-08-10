@@ -99,6 +99,11 @@ PRICE=$(psql_run "SELECT base_price::text FROM products WHERE id='$PID'")
 [ -z "$PRICE" ] && PRICE=0
 echo -e "  ${ARROW} 商品单价: $PRICE 元"
 
+# 取商品佣金比例（custom_rate，覆盖默认率；用于预期计算）
+PROD_RATE=$(psql_run "SELECT COALESCE(custom_rate, (SELECT default_rate FROM distribution_rules LIMIT 1))::text FROM product_commissions WHERE product_id='$PID'")
+[ -z "$PROD_RATE" ] && PROD_RATE=0.10
+echo -e "  ${ARROW} 商品佣金比例: $PROD_RATE"
+
 # 取一个启用的支付渠道
 PAY_METHOD=$(psql_run "SELECT channel_code FROM payment_channels WHERE is_deleted=0 AND is_enabled=true ORDER BY created_at LIMIT 1")
 [ -z "$PAY_METHOD" ] && { echo -e "  ${FAIL} 无启用支付渠道"; exit 1; }
@@ -193,9 +198,16 @@ echo -e "  ${OK} A 链接=$A_LINK_ID  B 链接=$B_LINK_ID"
 echo -e "${ARROW} 配置阶梯佣金（tier1=100%, tier2=50%）..."
 curl -s -X PUT "$BASE_URL/admin/distribution/rules" "${ADMIN_HEADERS[@]}" \
   -d '{"tier_enabled":true}' >/dev/null
-curl -s -X PUT "$BASE_URL/admin/distribution/tiers" "${ADMIN_HEADERS[@]}" \
-  -d '[{"tier_order":1,"rate":1.0000,"enabled":true},{"tier_order":2,"rate":0.5000,"enabled":true}]' >/dev/null
-echo -e "  ${OK} 阶梯佣金已开启"
+# 接口要求请求体为 {"tiers":[...]}，裸数组会报"阶梯配置不能为空"
+TIERS_RESP=$(curl -s -X PUT "$BASE_URL/admin/distribution/tiers" "${ADMIN_HEADERS[@]}" \
+  -d '{"tiers":[{"tier_order":1,"rate":1.0000,"enabled":true},{"tier_order":2,"rate":0.5000,"enabled":true}]}')
+# 显式校验：配置必须实际落库生效（避免静默失败导致佣金按旧档位计算）
+TIER_OK=$(psql_run "SELECT count(*) FROM commission_tiers WHERE enabled=true AND tier_order=2 AND rate=0.5000")
+if [ "$TIER_OK" != "1" ]; then
+  echo -e "  ${FAIL} 阶梯配置未生效（tier2 应=0.5000）：$(echo "$TIERS_RESP" | head -c 200)"
+  exit 1
+fi
+echo -e "  ${OK} 阶梯佣金已开启（tier1=100%, tier2=50%）"
 
 # ── 下单（匿名客户 C1 走 A 链接）──
 create_order() { # $1=email $2=referral_dist $3=link_id
@@ -245,29 +257,31 @@ psql_run "
   WHERE cr.order_id IN ('$O1_ID','$O2_ID','$O3_ID')
   ORDER BY cr.created_at" | sed 's/^/    /'
 
-# 校验：订单1 佣金应 = 单价×10%（第1次，tier=100%）
+# 校验：订单1 佣金应 = 单价×商品比例×tier1（第1次，tier=100%）
 C1_A_COMM=$(psql_run "SELECT commission_amount::text FROM commission_records WHERE order_id='$O1_ID' AND distributor_id='$A_DIST_ID' AND parent_distributor_id IS NULL")
+EXP1=$(echo "$PRICE * $PROD_RATE * 1.0" | bc -l 2>/dev/null | xargs printf "%.2f" 2>/dev/null || echo "?")
 if [ -n "$C1_A_COMM" ]; then
-  echo -e "  ${OK} 订单1 → A 佣金: $C1_A_COMM 元（预期 ≈ $(echo "$PRICE * 0.10" | bc -l 2>/dev/null || echo $PRICE) 的 100%）"
+  echo -e "  ${OK} 订单1 → A 佣金: $C1_A_COMM 元（预期 ≈ $EXP1 = ${PRICE}×${PROD_RATE}×100%）"
 else
   echo -e "  ${FAIL} 订单1 未找到 A 的佣金记录！请检查日志"
 fi
 
 # 校验：订单2 → B 实得 70%，A 抽成 30%
-B_COMM=$(psql_run "SELECT commission_amount::text FROM commission_records WHERE order_id='$O2_ID' AND distributor_id='$B_DIST_ID' AND parent_distributor_id IS NULL")
-A_PARENT_COMM=$(psql_run "SELECT commission_amount::text FROM commission_records WHERE order_id='$O2_ID' AND distributor_id='$A_DIST_ID' AND parent_distributor_id='$A_DIST_ID'")
-A_PARENT_COMM=${A_PARENT_COMM:-$(psql_run "SELECT commission_amount::text FROM commission_records WHERE order_id='$O2_ID' AND distributor_id='$A_DIST_ID'")}
+# 注意：B 的本人佣金记录 parent_distributor_id 指向其上级 A（非 NULL），不能加 IS NULL 条件
+B_COMM=$(psql_run "SELECT commission_amount::text FROM commission_records WHERE order_id='$O2_ID' AND distributor_id='$B_DIST_ID'")
+A_PARENT_COMM=$(psql_run "SELECT commission_amount::text FROM commission_records WHERE order_id='$O2_ID' AND distributor_id='$A_DIST_ID'")
 if [ -n "$B_COMM" ] && [ -n "$A_PARENT_COMM" ]; then
   echo -e "  ${OK} 订单2 → B 佣金: $B_COMM 元（≈70%），A 抽成: $A_PARENT_COMM 元（≈30%）"
 else
   echo -e "  ${FAIL} 订单2 佣金记录缺失（B=$B_COMM A抽成=$A_PARENT_COMM）"
 fi
 
-# 校验：订单3 → C1 第 2 次购买 → tier=2 → 50% 佣金
+# 校验：订单3 → C1 第 2 次购买 → tier=2 → 50% 佣金（应为 单价×商品比例×tier2）
 C3_TIER=$(psql_run "SELECT tier_order FROM commission_records WHERE order_id='$O3_ID' AND distributor_id='$A_DIST_ID' AND parent_distributor_id IS NULL LIMIT 1")
 C3_COMM=$(psql_run "SELECT commission_amount::text FROM commission_records WHERE order_id='$O3_ID' AND distributor_id='$A_DIST_ID' AND parent_distributor_id IS NULL LIMIT 1")
+EXP3=$(echo "$PRICE * $PROD_RATE * 0.5" | bc -l 2>/dev/null | xargs printf "%.2f" 2>/dev/null || echo "?")
 if [ "$C3_TIER" = "2" ]; then
-  echo -e "  ${OK} 订单3 → A 佣金: $C3_COMM 元（第2次 tier=2，应为 50%）"
+  echo -e "  ${OK} 订单3 → A 佣金: $C3_COMM 元（预期 ≈ $EXP3 = ${PRICE}×${PROD_RATE}×50%）"
 else
   echo -e "  ${WARN} 订单3 阶梯档位=$C3_TIER（预期 2），佣金=$C3_COMM"
 fi
