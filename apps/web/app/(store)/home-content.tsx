@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import { useLocale, useSearch, useSiteConfig } from "@/lib/context"
 import { ProductCard } from "@/components/store/product-card"
+import { FloatingContact } from "@/components/store/floating-contact"
 import { cn } from "@/lib/utils"
 import type { ProductCard as ProductCardType, Category } from "@/types"
 
@@ -175,6 +176,9 @@ export function HomeContent({ products, categories, siteSlogan, siteDescription 
           <p className="text-sm">{t("home.noProducts")}</p>
         </div>
       )}
+
+      {/* 右下角联系客服悬浮组件 */}
+      <FloatingContact />
     </div>
   )
 }

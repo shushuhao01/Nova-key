@@ -389,6 +389,8 @@ const zh = {
   "footer.wechatQrcode": "微信二维码",
   "footer.icp": "ICP 备案",
   "footer.police": "公安备案",
+  "floating.scanHint": "长按识别二维码",
+  "floating.longPressHint": "长按二维码 → 识别图中二维码 → 添加客服",
 
   // Not Found
   "notFound.title": "页面不存在",
@@ -1335,6 +1337,8 @@ const en: Record<keyof typeof zh, string> = {
   "footer.wechatQrcode": "WeChat QR Code",
   "footer.icp": "ICP Filing",
   "footer.police": "Public Security Filing",
+  "floating.scanHint": "Long press to scan",
+  "floating.longPressHint": "Long press the QR code to scan & contact",
 
   // Not Found
   "notFound.title": "Page Not Found",
