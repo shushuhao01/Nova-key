@@ -18,7 +18,6 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
 import java.net.URLEncoder;
@@ -181,9 +180,7 @@ public class AlipayServiceImpl implements AlipayService {
                 // 复刻 postForm 的 URL 构建逻辑，诊断编码后的最终请求（含 body）
                 Map<String, String> q = new LinkedHashMap<>(params);
                 String biz = q.remove("biz_content");
-                UriComponentsBuilder dbgBuilder = UriComponentsBuilder.fromHttpUrl(config.gatewayUrl());
-                q.forEach(dbgBuilder::queryParam);
-                debugUrl = dbgBuilder.build().encode().toUri().toString()
+                debugUrl = buildQueryUrl(config.gatewayUrl(), q)
                         + (biz != null ? " | body=" + biz : "");
                 log.info("ALIPAY_TEST content={} sign={} url={}", debugContent, debugSign, debugUrl);
                 String respBody = postForm(config.gatewayUrl(), params);
@@ -441,26 +438,43 @@ public class AlipayServiceImpl implements AlipayService {
         return sb.toString();
     }
 
+    /**
+     * 构建网关请求 URL：query 参数用表单编码（URLEncoder.encode）逐个拼接。
+     * 注意：不能用 UriComponentsBuilder.encode() —— 它按 RFC 3986 保留 `+` 与 `/`，
+     * 而支付宝网关按表单规则解码（URLDecoder，`+` → 空格），会导致 sign 里的 `+`
+     * 被破坏成空格而验签失败（isv.invalid-signature）。表单编码 `+`→%2B、`/`→%2F、`=`→%3D，
+     * 支付宝解码后还原，与签名内容一致。
+     */
+    private String buildQueryUrl(String url, Map<String, String> params) {
+        StringBuilder sb = new StringBuilder(url);
+        boolean first = true;
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            sb.append(first ? '?' : '&');
+            first = false;
+            sb.append(entry.getKey()).append('=')
+                    .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
+        }
+        return sb.toString();
+    }
+
     private String postForm(String url, Map<String, String> params) {
         // 支付宝网关请求规范：平台公共参数（app_id/method/charset/sign_type/timestamp/version/sign 等）
         // 必须放在 URL query 中（特别是 charset），业务参数 biz_content 放在 HTTP body 中。
         // 若把所有参数都放在 form body，网关验签会失败（isv.invalid-signature，
         // 提示"请确认charset参数放在了URL查询字符串中"）。
         String bizContent = params.remove("biz_content");
-        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(url);
-        params.forEach(builder::queryParam);
-        java.net.URI uri = builder.build().encode().toUri();
-        log.info("ALIPAY_REQ url={} body={}", uri, bizContent);
+        String fullUrl = buildQueryUrl(url, params);
+        log.info("ALIPAY_REQ url={} body={}", fullUrl, bizContent);
         if (bizContent != null) {
             MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
             form.add("biz_content", bizContent);
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
             ResponseEntity<String> response = restTemplate.postForEntity(
-                    uri, new HttpEntity<>(form, headers), String.class);
+                    fullUrl, new HttpEntity<>(form, headers), String.class);
             return response.getBody();
         }
-        ResponseEntity<String> response = restTemplate.postForEntity(uri, null, String.class);
+        ResponseEntity<String> response = restTemplate.postForEntity(fullUrl, null, String.class);
         return response.getBody();
     }
 
