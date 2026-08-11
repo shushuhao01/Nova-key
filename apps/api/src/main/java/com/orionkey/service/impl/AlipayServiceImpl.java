@@ -296,7 +296,8 @@ public class AlipayServiceImpl implements AlipayService {
                         respVerifyOk = true;
                         respVerifyMsg = "响应验签通过，支付宝公钥正确，支付回调可正常验签发货";
                     } else {
-                        respVerifyMsg = "支付宝响应验签失败：当前填写的公钥无法验证支付宝的签名。请在支付宝开放平台「密钥管理」中复制『支付宝公钥』（注意不是『应用公钥』——应用公钥是您私钥配套的公钥，无法验证支付宝的签名）填入本字段";
+                        respVerifyMsg = "支付宝响应验签失败：当前填写的公钥无法验证支付宝的签名。请在支付宝开放平台「密钥管理」中复制『支付宝公钥』（注意不是『应用公钥』——应用公钥是您私钥配套的公钥，无法验证支付宝的签名）填入本字段"
+                                + alipayPublicKeyFingerprintCompare(config);
                     }
                 }
             } catch (Exception e) {
@@ -324,19 +325,53 @@ public class AlipayServiceImpl implements AlipayService {
             if (key instanceof java.security.interfaces.RSAPrivateCrtKey crtKey) {
                 java.security.PublicKey pub = java.security.KeyFactory.getInstance("RSA").generatePublic(
                         new java.security.spec.RSAPublicKeySpec(crtKey.getModulus(), crtKey.getPublicExponent()));
-                byte[] digest = java.security.MessageDigest.getInstance("SHA-1").digest(pub.getEncoded());
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < digest.length; i++) {
-                    if (i > 0) sb.append(':');
-                    sb.append(String.format("%02X", digest[i]));
-                }
-                return "本配置私钥对应的『应用公钥』指纹：SHA1: " + sb
+                return "本配置私钥对应的『应用公钥』指纹：SHA1: " + publicKeyFingerprint(pub)
                         + "。请到开放平台复制『应用公钥』后本地比对（openssl pkey -pubin -in 公钥.pem -outform der | openssl dgst -sha1），指纹一致则私钥正确（问题在 AppID 或加签方式），不一致则私钥与当前 AppID 不配套；";
             }
         } catch (Exception ignored) {
             // 私钥无法解析时走「商家私钥解析失败」提示，这里忽略
         }
         return "";
+    }
+
+    /**
+     * 响应验签失败时的辅助排查：比对「当前填写公钥」与「系统私钥配套的应用公钥」的 SHA1 指纹。
+     * 若两者一致，说明支付宝公钥一栏误填成了『应用公钥』（应用公钥无法验证支付宝的签名）。
+     */
+    private static String alipayPublicKeyFingerprintCompare(AlipayConfig config) {
+        StringBuilder sb = new StringBuilder();
+        try {
+            java.security.PublicKey filled = PaymentCryptoUtils.parsePublicKey(config.alipayPublicKey());
+            sb.append(" 您当前填写公钥的指纹 SHA1: ").append(publicKeyFingerprint(filled)).append("；");
+        } catch (Exception ignored) {
+            // 公钥格式无法解析时已由「支付宝公钥格式无法解析」分支提示，这里忽略
+        }
+        try {
+            java.security.PrivateKey priv = PaymentCryptoUtils.parsePrivateKey(config.privateKey());
+            if (priv instanceof java.security.interfaces.RSAPrivateCrtKey crtKey) {
+                java.security.PublicKey appPub = java.security.KeyFactory.getInstance("RSA").generatePublic(
+                        new java.security.spec.RSAPublicKeySpec(crtKey.getModulus(), crtKey.getPublicExponent()));
+                sb.append(" 本配置私钥配套的『应用公钥』指纹 SHA1: ").append(publicKeyFingerprint(appPub))
+                        .append("（若两者一致，说明本字段误填了『应用公钥』，请到开放平台密钥管理改填『支付宝公钥』）");
+            }
+        } catch (Exception ignored) {
+        }
+        return sb.toString();
+    }
+
+    /** 计算 RSA 公钥 X.509 DER 的 SHA-1 指纹（大写、冒号分隔） */
+    private static String publicKeyFingerprint(java.security.PublicKey pub) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-1").digest(pub.getEncoded());
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < digest.length; i++) {
+                if (i > 0) sb.append(':');
+                sb.append(String.format("%02X", digest[i]));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private static boolean isNotBlank(String s) {
