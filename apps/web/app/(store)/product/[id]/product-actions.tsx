@@ -477,7 +477,7 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
               type="button"
               onClick={handleApplyCoupon}
               disabled={couponStatus === "checking" || !couponCode.trim()}
-              className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-primary bg-primary/10 px-4 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-50"
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-primary bg-primary/10 px-4 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-50"
             >
               {couponStatus === "checking" ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -539,17 +539,25 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
 
         <Turnstile onSuccess={setTurnstileToken} onError={handleTurnstileReset} className="mb-3" />
 
-        {/* Action Buttons */}
-        <div className="flex gap-3">
+        {/* Action Buttons：移动端 分享+加购 一行、立即购买 独占一行；PC（lg+）三按钮一行且顺序不变 */}
+        <div className="flex flex-wrap gap-3">
           <ShareCommissionButton
             productId={product.id}
             productTitle={product.title}
             productPrice={product.base_price}
           />
           <button
+            onClick={handleAddToCart}
+            disabled={isOutOfStock}
+            className="order-2 inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-transparent px-5 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50 lg:order-3 lg:flex-none"
+          >
+            <ShoppingCart className="h-4 w-4" />
+            {t("product.addToCart")}
+          </button>
+          <button
             onClick={handleBuyNow}
             disabled={submitting || isOutOfStock}
-            className="scheme-glow inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:pointer-events-none disabled:opacity-50"
+            className="scheme-glow order-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:pointer-events-none disabled:opacity-50 lg:order-2 lg:w-auto lg:flex-1"
           >
             {submitting ? (
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
@@ -557,14 +565,6 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
               <Zap className="h-4 w-4" />
             )}
             {isOutOfStock ? t("product.outOfStock") : t("product.buyNow")}
-          </button>
-          <button
-            onClick={handleAddToCart}
-            disabled={isOutOfStock}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-border bg-transparent px-5 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
-          >
-            <ShoppingCart className="h-4 w-4" />
-            {t("product.addToCart")}
           </button>
         </div>
       </div>
