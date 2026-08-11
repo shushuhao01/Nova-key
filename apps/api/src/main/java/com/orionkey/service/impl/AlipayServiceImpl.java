@@ -167,9 +167,10 @@ public class AlipayServiceImpl implements AlipayService {
         //    不依赖支付宝公钥；公钥正确性由第 6 项「响应验签」单独校验。
         boolean connOk = false;
         String connMsg;
-        // 供第 6 项「响应验签」复用：网关返回的业务响应 + 响应签名
+        // 供第 6 项「响应验签」复用：网关返回的业务响应 + 响应签名 + 原始响应体
         Map<String, Object> apiRespForVerify = null;
         String respSign = null;
+        String respBody = null;
         if (!hasAppId || !hasPrivateKey) {
             connMsg = "配置不完整（缺少AppID或商家私钥），无法进行真实连接测试";
         } else {
@@ -181,7 +182,6 @@ public class AlipayServiceImpl implements AlipayService {
             String debugContent = null;
             String debugSign = null;
             String debugUrl = null;
-            String respBody = null;
             try {
                 debugContent = buildSignContent(params, true);
                 String sign = sign(params, config.privateKey());
