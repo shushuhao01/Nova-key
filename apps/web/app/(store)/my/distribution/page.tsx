@@ -700,18 +700,18 @@ function OverviewTab({
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-max text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">订单</th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">价格</th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金比例</th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金</th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">结算状态</th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">推广员</th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">付款时间</th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">订单状态</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">订单</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">价格</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">佣金比例</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">佣金</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">结算状态</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">推广员</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">付款时间</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">订单状态</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -719,23 +719,23 @@ function OverviewTab({
                     const st = orderStatusMap[o.order_status || ""] || { label: o.order_status || "—", cls: "bg-muted text-muted-foreground" }
                     return (
                       <tr key={o.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-4 py-3">
                           <span className="font-mono text-xs text-muted-foreground" title={o.order_id}>
                             {String(o.order_id).slice(0, 8)}
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <p className="line-clamp-1 max-w-[200px] font-medium text-foreground" title={o.product_title}>
+                          <p className="max-w-[240px] truncate font-medium text-foreground" title={o.product_title}>
                             {o.product_title || "—"}
                           </p>
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground">{fmtMoney(o.product_price)}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{Number(o.commission_rate || 0).toFixed(2)}%</td>
-                        <td className="px-4 py-3 font-medium text-emerald-600">{fmtMoney(o.commission_amount)}</td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{fmtMoney(o.product_price)}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{Number(o.commission_rate || 0).toFixed(2)}%</td>
+                        <td className="whitespace-nowrap px-4 py-3 font-medium text-emerald-600">{fmtMoney(o.commission_amount)}</td>
+                        <td className="whitespace-nowrap px-4 py-3">
                           <CommissionBadge c={o} small />
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-4 py-3">
                           <span className={cn(
                             "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium",
                             o.source_type === "SUB" ? "bg-amber-500/10 text-amber-600" : "bg-emerald-500/10 text-emerald-600"
@@ -743,8 +743,8 @@ function OverviewTab({
                             {o.source_type === "SUB" ? `下级抽成 · ${o.seller_name || "下级"}` : "自己推广"}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground">{fmtDate(o.paid_at || o.created_at)}</td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{fmtDate(o.paid_at || o.created_at)}</td>
+                        <td className="whitespace-nowrap px-4 py-3">
                           <span className={cn("inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
                             {st.label}
                           </span>
