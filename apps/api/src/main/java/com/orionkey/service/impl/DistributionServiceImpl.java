@@ -17,6 +17,8 @@ import com.orionkey.service.WxpayService.WxpayConfig;
 import com.orionkey.service.WxpayService.WxpayTransferResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -26,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URLEncoder;
@@ -72,6 +75,7 @@ public class DistributionServiceImpl implements DistributionService {
 
     private static final String CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final DateTimeFormatter DATETIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /** 时间区间查询哨兵值：from/to 为 null 时表示不限，PG 对 null 时间参数在 "IS NULL" 谓词下无法推断类型，必须传非空 */
     private static final LocalDateTime RANGE_FROM_MIN = LocalDateTime.of(1970, 1, 1, 0, 0);
@@ -1545,6 +1549,111 @@ public class DistributionServiceImpl implements DistributionService {
                 })
                 .toList();
         return pageResult(items, cp.getTotalElements(), page, pageSize);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] exportMyCommissions(UUID userId, String status) {
+        Distributor d = requireDistributorByUserId(userId);
+        UUID me = d.getId();
+        CommissionStatus statusEnum = parseCommissionStatus(status);
+        Page<CommissionRecord> cp;
+        if (statusEnum != null) {
+            cp = commissionRecordRepository.findAdminList(me, statusEnum, RANGE_FROM_MIN, RANGE_TO_MAX, Pageable.unpaged());
+        } else {
+            cp = commissionRecordRepository.findByDistributorIdOrderByCreatedAtDesc(me, Pageable.unpaged());
+        }
+        Set<String> parentItemKeys = commissionRecordRepository.findParentCommissionItemKeys(me).stream()
+                .map(row -> String.valueOf(row[0]) + ":" + String.valueOf(row[1]))
+                .collect(Collectors.toSet());
+        // 计算"可结算"状态（PENDING + 订单已完成且超过结算延迟期）
+        enrichSettlable(cp.getContent());
+
+        String[] headers = {"订单号", "商品名称", "订单金额", "佣金比例", "佣金金额", "来源", "结算状态", "创建时间", "结算时间"};
+        int[] colWidths = {14, 42, 12, 10, 12, 12, 12, 20, 20}; // 单位：字符宽度 1/256
+        try (Workbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet sheet = wb.createSheet("佣金明细");
+            // 列宽
+            for (int i = 0; i < colWidths.length; i++) {
+                sheet.setColumnWidth(i, colWidths[i] * 256);
+            }
+            // 表头样式：白字加粗 + 深蓝底纹 + 居中 + 边框
+            CellStyle headerStyle = wb.createCellStyle();
+            Font headerFont = wb.createFont();
+            headerFont.setBold(true);
+            headerFont.setColor(IndexedColors.WHITE.getIndex());
+            headerStyle.setFont(headerFont);
+            headerStyle.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
+            headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            headerStyle.setAlignment(HorizontalAlignment.CENTER);
+            headerStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+            // 数据样式：边框 + 垂直居中
+            CellStyle dataStyle = wb.createCellStyle();
+            dataStyle.setBorderBottom(BorderStyle.THIN);
+            dataStyle.setBorderTop(BorderStyle.THIN);
+            dataStyle.setBorderLeft(BorderStyle.THIN);
+            dataStyle.setBorderRight(BorderStyle.THIN);
+            dataStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+            CellStyle centerStyle = wb.createCellStyle();
+            centerStyle.cloneStyleFrom(dataStyle);
+            centerStyle.setAlignment(HorizontalAlignment.CENTER);
+
+            Row headerRow = sheet.createRow(0);
+            for (int i = 0; i < headers.length; i++) {
+                Cell c = headerRow.createCell(i);
+                c.setCellValue(headers[i]);
+                c.setCellStyle(headerStyle);
+            }
+            sheet.createFreezePane(0, 1); // 冻结表头
+
+            int rowIdx = 1;
+            for (CommissionRecord cr : cp.getContent()) {
+                Row row = sheet.createRow(rowIdx++);
+                row.setHeight((short) -1); // 自动行高（长文本换行时用）
+                String statusLabel = exportStatusLabel(cr);
+                boolean fromSub = parentItemKeys.contains(String.valueOf(cr.getOrderId()) + ":" + String.valueOf(cr.getOrderItemId()));
+                String[] values = {
+                        String.valueOf(cr.getOrderId()).substring(0, 8),
+                        cr.getProductTitle() != null ? cr.getProductTitle() : "",
+                        nullSafe(cr.getOrderAmount()).setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                        rateToPercent(cr.getCommissionRate()).setScale(2, RoundingMode.HALF_UP).toPlainString() + "%",
+                        cr.getCommissionAmount().setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                        fromSub ? "下级抽成" : "自己推广",
+                        statusLabel,
+                        fmtDateTime(cr.getCreatedAt()),
+                        fmtDateTime(cr.getSettledAt()),
+                };
+                for (int i = 0; i < values.length; i++) {
+                    Cell c = row.createCell(i);
+                    c.setCellValue(values[i]);
+                    c.setCellStyle(i == 0 || i == 4 ? centerStyle : dataStyle);
+                }
+            }
+            wb.write(out);
+            return out.toByteArray();
+        } catch (java.io.IOException e) {
+            log.error("Export commissions failed", e);
+            throw new BusinessException(ErrorCode.SERVER_ERROR, "佣金明细导出失败");
+        }
+    }
+
+    /** 佣金记录导出用状态文案（PENDING 且可结算时显示"可结算"，与前端徽标一致） */
+    private String exportStatusLabel(CommissionRecord cr) {
+        if (cr.getStatus() == CommissionStatus.PENDING) {
+            return Boolean.TRUE.equals(cr.getSettlable()) ? "可结算" : "待结算";
+        }
+        return switch (cr.getStatus()) {
+            case SETTLED -> "已结算";
+            case WITHDRAWING -> "申请中";
+            case WITHDRAWN -> "已提现";
+            case REJECTED -> "结算拒绝";
+            case CANCELLED -> "已取消";
+            default -> cr.getStatus().name();
+        };
+    }
+
+    private String fmtDateTime(LocalDateTime dt) {
+        return dt != null ? dt.format(DATETIME_FMT) : "";
     }
 
     // ════════════════════════════════════════════════════════════════

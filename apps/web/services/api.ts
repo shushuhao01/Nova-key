@@ -249,6 +249,28 @@ async function request<T>(
   return body.data
 }
 
+/** 下载文件（带登录态，响应为字节流，支持 query 参数） */
+async function downloadFile(path: string, params?: Record<string, string>, filename?: string): Promise<void> {
+  const token = getToken()
+  const qs = params && Object.keys(params).length > 0 ? `?${new URLSearchParams(params).toString()}` : ""
+  const res = await fetch(`${API_BASE}${path}${qs}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) {
+    if (res.status === 401) {
+      handleUnauthorized()
+    }
+    throw new ApiError(res.status, res.statusText)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename || `download-${Date.now()}`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 async function uploadRequest<T>(path: string, formData: FormData): Promise<T> {
   const token = getToken()
   const headers: Record<string, string> = {}
@@ -976,6 +998,13 @@ export const distributorApi = {
   listCommissions: (params: { status?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/distributor/commissions?${qs}`)
+  },
+  /** 导出佣金明细 Excel（全部数据，status 可选过滤） */
+  exportCommissions: (status?: string) => {
+    const d = new Date()
+    const pad = (n: number) => String(n).padStart(2, "0")
+    const filename = `佣金明细_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.xlsx`
+    return downloadFile("/distributor/commissions/export", status ? { status } : undefined, filename)
   },
   applyWithdrawal: (commissionRecordIds: string[]) =>
     request<any>("/distributor/withdrawals", { method: "POST", body: JSON.stringify({ commission_record_ids: commissionRecordIds }) }),

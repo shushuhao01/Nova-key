@@ -85,6 +85,13 @@
             <version>${hutool.version}</version>
         </dependency>
 
+        <!-- Excel 导出（佣金明细导出 xlsx，支持列宽排版） -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
         <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>

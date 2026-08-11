@@ -77,6 +77,8 @@ public interface DistributionService {
 
     // ── 前台：佣金明细 ──
     Map<String, Object> listMyCommissions(UUID userId, String status, int page, int pageSize);
+    /** 导出分销员全部佣金明细为 Excel（xlsx，status 可为 null 表示全部状态） */
+    byte[] exportMyCommissions(UUID userId, String status);
 
     // ── 前台：最近推广成交订单（含下级推广订单） ──
     Map<String, Object> listMyPromotionOrders(UUID userId, int page, int pageSize);

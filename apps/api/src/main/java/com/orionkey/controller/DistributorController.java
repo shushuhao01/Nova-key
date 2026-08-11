@@ -4,9 +4,15 @@ import com.orionkey.common.ApiResponse;
 import com.orionkey.context.RequestContext;
 import com.orionkey.service.DistributionService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -147,6 +153,17 @@ public class DistributorController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
         return ApiResponse.success(distributionService.listMyCommissions(RequestContext.getUserId(), status, page, pageSize));
+    }
+
+    /** 佣金明细导出 Excel（全部数据，status 可选过滤） */
+    @GetMapping("/commissions/export")
+    public ResponseEntity<byte[]> exportCommissions(@RequestParam(required = false) String status) {
+        byte[] bytes = distributionService.exportMyCommissions(RequestContext.getUserId(), status);
+        String filename = URLEncoder.encode("佣金明细_" + LocalDate.now(), StandardCharsets.UTF_8);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename + ".xlsx")
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(bytes);
     }
 
     // ── 提现 ──

@@ -6,7 +6,7 @@ import {
   Link2, Copy, Check, X, Clock, Ban, Users2, Package, RefreshCw,
   ChevronLeft, ChevronRight, AlertCircle, UserPlus, Store, QrCode,
   ShoppingBag, ChevronRight as ChevronRightIcon, ScrollText, Percent,
-  Layers, Users, HandCoins, ShieldCheck, Shield, Download,
+  Layers, Users, HandCoins, ShieldCheck, Shield, Download, Loader2,
   Image as ImageIcon, ExternalLink, Eye, ShoppingCart,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -1189,6 +1189,7 @@ function CommissionsTab() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
   const [statusFilter, setStatusFilter] = useState<CommissionStatus | "ALL">("ALL")
 
   const fetchList = useCallback(async () => {
@@ -1210,6 +1211,19 @@ function CommissionsTab() {
   useEffect(() => { fetchList() }, [fetchList])
   useEffect(() => { setPage(1) }, [statusFilter])
 
+  const handleExport = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      await distributorApi.exportCommissions(statusFilter === "ALL" ? undefined : statusFilter)
+      toast.success("佣金明细已导出，请查看下载文件")
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, t) || "导出失败")
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const filters: { k: CommissionStatus | "ALL"; label: string }[] = [
     { k: "ALL", label: "全部" },
@@ -1223,23 +1237,38 @@ function CommissionsTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 状态筛选 */}
-      <div className="flex flex-wrap gap-2">
-        {filters.map((f) => (
-          <button
-            key={f.k}
-            type="button"
-            onClick={() => setStatusFilter(f.k)}
-            className={cn(
-              "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-              statusFilter === f.k
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:bg-accent"
-            )}
-          >
-            {f.label}
-          </button>
-        ))}
+      {/* 状态筛选 + 导出 */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          {filters.map((f) => (
+            <button
+              key={f.k}
+              type="button"
+              onClick={() => setStatusFilter(f.k)}
+              className={cn(
+                "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                statusFilter === f.k
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-accent"
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={handleExport}
+          disabled={exporting}
+          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-input bg-background px-3.5 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-60"
+        >
+          {exporting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+          导出 Excel
+        </button>
       </div>
 
       {/* 列表 */}
