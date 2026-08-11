@@ -298,16 +298,12 @@ export default function AdminCustomersPage() {
                   <tr key={u.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        {u.mp_avatar ? (
-                          <img src={u.mp_avatar} alt="" className="h-7 w-7 shrink-0 rounded-full border border-border object-cover" />
-                        ) : (
-                          <span className={cn(
-                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
-                            u.is_banned ? "bg-red-500/10 text-red-500" : "bg-primary/10 text-primary"
-                          )}>
-                            <UserRound className="h-4 w-4" />
-                          </span>
-                        )}
+                        <span className={cn(
+                          "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+                          u.is_banned ? "bg-red-500/10 text-red-500" : "bg-primary/10 text-primary"
+                        )}>
+                          <UserRound className="h-4 w-4" />
+                        </span>
                         {u.distributor_level === 1 && (
                           <span
                             title={t("admin.customerLevel1")}
