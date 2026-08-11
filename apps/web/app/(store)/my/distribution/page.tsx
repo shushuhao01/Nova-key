@@ -375,7 +375,8 @@ interface OverviewStats {
   available_balance?: number
   pending_settlement?: number
   total_commission?: number
-  month_sales?: number
+  total_sales?: number
+  settled_commission?: number
   frozen_balance?: number
   withdrawn_amount?: number
 }
@@ -388,6 +389,8 @@ function OverviewTab({
 }) {
   const { t } = useLocale()
   const [stats, setStats] = useState<OverviewStats | null>(null)
+  // 统计时间范围：all=累计（默认）、month=本月
+  const [range, setRange] = useState<"all" | "month">("all")
   const [recentCommissions, setRecentCommissions] = useState<any[]>([])
   const [recentWithdrawals, setRecentWithdrawals] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
@@ -416,7 +419,7 @@ function OverviewTab({
       setLoading(true)
       try {
         const [s, c, w] = await Promise.all([
-          distributorApi.getStats().catch(() => null),
+          distributorApi.getStats(range).catch(() => null),
           distributorApi.listCommissions({ page: 1, page_size: 5 }).catch(() => ({ list: [] })),
           distributorApi.listWithdrawals({ page: 1, page_size: 5 }).catch(() => ({ list: [] })),
         ])
@@ -430,7 +433,7 @@ function OverviewTab({
     }
     fetchAll()
     return () => { cancelled = true }
-  }, [fetchOrders])
+  }, [fetchOrders, range])
 
   // 订单列表分页
   useEffect(() => { fetchOrders(ordersPage) }, [ordersPage, fetchOrders])
@@ -439,13 +442,13 @@ function OverviewTab({
   const available = s.available_balance ?? profile.available_balance ?? 0
   const pending = s.pending_settlement ?? profile.pending_settlement ?? 0
   const total = s.total_commission ?? profile.total_commission ?? 0
-  const monthSales = s.month_sales ?? 0
+  const sales = s.total_sales ?? 0
 
   const cards = [
-    { label: "可提现余额", value: fmtMoney(available), icon: Wallet, color: "text-cyan-600 bg-cyan-500/10" },
+    { label: range === "month" ? "本月成交额" : "累计成交额", value: fmtMoney(sales), icon: BarChart3, color: "text-blue-600 bg-blue-500/10" },
     { label: "待结算佣金", value: fmtMoney(pending), icon: Clock, color: "text-amber-600 bg-amber-500/10" },
     { label: "累计佣金", value: fmtMoney(total), icon: Coins, color: "text-emerald-600 bg-emerald-500/10" },
-    { label: "本月成交额", value: fmtMoney(monthSales), icon: BarChart3, color: "text-blue-600 bg-blue-500/10" },
+    { label: "可提现余额", value: fmtMoney(available), icon: Wallet, color: "text-cyan-600 bg-cyan-500/10" },
   ]
 
   if (loading) {
@@ -458,7 +461,32 @@ function OverviewTab({
 
   return (
     <div className="flex flex-col gap-6">
-      {/* 统计卡片 */}
+      {/* 统计卡片 + 时间范围切换 */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-base font-semibold text-foreground">数据概览</h2>
+        <div className="flex rounded-lg border border-border bg-muted/50 p-0.5">
+          <button
+            type="button"
+            onClick={() => setRange("all")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              range === "all" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            全部
+          </button>
+          <button
+            type="button"
+            onClick={() => setRange("month")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              range === "month" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            本月
+          </button>
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {cards.map((c) => (
           <div key={c.label} className="rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -535,7 +563,7 @@ function OverviewTab({
                       <p className="mt-0.5 text-xs text-muted-foreground">{fmtDate(c.created_at)}</p>
                     </div>
                     <div className="ml-3 shrink-0 text-right">
-                      <p className="text-sm font-semibold text-emerald-600">{fmtMoney(c.amount)}</p>
+                      <p className="text-sm font-semibold text-emerald-600">{fmtMoney(c.commission_amount ?? c.amount ?? 0)}</p>
                       <span className={cn("mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium", st.cls)}>
                         {st.label}
                       </span>
@@ -1211,6 +1239,8 @@ function WithdrawalsTab({ balance }: { balance: number }) {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  // 汇总卡片数据（总佣金/待结算/已结算/可提现）
+  const [stats, setStats] = useState<OverviewStats | null>(null)
   // 微信绑定状态
   const [wechat, setWechat] = useState<{ wechat_bound?: boolean; openid?: string | null; nickname?: string | null; bound_at?: string | null } | null>(null)
   const [binding, setBinding] = useState(false)
@@ -1227,6 +1257,15 @@ function WithdrawalsTab({ balance }: { balance: number }) {
       setFollowInfo(info)
     } catch {
       setFollowInfo(null)
+    }
+  }, [])
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const s = await distributorApi.getStats("all")
+      setStats(s)
+    } catch {
+      setStats(null)
     }
   }, [])
 
@@ -1256,6 +1295,7 @@ function WithdrawalsTab({ balance }: { balance: number }) {
   useEffect(() => { fetchList() }, [fetchList])
   useEffect(() => { fetchWechat() }, [fetchWechat])
   useEffect(() => { fetchFollowInfo() }, [fetchFollowInfo])
+  useEffect(() => { fetchStats() }, [fetchStats])
 
   const handleBind = async () => {
     setBinding(true)
@@ -1319,20 +1359,34 @@ function WithdrawalsTab({ balance }: { balance: number }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 余额条 + 申请按钮 */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
-        <div>
-          <p className="text-sm text-muted-foreground">可提现余额</p>
-          <p className="mt-1 text-2xl font-bold text-foreground">{fmtMoney(balance)}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setModalOpen(true)}
-          className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110"
-        >
-          <ArrowDownToLine className="h-4 w-4" />
-          申请提现
-        </button>
+      {/* 汇总卡片：总佣金 / 待结算 / 已结算 / 可提现（可提现卡片含申请按钮） */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {[
+          { label: "总佣金", value: fmtMoney(stats?.total_commission ?? 0), icon: Coins, color: "text-emerald-600 bg-emerald-500/10" },
+          { label: "待结算", value: fmtMoney(stats?.pending_settlement ?? 0), icon: Clock, color: "text-amber-600 bg-amber-500/10" },
+          { label: "已结算", value: fmtMoney(stats?.settled_commission ?? 0), icon: ShieldCheck, color: "text-blue-600 bg-blue-500/10" },
+          { label: "可提现", value: fmtMoney(stats?.available_balance ?? balance ?? 0), icon: Wallet, color: "text-cyan-600 bg-cyan-500/10" },
+        ].map((c) => (
+          <div key={c.label} className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">{c.label}</span>
+              <span className={cn("flex h-8 w-8 items-center justify-center rounded-md", c.color)}>
+                <c.icon className="h-4 w-4" />
+              </span>
+            </div>
+            <p className="mt-3 text-2xl font-bold text-foreground">{c.value}</p>
+            {c.label === "可提现" && (
+              <button
+                type="button"
+                onClick={() => setModalOpen(true)}
+                className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-all hover:brightness-110"
+              >
+                <ArrowDownToLine className="h-4 w-4" />
+                申请提现
+              </button>
+            )}
+          </div>
+        ))}
       </div>
 
       {/* 微信绑定状态 */}

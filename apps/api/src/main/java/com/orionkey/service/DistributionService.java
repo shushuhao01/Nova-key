@@ -11,7 +11,8 @@ public interface DistributionService {
     // ── 分销员 ──
     Map<String, Object> applyDistributor(UUID userId, String inviteCode);
     Map<String, Object> getDistributorProfile(UUID userId);
-    Map<String, Object> getDistributorStats(UUID userId);
+    /** 分销员概览统计。range：all=累计（默认）、month=本月，作用于成交额/待结算/累计佣金 */
+    Map<String, Object> getDistributorStats(UUID userId, String range);
 
     // ── 管理后台：分销员管理 ──
     Map<String, Object> adminListDistributors(String status, String keyword, LocalDate from, LocalDate to, int page, int pageSize);

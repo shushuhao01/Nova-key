@@ -42,8 +42,8 @@ public class DistributorController {
 
     // ── 统计数据 ──
     @GetMapping("/stats")
-    public ApiResponse<?> getStats() {
-        return ApiResponse.success(distributionService.getDistributorStats(RequestContext.getUserId()));
+    public ApiResponse<?> getStats(@RequestParam(required = false, defaultValue = "all") String range) {
+        return ApiResponse.success(distributionService.getDistributorStats(RequestContext.getUserId(), range));
     }
 
     // ── 推广商品 ──

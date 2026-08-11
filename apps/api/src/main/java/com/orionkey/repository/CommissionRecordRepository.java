@@ -41,6 +41,30 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
     BigDecimal sumByDistributorAndStatus(@Param("distributorId") UUID distributorId,
                                          @Param("status") String status);
 
+    /** 分销员指定状态佣金合计（from=null 表示全部时段，按佣金创建时间） */
+    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
+            "WHERE cr.distributorId = :distId AND cr.status = :status " +
+            "AND (:from IS NULL OR cr.createdAt >= :from)")
+    BigDecimal sumByDistributorAndStatusSince(@Param("distId") UUID distId,
+                                              @Param("status") CommissionStatus status,
+                                              @Param("from") LocalDateTime from);
+
+    /** 分销员累计佣金（不含已取消，from=null 表示全部时段，按佣金创建时间） */
+    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
+            "WHERE cr.distributorId = :distId AND cr.status != com.orionkey.constant.CommissionStatus.CANCELLED " +
+            "AND (:from IS NULL OR cr.createdAt >= :from)")
+    BigDecimal sumTotalByDistributorSince(@Param("distId") UUID distId, @Param("from") LocalDateTime from);
+
+    /**
+     * 分销员商品维度佣金聚合（含全店推广链接带来的成交）：按商品分组返回
+     * [productId, 佣金合计, 成交订单数(去重)]，剔除已取消佣金。
+     */
+    @Query(value = "SELECT cr.product_id, COALESCE(SUM(cr.commission_amount), 0), COUNT(DISTINCT cr.order_id) " +
+            "FROM commission_records cr WHERE cr.distributor_id = :distId AND cr.product_id IS NOT NULL " +
+            "AND cr.status::text != 'CANCELLED' GROUP BY cr.product_id",
+            nativeQuery = true)
+    List<Object[]> aggregateCommissionByProduct(@Param("distId") UUID distId);
+
     /** 区间内佣金总额（不含已取消，按佣金创建时间） */
     @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
             "WHERE cr.status != com.orionkey.constant.CommissionStatus.CANCELLED " +

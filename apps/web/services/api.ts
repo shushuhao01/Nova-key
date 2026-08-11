@@ -937,7 +937,7 @@ export const distributorApi = {
     request<any>("/distributor/apply", { method: "POST", body: JSON.stringify({ invite_code }) }),
   getProfile: () => request<any>("/distributor/profile"),
   getRules: () => request<any>("/distributor/rules"),
-  getStats: () => request<any>("/distributor/stats"),
+  getStats: (range?: string) => request<any>(`/distributor/stats?range=${range || "all"}`),
   listProducts: (params: { page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/distributor/products?${qs}`)

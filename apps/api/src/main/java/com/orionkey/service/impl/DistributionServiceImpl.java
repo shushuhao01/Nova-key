@@ -31,6 +31,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
@@ -172,32 +173,41 @@ public class DistributionServiceImpl implements DistributionService {
 
     @Override
     @Transactional(readOnly = true)
-    public Map<String, Object> getDistributorStats(UUID userId) {
+    public Map<String, Object> getDistributorStats(UUID userId, String range) {
         Distributor d = requireDistributorByUserId(userId);
         UUID distId = d.getId();
+
+        // 时间范围：month=本月 1 号 00:00（北京时间）起；all=不限
+        LocalDateTime from = "month".equalsIgnoreCase(range)
+                ? LocalDateTime.now(ZoneId.of("Asia/Shanghai")).withDayOfMonth(1).withHour(0)
+                        .withMinute(0).withSecond(0).withNano(0)
+                : null;
 
         long promotionProductCount = promotionLinkRepository.findByDistributorId(distId, PageRequest.of(0, 1))
                 .getTotalElements();
         long totalClicks = clickRepository.countByDistributorId(distId);
 
-        BigDecimal totalSales = BigDecimal.ZERO;
-        BigDecimal pendingCommission = nullSafe(commissionRecordRepository.sumByDistributorAndStatus(distId, CommissionStatus.PENDING.name()));
+        // 按推广员 ID 汇总：全店推广与商品推广链接进来的已付款订单都计入成交额
+        BigDecimal sales = nullSafe(orderRepository.sumSalesByDistributor(distId, from));
+        BigDecimal pendingCommission = nullSafe(commissionRecordRepository
+                .sumByDistributorAndStatusSince(distId, CommissionStatus.PENDING, from));
+        BigDecimal totalCommission = nullSafe(commissionRecordRepository
+                .sumTotalByDistributorSince(distId, from));
+        // 已结算佣金固定取全部时段（提现记录页「已结算」卡片口径）
+        BigDecimal settledCommission = nullSafe(commissionRecordRepository
+                .sumByDistributorAndStatusSince(distId, CommissionStatus.SETTLED, null));
         long subCount = distributorRepository.findByParentId(distId).size();
         long customerCount = customerBindingRepository.countByDistributorId(distId);
-
-        // 汇总推广链接的销售额
-        Page<PromotionLink> links = promotionLinkRepository.findByDistributorId(distId, PageRequest.of(0, Integer.MAX_VALUE));
-        for (PromotionLink pl : links.getContent()) {
-            if (pl.getTotalSales() != null) {
-                totalSales = totalSales.add(pl.getTotalSales());
-            }
-        }
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("promotion_product_count", promotionProductCount);
         m.put("total_clicks", totalClicks);
-        m.put("total_sales", totalSales.setScale(2, RoundingMode.HALF_UP));
+        m.put("total_sales", sales.setScale(2, RoundingMode.HALF_UP));
+        // 兼容旧字段 pending_commission（历史前端/脚本），新字段 pending_settlement 与前端对齐
         m.put("pending_commission", pendingCommission.setScale(2, RoundingMode.HALF_UP));
+        m.put("pending_settlement", pendingCommission.setScale(2, RoundingMode.HALF_UP));
+        m.put("total_commission", totalCommission.setScale(2, RoundingMode.HALF_UP));
+        m.put("settled_commission", settledCommission.setScale(2, RoundingMode.HALF_UP));
         m.put("available_balance", d.getAvailableBalance());
         m.put("withdrawn_amount", d.getWithdrawnAmount());
         m.put("subordinate_count", subCount);
@@ -988,37 +998,67 @@ public class DistributionServiceImpl implements DistributionService {
     @Transactional(readOnly = true)
     public Map<String, Object> listMyPromotionProducts(UUID userId, int page, int pageSize) {
         Distributor d = requireDistributorByUserId(userId);
-        Page<PromotionLink> lp = promotionLinkRepository.findByDistributorId(d.getId(), Pageable.unpaged());
+        UUID distId = d.getId();
 
-        List<Map<String, Object>> all = lp.getContent().stream()
-                // 最新推广的商品排在前面
-                .sorted(Comparator.comparing(PromotionLink::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
-                .filter(pl -> pl.getProductId() != null)
-                // 仅展示仍在分销的商品（已取消分销的推广商品不再可见）
-                .filter(pl -> isProductDistributable(pl.getProductId()))
-                .map(pl -> {
+        // 商品推广链接的点击数（productId != null 的链接，同一商品多个链接累加）
+        Map<UUID, Long> clicksByProduct = new HashMap<>();
+        for (PromotionLink pl : promotionLinkRepository.findByDistributorId(distId, Pageable.unpaged()).getContent()) {
+            if (pl.getProductId() != null && pl.getClickCount() != null) {
+                clicksByProduct.merge(pl.getProductId(), pl.getClickCount(), Long::sum);
+            }
+        }
+
+        // 佣金记录按商品聚合（权威来源：商品链接与全店推广链接进来的成交/佣金都计入对应商品）
+        Map<UUID, long[]> aggByProduct = new HashMap<>(); // productId -> [成交订单数(去重), 佣金(分)]
+        for (Object[] row : commissionRecordRepository.aggregateCommissionByProduct(distId)) {
+            UUID pid = (UUID) row[0];
+            long orders = ((Number) row[2]).longValue();
+            BigDecimal comm = (BigDecimal) row[1];
+            aggByProduct.put(pid, new long[]{orders, comm != null ? comm.movePointRight(2).longValue() : 0L});
+        }
+
+        Set<UUID> productIds = new LinkedHashSet<>();
+        productIds.addAll(aggByProduct.keySet());
+        productIds.addAll(clicksByProduct.keySet());
+
+        List<Map<String, Object>> all = productIds.stream()
+                .map(pid -> {
+                    Product p = productRepository.findById(pid).orElse(null);
+                    if (p == null) return null;
+                    long[] agg = aggByProduct.get(pid);
+                    long paid = agg != null ? agg[0] : 0L;
+                    BigDecimal commission = agg != null
+                            ? BigDecimal.valueOf(agg[1], 2)
+                            : BigDecimal.ZERO;
+                    PromotionLink pl = promotionLinkRepository
+                            .findByDistributorIdAndProductId(distId, pid).orElse(null);
                     Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("link_id", pl.getId());
-                    m.put("link_code", pl.getLinkCode());
-                    m.put("product_id", pl.getProductId());
-                    m.put("click_count", pl.getClickCount());
-                    m.put("paid_count", pl.getPaidCount());
-                    m.put("total_sales", pl.getTotalSales());
-                    m.put("total_commission", pl.getTotalCommission());
-                    productRepository.findById(pl.getProductId()).ifPresent(p -> {
-                        m.put("product_title", p.getTitle());
-                        m.put("cover_url", p.getCoverUrl());
-                        m.put("base_price", p.getBasePrice());
-                        DistributionRule r = getOrCreateRule();
-                        ProductCommission pc = productCommissionRepository.findByProductId(p.getId()).orElse(null);
-                        BigDecimal rate = pc != null && pc.getCustomRate() != null ? pc.getCustomRate() : r.getDefaultRate();
-                        m.put("default_rate", rateToPercent(r.getDefaultRate()));
-                        m.put("custom_rate", rateToPercent(pc != null ? pc.getCustomRate() : null));
-                        m.put("commission_rate", rateToPercent(rate));
-                        m.put("commission_amount", p.getBasePrice().multiply(rate).setScale(2, RoundingMode.HALF_UP));
-                    });
+                    m.put("link_id", pl != null ? pl.getId() : null);
+                    m.put("link_code", pl != null ? pl.getLinkCode() : null);
+                    m.put("product_id", pid);
+                    m.put("click_count", clicksByProduct.getOrDefault(pid, 0L));
+                    m.put("paid_count", paid);
+                    m.put("total_commission", commission);
+                    m.put("product_title", p.getTitle());
+                    m.put("cover_url", p.getCoverUrl());
+                    m.put("base_price", p.getBasePrice());
+                    DistributionRule r = getOrCreateRule();
+                    ProductCommission pc = productCommissionRepository.findByProductId(pid).orElse(null);
+                    BigDecimal rate = pc != null && pc.getCustomRate() != null ? pc.getCustomRate() : r.getDefaultRate();
+                    m.put("default_rate", rateToPercent(r.getDefaultRate()));
+                    m.put("custom_rate", rateToPercent(pc != null ? pc.getCustomRate() : null));
+                    m.put("commission_rate", rateToPercent(rate));
+                    m.put("commission_amount", p.getBasePrice().multiply(rate).setScale(2, RoundingMode.HALF_UP));
                     return m;
-                }).toList();
+                })
+                .filter(Objects::nonNull)
+                // 按佣金总额降序，其次点击降序
+                .sorted(Comparator
+                        .comparing((Map<String, Object> mm) -> (BigDecimal) mm.get("total_commission"),
+                                Comparator.reverseOrder())
+                        .thenComparing((Map<String, Object> mm) -> (Long) mm.get("click_count"),
+                                Comparator.reverseOrder()))
+                .toList();
         List<Map<String, Object>> items = paginate(all, page, pageSize);
         return pageResult(items, all.size(), page, pageSize);
     }
@@ -1088,29 +1128,31 @@ public class DistributionServiceImpl implements DistributionService {
     @Transactional(readOnly = true)
     public Map<String, Object> getStoreStats(UUID userId) {
         Distributor d = requireDistributorByUserId(userId);
-        PromotionLink link = promotionLinkRepository.findByDistributorIdAndProductId(d.getId(), null).orElse(null);
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("exists", link != null);
-        if (link == null) {
-            m.put("click_count", 0L);
-            m.put("unique_click_count", 0L);
-            m.put("paid_count", 0L);
-            m.put("conversion_rate", BigDecimal.ZERO.setScale(2));
-            m.put("total_sales", BigDecimal.ZERO.setScale(2));
-            m.put("total_commission", BigDecimal.ZERO.setScale(2));
-            return m;
+        // 店铺汇总 = 全店推广链接 + 商品推广链接合计（只要通过我的任意推广链接进来的都计入）
+        List<PromotionLink> links = promotionLinkRepository
+                .findByDistributorId(d.getId(), Pageable.unpaged()).getContent();
+        PromotionLink storeLink = links.stream()
+                .filter(l -> l.getProductId() == null).findFirst().orElse(null);
+        long clicks = 0L, uniqueClicks = 0L, paid = 0L;
+        BigDecimal sales = BigDecimal.ZERO, commission = BigDecimal.ZERO;
+        for (PromotionLink pl : links) {
+            clicks += pl.getClickCount() != null ? pl.getClickCount() : 0L;
+            uniqueClicks += pl.getUniqueClickCount() != null ? pl.getUniqueClickCount() : 0L;
+            paid += pl.getPaidCount() != null ? pl.getPaidCount() : 0L;
+            sales = sales.add(nullSafe(pl.getTotalSales()));
+            commission = commission.add(nullSafe(pl.getTotalCommission()));
         }
-        long clicks = link.getClickCount();
-        long paid = link.getPaidCount();
-        m.put("link_code", link.getLinkCode());
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("exists", storeLink != null);
+        m.put("link_code", storeLink != null ? storeLink.getLinkCode() : null);
         m.put("click_count", clicks);
-        m.put("unique_click_count", link.getUniqueClickCount());
+        m.put("unique_click_count", uniqueClicks);
         m.put("paid_count", paid);
         m.put("conversion_rate", clicks > 0
                 ? new BigDecimal(paid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(clicks), 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO.setScale(2));
-        m.put("total_sales", nullSafe(link.getTotalSales()).setScale(2, RoundingMode.HALF_UP));
-        m.put("total_commission", nullSafe(link.getTotalCommission()).setScale(2, RoundingMode.HALF_UP));
+        m.put("total_sales", sales.setScale(2, RoundingMode.HALF_UP));
+        m.put("total_commission", commission.setScale(2, RoundingMode.HALF_UP));
         return m;
     }
 
