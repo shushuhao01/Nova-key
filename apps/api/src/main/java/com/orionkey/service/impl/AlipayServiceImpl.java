@@ -9,17 +9,18 @@ import com.orionkey.service.AlipayService;
 import com.orionkey.utils.PaymentCryptoUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -42,7 +43,16 @@ public class AlipayServiceImpl implements AlipayService {
     private static final DateTimeFormatter TIMESTAMP_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private final RestTemplate restTemplate;
+    /**
+     * 支付宝网关 HTTP 客户端：必须用 java.net.http.HttpClient 而非 RestTemplate。
+     * RestTemplate 底层 HttpURLConnection 会二次处理已编码的 URL query（实测把 %20
+     * 改写），导致网关解析 timestamp 失败报 isv.invalid-timestamp；HttpClient 与
+     * curl 一样原样发送 URL，与手工验证通过的请求逐字节一致。
+     */
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(5))
+            .build();
+
     private final ObjectMapper objectMapper;
 
     @Override
@@ -479,20 +489,30 @@ public class AlipayServiceImpl implements AlipayService {
         // 必须放在 URL query 中（特别是 charset），业务参数 biz_content 放在 HTTP body 中。
         // 若把所有参数都放在 form body，网关验签会失败（isv.invalid-signature，
         // 提示"请确认charset参数放在了URL查询字符串中"）。
+        // 必须用 java.net.http.HttpClient 发送而非 RestTemplate：RestTemplate 底层
+        // HttpURLConnection 会二次处理 URL query，实测导致网关解析 timestamp 失败
+        // （isv.invalid-timestamp）；HttpClient 与手工 curl 一样原样发送已编码的 URL。
         String bizContent = params.remove("biz_content");
         String fullUrl = buildQueryUrl(url, params);
         log.info("ALIPAY_REQ url={} body={}", fullUrl, bizContent);
-        if (bizContent != null) {
-            MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-            form.add("biz_content", bizContent);
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-            ResponseEntity<String> response = restTemplate.postForEntity(
-                    fullUrl, new HttpEntity<>(form, headers), String.class);
-            return response.getBody();
+        try {
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                    .uri(URI.create(fullUrl))
+                    .timeout(Duration.ofSeconds(15))
+                    .header("Content-Type", "application/x-www-form-urlencoded");
+            if (bizContent != null) {
+                // 表单编码 biz_content 放入 body（与 curl --data-urlencode 一致）
+                builder.POST(HttpRequest.BodyPublishers.ofString(
+                        "biz_content=" + URLEncoder.encode(bizContent, StandardCharsets.UTF_8)));
+            } else {
+                builder.POST(HttpRequest.BodyPublishers.noBody());
+            }
+            HttpResponse<String> response = HTTP_CLIENT.send(builder.build(),
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            return response.body();
+        } catch (IOException | InterruptedException e) {
+            throw new RestClientException("支付宝请求失败: " + e.getMessage(), e);
         }
-        ResponseEntity<String> response = restTemplate.postForEntity(fullUrl, null, String.class);
-        return response.getBody();
     }
 
     @SuppressWarnings("unchecked")
