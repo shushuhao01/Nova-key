@@ -280,7 +280,9 @@ public class AlipayServiceImpl implements AlipayService {
             try {
                 Map<String, String> verifyParams = new LinkedHashMap<>();
                 for (Map.Entry<String, Object> entry : apiRespForVerify.entrySet()) {
-                    verifyParams.put(entry.getKey(), String.valueOf(entry.getValue()));
+                    Object v = entry.getValue();
+                    if (v == null) continue; // 对齐支付宝 SDK：null 字段不参与签名，否则会拼出 "xxx=null" 导致验签失败
+                    verifyParams.put(entry.getKey(), String.valueOf(v));
                 }
                 String content = buildSignContent(verifyParams, false);
                 java.security.PublicKey publicKey;
