@@ -173,9 +173,9 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     long count();
 
     // 管理后台订单列表 — 无搜索词
-    // statuses 支持多选（逗号分隔解析为 List）；包含 REFUNDED 时同时匹配全额退款（REFUNDED）与部分退款（PARTIALLY_REFUNDED）
+    // statuses 支持多选（逗号分隔解析为 List，空筛选传 null）；包含 REFUNDED 时同时匹配全额退款（REFUNDED）与部分退款（PARTIALLY_REFUNDED）
     @Query("SELECT o FROM Order o WHERE " +
-            "(:statuses IS EMPTY OR o.status IN :statuses " +
+            "(:statuses IS NULL OR o.status IN :statuses " +
             " OR (:containsRefunded = TRUE AND o.status = com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED)) " +
             "AND (:orderType IS NULL OR o.orderType = :orderType) " +
             "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o.paymentMethod = :paymentMethod) " +
@@ -190,7 +190,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     // 管理后台订单列表 — 带搜索词（按订单ID、邮箱或商品名称搜索，keyword 保证非 null）
     @Query("SELECT DISTINCT o FROM Order o LEFT JOIN OrderItem oi ON oi.orderId = o.id WHERE " +
-            "(:statuses IS EMPTY OR o.status IN :statuses " +
+            "(:statuses IS NULL OR o.status IN :statuses " +
             " OR (:containsRefunded = TRUE AND o.status = com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED)) " +
             "AND (:orderType IS NULL OR o.orderType = :orderType) " +
             "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o.paymentMethod = :paymentMethod) " +

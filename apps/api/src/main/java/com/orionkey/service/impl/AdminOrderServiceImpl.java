@@ -73,10 +73,12 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         }
         Page<Order> orderPage;
         String pm = paymentMethod != null && !paymentMethod.isBlank() ? paymentMethod.trim() : "";
+        // 未选任何状态时传 null（空列表会使 IN 子句生成非法 SQL，且 IS EMPTY 在 Hibernate 6 对参数不支持）
+        List<OrderStatus> statusParam = statuses.isEmpty() ? null : statuses;
         if (keyword != null && !keyword.isBlank()) {
-            orderPage = orderRepository.findAdminOrdersByKeyword(statuses, containsRefunded, ot, pm, isRiskFlagged, "%" + keyword + "%", pageable);
+            orderPage = orderRepository.findAdminOrdersByKeyword(statusParam, containsRefunded, ot, pm, isRiskFlagged, "%" + keyword + "%", pageable);
         } else {
-            orderPage = orderRepository.findAdminOrders(statuses, containsRefunded, ot, pm, isRiskFlagged, pageable);
+            orderPage = orderRepository.findAdminOrders(statusParam, containsRefunded, ot, pm, isRiskFlagged, pageable);
         }
 
         var list = orderPage.getContent().stream().map(this::toAdminOrder).toList();
