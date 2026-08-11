@@ -342,7 +342,9 @@ public class AlipayServiceImpl implements AlipayService {
         StringBuilder sb = new StringBuilder();
         try {
             java.security.PublicKey filled = PaymentCryptoUtils.parsePublicKey(config.alipayPublicKey());
-            sb.append(" 您当前填写公钥的指纹 SHA1: ").append(publicKeyFingerprint(filled)).append("；");
+            sb.append(" 您当前填写公钥的指纹 SHA1: ").append(publicKeyFingerprint(filled))
+                    .append("（RSA ").append(publicKeyBits(filled)).append(" 位）");
+            sb.append("；");
         } catch (Exception ignored) {
             // 公钥格式无法解析时已由「支付宝公钥格式无法解析」分支提示，这里忽略
         }
@@ -352,11 +354,20 @@ public class AlipayServiceImpl implements AlipayService {
                 java.security.PublicKey appPub = java.security.KeyFactory.getInstance("RSA").generatePublic(
                         new java.security.spec.RSAPublicKeySpec(crtKey.getModulus(), crtKey.getPublicExponent()));
                 sb.append(" 本配置私钥配套的『应用公钥』指纹 SHA1: ").append(publicKeyFingerprint(appPub))
+                        .append("（RSA ").append(publicKeyBits(appPub)).append(" 位）")
                         .append("（若两者一致，说明本字段误填了『应用公钥』，请到开放平台密钥管理改填『支付宝公钥』）");
             }
         } catch (Exception ignored) {
         }
         return sb.toString();
+    }
+
+    /** RSA 公钥位数（2048 为 RSA2 标准；1024 为旧版公钥，无法用于 RSA2 验签） */
+    private static int publicKeyBits(java.security.PublicKey pub) {
+        if (pub instanceof java.security.interfaces.RSAPublicKey rsa) {
+            return rsa.getModulus().bitLength();
+        }
+        return 0;
     }
 
     /** 计算 RSA 公钥 X.509 DER 的 SHA-1 指纹（大写、冒号分隔） */
