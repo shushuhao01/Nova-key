@@ -203,13 +203,16 @@ public class DistributionServiceImpl implements DistributionService {
         BigDecimal totalCommission = from != null
                 ? nullSafe(commissionRecordRepository.sumTotalByDistributorSince(distId, from))
                 : nullSafe(commissionRecordRepository.sumTotalByDistributorAll(distId));
-        // 已结算佣金固定取全部时段（提现记录页「已结算」卡片口径：含已结算、申请中、已提现）
+        // 已结算佣金固定取全部时段（含已结算、申请中、已提现；历史口径字段保留）
         BigDecimal settledCommission = nullSafe(commissionRecordRepository
                 .sumByDistributorAndStatusAll(distId, CommissionStatus.SETTLED))
                 .add(nullSafe(commissionRecordRepository
                         .sumByDistributorAndStatusAll(distId, CommissionStatus.WITHDRAWING)))
                 .add(nullSafe(commissionRecordRepository
                         .sumByDistributorAndStatusAll(distId, CommissionStatus.WITHDRAWN)));
+        // 申请中（在途）佣金：已申请提现、正在审核/转账
+        BigDecimal withdrawingCommission = nullSafe(commissionRecordRepository
+                .sumByDistributorAndStatusAll(distId, CommissionStatus.WITHDRAWING));
         long subCount = distributorRepository.findByParentId(distId).size();
         long customerCount = customerBindingRepository.countByDistributorId(distId);
 
@@ -226,6 +229,7 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("settlable_settlement", settlableCommission.setScale(2, RoundingMode.HALF_UP));
         m.put("total_commission", totalCommission.setScale(2, RoundingMode.HALF_UP));
         m.put("settled_commission", settledCommission.setScale(2, RoundingMode.HALF_UP));
+        m.put("withdrawing_settlement", withdrawingCommission.setScale(2, RoundingMode.HALF_UP));
         // 可提现余额（展示口径）= 已入账余额（不含可结算，可结算单独字段展示；两者相加即总可提现）
         m.put("available_balance", d.getAvailableBalance().setScale(2, RoundingMode.HALF_UP));
         m.put("withdrawn_amount", d.getWithdrawnAmount());
@@ -288,7 +292,11 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("total_sales", nullSafe(orderRepository.sumSalesByDistributorAll(d.getId())).setScale(2, RoundingMode.HALF_UP));
         m.put("paid_order_count", orderRepository.countPaidOrdersByDistributorAll(d.getId()));
         m.put("total_commission", nullSafe(commissionRecordRepository.sumTotalByDistributorAll(d.getId())).setScale(2, RoundingMode.HALF_UP));
-        m.put("pending_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.PENDING)).setScale(2, RoundingMode.HALF_UP));
+        // 待结算 = 待结算总额 − 可结算（订单完成超结算期部分）；可结算单独输出
+        BigDecimal pending = nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.PENDING));
+        BigDecimal settlable = nullSafe(commissionRecordRepository.sumSettlablePendingByDistributor(d.getId(), settleCutoff()));
+        m.put("pending_commission", pending.subtract(settlable).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP));
+        m.put("settlable_commission", settlable.setScale(2, RoundingMode.HALF_UP));
         m.put("settled_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.SETTLED)).setScale(2, RoundingMode.HALF_UP));
         return m;
     }

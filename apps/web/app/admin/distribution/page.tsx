@@ -384,15 +384,15 @@ function TabSwitch({ tab, setTab }: { tab: Tab; setTab: (v: Tab) => void }) {
 
 // ═══════════════════════ 概览 TAB ═══════════════════════
 
-const CARD_DEFS: { key: string; label: string; icon: typeof Users2; color: string }[] = [
-  { key: "total_sales", label: "总销售额", icon: TrendingUp, color: "text-blue-600 bg-blue-500/10" },
-  { key: "total_distributors", label: "分销员总数", icon: Users2, color: "text-blue-600 bg-blue-500/10" },
-  { key: "pending_count", label: "待审核数", icon: Clock, color: "text-amber-600 bg-amber-500/10" },
-  { key: "total_commission", label: "总佣金", icon: Coins, color: "text-emerald-600 bg-emerald-500/10" },
-  { key: "pending_settlement", label: "待结算", icon: Clock, color: "text-purple-600 bg-purple-500/10" },
-  { key: "available_balance", label: "可提现", icon: Wallet, color: "text-cyan-600 bg-cyan-500/10" },
-  { key: "frozen_balance", label: "冻结中", icon: Ban, color: "text-slate-600 bg-slate-500/10" },
-  { key: "withdrawn_amount", label: "已提现", icon: CheckCircle2, color: "text-green-600 bg-green-500/10" },
+const CARD_DEFS: { key: string; label: string; icon: typeof Users2; color: string; tip: string }[] = [
+  { key: "total_sales", label: "总销售额", icon: TrendingUp, color: "text-blue-600 bg-blue-500/10", tip: "区间内分销订单成交额" },
+  { key: "total_distributors", label: "分销员总数", icon: Users2, color: "text-blue-600 bg-blue-500/10", tip: "全部已申请分销员数量" },
+  { key: "pending_count", label: "待审核数", icon: Clock, color: "text-amber-600 bg-amber-500/10", tip: "等待审核的分销员申请" },
+  { key: "total_commission", label: "总佣金", icon: Coins, color: "text-emerald-600 bg-emerald-500/10", tip: "区间内佣金合计（不含已取消）" },
+  { key: "pending_settlement", label: "待结算", icon: Clock, color: "text-purple-600 bg-purple-500/10", tip: "区间内按创建时间统计的待结算佣金" },
+  { key: "available_balance", label: "可提现", icon: Wallet, color: "text-cyan-600 bg-cyan-500/10", tip: "全部已入账可提现余额" },
+  { key: "frozen_balance", label: "冻结中", icon: Ban, color: "text-slate-600 bg-slate-500/10", tip: "已申请提现冻结的金额" },
+  { key: "withdrawn_amount", label: "已提现", icon: CheckCircle2, color: "text-green-600 bg-green-500/10", tip: "已成功提现累计金额" },
 ]
 
 function OverviewTab({ params, dateVersion }: { params: { range: RangeKey; from?: string; to?: string }; dateVersion: number }) {
@@ -489,6 +489,7 @@ function OverviewTab({ params, dateVersion }: { params: { range: RangeKey; from?
                 </span>
                 <TrendBadge value={card.value} prev={card.prev} />
               </div>
+              <p className="mt-2 text-xs text-muted-foreground">{def.tip}</p>
             </div>
           )
         })}
@@ -851,12 +852,13 @@ function DistributorDetailModal({ distributor, onClose }: {
   ]
 
   const statCards = [
-    { label: "总佣金", value: fmtMoney(v("total_commission")), cls: "text-primary" },
-    { label: "可提现", value: fmtMoney(v("available_balance")), cls: "text-emerald-600" },
-    { label: "冻结中", value: fmtMoney(v("frozen_balance")), cls: "text-slate-600" },
-    { label: "已提现", value: fmtMoney(v("withdrawn_amount")), cls: "text-amber-600" },
-    { label: "待结算", value: fmtMoney(v("pending_commission")), cls: "text-blue-600" },
-    { label: "已结算", value: fmtMoney(v("settled_commission")), cls: "text-violet-600" },
+    { label: "总佣金", value: fmtMoney(v("total_commission")), cls: "text-primary", tip: "累计佣金（不含已取消）" },
+    { label: "可提现", value: fmtMoney(v("available_balance")), cls: "text-emerald-600", tip: "已入账可提现余额" },
+    { label: "冻结中", value: fmtMoney(v("frozen_balance")), cls: "text-slate-600", tip: "已申请提现冻结金额" },
+    { label: "已提现", value: fmtMoney(v("withdrawn_amount")), cls: "text-amber-600", tip: "已成功提现累计金额" },
+    { label: "可结算", value: fmtMoney(v("settlable_commission")), cls: "text-purple-600", tip: "订单完成超结算期，可直接提现" },
+    { label: "待结算", value: fmtMoney(v("pending_commission")), cls: "text-blue-600", tip: "订单完成未满结算期" },
+    { label: "已结算", value: fmtMoney(v("settled_commission")), cls: "text-violet-600", tip: "已结算（不含申请中/已提现）" },
   ]
 
   return (
@@ -892,11 +894,12 @@ function DistributorDetailModal({ distributor, onClose }: {
             {/* 佣金/余额数据 */}
             <div>
               <h3 className="mb-3 text-sm font-semibold text-muted-foreground">佣金与余额</h3>
-              <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {statCards.map((c) => (
                   <div key={c.label} className="rounded-lg border border-border bg-muted/30 p-3">
                     <p className="text-xs text-muted-foreground">{c.label}</p>
                     <p className={cn("mt-1 text-sm font-semibold", c.cls)}>{c.value}</p>
+                    <p className="mt-1 text-[11px] leading-tight text-muted-foreground">{c.tip}</p>
                   </div>
                 ))}
               </div>
@@ -1851,22 +1854,27 @@ function CommissionsTab({ dateVersion }: { dateVersion: number }) {
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-muted-foreground">佣金总额</p>
             <p className="mt-1 text-xl font-bold text-foreground">{fmtMoney(stats.total_commission)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">全部佣金记录合计（不含已取消）</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-purple-600">可结算</p>
             <p className="mt-1 text-xl font-bold text-purple-600">{fmtMoney(stats.settlable_commission)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">订单完成超结算期，可直接提现</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-amber-600">待结算</p>
             <p className="mt-1 text-xl font-bold text-amber-600">{fmtMoney(stats.pending_commission)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">订单完成未满结算期的待结算部分</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-emerald-600">已结算</p>
             <p className="mt-1 text-xl font-bold text-emerald-600">{fmtMoney(stats.settled_commission)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">已结算/申请中/已提现合计</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-red-500">已取消</p>
             <p className="mt-1 text-xl font-bold text-red-500">{fmtMoney(stats.cancelled_commission)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">退款/取消订单不计佣金</p>
           </div>
         </div>
       )}
@@ -2079,11 +2087,11 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { key: "total_sales", label: "总销售额", icon: <HandCoins className="h-4 w-4" />, cls: "text-primary" },
-            { key: "total_commission", label: "总佣金", icon: <Coins className="h-4 w-4" />, cls: "text-emerald-600" },
-            { key: "pending_commission", label: "待结算", icon: <Clock className="h-4 w-4" />, cls: "text-amber-600" },
-            { key: "settled_commission", label: "已结算", icon: <Check className="h-4 w-4" />, cls: "text-blue-600" },
-          ].map(({ key, label, icon, cls }) => (
+            { key: "total_sales", label: "总销售额", icon: <HandCoins className="h-4 w-4" />, cls: "text-primary", tip: "区间内分销订单成交额" },
+            { key: "total_commission", label: "总佣金", icon: <Coins className="h-4 w-4" />, cls: "text-emerald-600", tip: "区间内佣金合计（不含已取消）" },
+            { key: "pending_commission", label: "待结算", icon: <Clock className="h-4 w-4" />, cls: "text-amber-600", tip: "区间内按创建时间统计的待结算佣金" },
+            { key: "settled_commission", label: "已结算", icon: <Check className="h-4 w-4" />, cls: "text-blue-600", tip: "区间内已结算（含申请中/已提现）" },
+          ].map(({ key, label, icon, cls, tip }) => (
             <div key={key} className="rounded-lg border border-border bg-card p-4 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className={cn("inline-flex h-7 w-7 items-center justify-center rounded-full bg-muted", cls)}>{icon}</span>
@@ -2099,6 +2107,7 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
                       : `截至 ${dateTo}`
                   : "全部时间"}
               </p>
+              <p className="mt-1 text-xs text-muted-foreground">{tip}</p>
             </div>
           ))}
         </div>

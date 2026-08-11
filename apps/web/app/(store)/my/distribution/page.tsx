@@ -7,7 +7,7 @@ import {
   ChevronLeft, ChevronRight, AlertCircle, UserPlus, Store, QrCode,
   ShoppingBag, ChevronRight as ChevronRightIcon, ScrollText, Percent,
   Layers, Users, HandCoins, ShieldCheck, Shield, Download,
-  Image as ImageIcon, ExternalLink, Eye, ShoppingCart, CheckCircle2,
+  Image as ImageIcon, ExternalLink, Eye, ShoppingCart,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale } from "@/lib/context"
@@ -413,6 +413,7 @@ interface OverviewStats {
   settled_commission?: number
   frozen_balance?: number
   withdrawn_amount?: number
+  withdrawing_settlement?: number
 }
 
 function OverviewTab({
@@ -480,11 +481,34 @@ function OverviewTab({
   const sales = s.total_sales ?? 0
 
   const cards = [
-    { label: range === "month" ? "本月成交额" : "累计成交额", value: fmtMoney(sales), icon: BarChart3, color: "text-blue-600 bg-blue-500/10" },
-    { label: "可结算", value: fmtMoney(settlable), icon: CheckCircle2, color: "text-purple-600 bg-purple-500/10" },
-    { label: "待结算佣金", value: fmtMoney(pending), icon: Clock, color: "text-amber-600 bg-amber-500/10" },
-    { label: "累计佣金", value: fmtMoney(total), icon: Coins, color: "text-emerald-600 bg-emerald-500/10" },
-    { label: "可提现余额", value: fmtMoney(available), icon: Wallet, color: "text-cyan-600 bg-cyan-500/10" },
+    {
+      label: range === "month" ? "本月成交额" : "累计成交额",
+      value: fmtMoney(sales),
+      icon: BarChart3,
+      color: "text-blue-600 bg-blue-500/10",
+      tip: "按推广链接成交订单金额统计",
+    },
+    {
+      label: "可提现余额",
+      value: fmtMoney(Number(available) + Number(settlable)),
+      icon: Wallet,
+      color: "text-cyan-600 bg-cyan-500/10",
+      tip: `已入账 ${fmtMoney(available)} + 可结算 ${fmtMoney(settlable)}`,
+    },
+    {
+      label: "待结算佣金",
+      value: fmtMoney(pending),
+      icon: Clock,
+      color: "text-amber-600 bg-amber-500/10",
+      tip: "订单完成满结算期后自动进入可结算",
+    },
+    {
+      label: "累计佣金",
+      value: fmtMoney(total),
+      icon: Coins,
+      color: "text-emerald-600 bg-emerald-500/10",
+      tip: "累计获得的佣金总额（不含已取消）",
+    },
   ]
 
   if (loading) {
@@ -523,7 +547,7 @@ function OverviewTab({
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {cards.map((c) => (
           <div key={c.label} className="rounded-xl border border-border bg-card p-5 shadow-sm">
             <div className="flex items-center justify-between">
@@ -533,6 +557,7 @@ function OverviewTab({
               </span>
             </div>
             <p className="mt-3 text-2xl font-bold text-foreground">{c.value}</p>
+            <p className="mt-2 text-xs text-muted-foreground">{c.tip}</p>
           </div>
         ))}
       </div>
@@ -1400,14 +1425,38 @@ function WithdrawalsTab({ balance }: { balance: number }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 汇总卡片：总佣金 / 可结算 / 待结算 / 已结算 / 可提现（可提现卡片含申请按钮） */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      {/* 汇总卡片：可提现（含可结算）/ 待结算 / 申请中 / 累计佣金（可提现卡片含申请按钮） */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
-          { label: "总佣金", value: fmtMoney(stats?.total_commission ?? 0), icon: Coins, color: "text-emerald-600 bg-emerald-500/10" },
-          { label: "可结算", value: fmtMoney(stats?.settlable_settlement ?? 0), icon: CheckCircle2, color: "text-purple-600 bg-purple-500/10" },
-          { label: "待结算", value: fmtMoney(stats?.pending_settlement ?? 0), icon: Clock, color: "text-amber-600 bg-amber-500/10" },
-          { label: "已结算", value: fmtMoney(stats?.settled_commission ?? 0), icon: ShieldCheck, color: "text-blue-600 bg-blue-500/10" },
-          { label: "可提现", value: fmtMoney(stats?.available_balance ?? balance ?? 0), icon: Wallet, color: "text-cyan-600 bg-cyan-500/10" },
+          {
+            label: "可提现",
+            value: fmtMoney((stats?.available_balance ?? balance ?? 0) + (stats?.settlable_settlement ?? 0)),
+            icon: Wallet,
+            color: "text-cyan-600 bg-cyan-500/10",
+            tip: `已入账 ${fmtMoney(stats?.available_balance ?? balance ?? 0)} + 可结算 ${fmtMoney(stats?.settlable_settlement ?? 0)}`,
+            action: true,
+          },
+          {
+            label: "待结算",
+            value: fmtMoney(stats?.pending_settlement ?? 0),
+            icon: Clock,
+            color: "text-amber-600 bg-amber-500/10",
+            tip: "订单完成满结算期后自动进入可结算",
+          },
+          {
+            label: "申请中",
+            value: fmtMoney(stats?.withdrawing_settlement ?? 0),
+            icon: ShieldCheck,
+            color: "text-blue-600 bg-blue-500/10",
+            tip: "已申请提现，正在审核/转账",
+          },
+          {
+            label: "累计佣金",
+            value: fmtMoney(stats?.total_commission ?? 0),
+            icon: Coins,
+            color: "text-emerald-600 bg-emerald-500/10",
+            tip: "累计获得的佣金总额（不含已取消）",
+          },
         ].map((c) => (
           <div key={c.label} className="rounded-xl border border-border bg-card p-5 shadow-sm">
             <div className="flex items-center justify-between">
@@ -1417,7 +1466,8 @@ function WithdrawalsTab({ balance }: { balance: number }) {
               </span>
             </div>
             <p className="mt-3 text-2xl font-bold text-foreground">{c.value}</p>
-            {c.label === "可提现" && (
+            <p className="mt-2 text-xs text-muted-foreground">{c.tip}</p>
+            {c.action && (
               <button
                 type="button"
                 onClick={() => setModalOpen(true)}
