@@ -172,12 +172,20 @@ public class AlipayServiceImpl implements AlipayService {
             // 便于与手工脚本(test-alipay-sign.sh)逐字节对比定位差异
             String debugContent = null;
             String debugSign = null;
+            String debugUrl = null;
             try {
                 debugContent = buildSignContent(params, true);
                 String sign = sign(params, config.privateKey());
                 debugSign = sign;
                 params.put("sign", sign);
-                log.info("ALIPAY_TEST content={} sign={}", debugContent, debugSign);
+                // 复刻 postForm 的 URL 构建逻辑，诊断编码后的最终请求（含 body）
+                Map<String, String> q = new LinkedHashMap<>(params);
+                String biz = q.remove("biz_content");
+                UriComponentsBuilder dbgBuilder = UriComponentsBuilder.fromHttpUrl(config.gatewayUrl());
+                q.forEach(dbgBuilder::queryParam);
+                debugUrl = dbgBuilder.build().encode().toUri().toString()
+                        + (biz != null ? " | body=" + biz : "");
+                log.info("ALIPAY_TEST content={} sign={} url={}", debugContent, debugSign, debugUrl);
                 String respBody = postForm(config.gatewayUrl(), params);
                 Map<String, Object> resp = objectMapper.readValue(respBody, new TypeReference<>() {
                 });
@@ -229,7 +237,8 @@ public class AlipayServiceImpl implements AlipayService {
                                     .append(privateKeyFingerprintHint(config.privateKey()))
                                     .append("请核对 AppID 对应的「应用私钥」是否匹配（在开放平台重新生成并上传应用公钥后，使用其配套的私钥），并确认应用「加签方式」为「公钥」（若为「公钥证书」则需使用证书模式，当前系统不支持）")
                                     .append("。系统实际验签串=").append(debugContent)
-                                    .append(" 系统sign=").append(debugSign);
+                                    .append(" 系统sign=").append(debugSign)
+                                    .append(" 系统请求URL=").append(debugUrl);
                         } else if ("isv.invalid-parameter".equals(subCode)) {
                             sb.append("。请求参数无效：请检查 AppID/私钥/公钥粘贴时是否带有多余空格、换行等非法字符");
                         }
