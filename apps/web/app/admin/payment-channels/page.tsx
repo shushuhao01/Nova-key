@@ -67,7 +67,7 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     configFields: [
       { key: "appid", label: "支付应用Appid", placeholder: "支付宝开放平台「开发设置」中的应用Appid" },
       { key: "private_key", label: "支付宝商家私钥", placeholder: "粘贴商家私钥（应用私钥，RSA2，可含 -----BEGIN PRIVATE KEY----- 头）", type: "textarea", sensitive: true },
-      { key: "alipay_public_key", label: "支付宝公钥", placeholder: "粘贴支付宝平台提供的公钥（在开放平台「密钥管理」中获取）", type: "textarea", sensitive: true },
+      { key: "alipay_public_key", label: "支付宝公钥", placeholder: "粘贴开放平台「接口加签方式」页面显示的【支付宝公钥】（支付宝生成，≠ 应用公钥！用于验证支付宝回调签名）", type: "textarea", sensitive: true },
       { key: "sign_type", label: "签名类型", placeholder: "RSA2", readonly: true, readonlyValue: "RSA2" },
       { key: "notify_url", label: "支付回调地址", placeholder: "系统自动生成", readonly: true, copyable: true, hint: "支付成功后支付宝会回调此地址，请确保服务器可访问；请在支付宝开放平台「开发设置」中绑定该回调地址" },
     ],
