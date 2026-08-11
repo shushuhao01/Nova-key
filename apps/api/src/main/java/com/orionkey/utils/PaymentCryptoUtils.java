@@ -73,7 +73,18 @@ public final class PaymentCryptoUtils {
         if (cleaned.contains("BEGIN RSA PUBLIC KEY")) {
             return parsePkcs1PublicKey(base64Decode(stripPem(cleaned, "RSA PUBLIC KEY")));
         }
-        throw new IllegalArgumentException("不支持的公钥格式（需 SPKI 或 PKCS#1 PEM）");
+        // 无 PEM 头：支付宝开放平台「密钥管理」复制的支付宝公钥通常为一行裸 Base64
+        // （2048 位 SPKI 或旧版 1024 位 PKCS#1），自动识别解析
+        try {
+            byte[] der = base64Decode(cleaned.replaceAll("\\s", ""));
+            try {
+                return KeyFactory.getInstance(RSA).generatePublic(new X509EncodedKeySpec(der));
+            } catch (Exception spkiErr) {
+                return parsePkcs1PublicKey(der);
+            }
+        } catch (Exception e) {
+            throw new IllegalArgumentException("不支持的公钥格式（需 SPKI 或 PKCS#1 PEM，或裸 Base64）", e);
+        }
     }
 
     // ── RSA2 签名 / 验签 ──
