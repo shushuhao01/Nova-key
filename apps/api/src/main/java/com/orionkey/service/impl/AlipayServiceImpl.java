@@ -297,6 +297,8 @@ public class AlipayServiceImpl implements AlipayService {
                         respVerifyMsg = "响应验签通过，支付宝公钥正确，支付回调可正常验签发货";
                     } else {
                         respVerifyMsg = "支付宝响应验签失败：当前填写的公钥无法验证支付宝的签名。请在支付宝开放平台「密钥管理」中复制『支付宝公钥』（注意不是『应用公钥』——应用公钥是您私钥配套的公钥，无法验证支付宝的签名）填入本字段"
+                                + " 系统实际验签串=" + content
+                                + " 响应签名=" + respSign
                                 + alipayPublicKeyFingerprintCompare(config);
                     }
                 }
