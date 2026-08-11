@@ -20,8 +20,6 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -89,8 +87,7 @@ public class AlipayServiceImpl implements AlipayService {
         String sign = sign(params, config.privateKey());
         params.put("sign", sign);
 
-        // 与 buildQueryUrl 一致的编码：URLEncoder 把空格编码成 `+`，需替换为 %20，
-        // 否则 timestamp 含 `+` 会被支付宝拒绝（isv.invalid-timestamp）
+        // 与 buildQueryUrl 一致的编码（alipayEncode）：对齐手工 curl，避免 timestamp 被网关拒绝
         StringBuilder url = new StringBuilder(config.gatewayUrl());
         url.append(config.gatewayUrl().contains("?") ? "&" : "?");
         boolean first = true;
@@ -98,8 +95,7 @@ public class AlipayServiceImpl implements AlipayService {
             if (!first) url.append('&');
             first = false;
             url.append(entry.getKey()).append('=')
-                    .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8)
-                            .replace("+", "%20"));
+                    .append(alipayEncode(entry.getValue()));
         }
         log.info("Alipay wap pay url built: outTradeNo={}", outTradeNo);
         return url.toString();
@@ -446,14 +442,15 @@ public class AlipayServiceImpl implements AlipayService {
     }
 
     /**
-     * 构建网关请求 URL：query 参数按"百分号编码（RFC 3986）+ 空格转 %20"逐个拼接。
-     * 注意：
-     * 1. 不能用 UriComponentsBuilder.encode() —— 它保留 `+` 与 `/`，而支付宝网关按表单规则
-     *    解码 query（`+` → 空格），会把 sign 里的 `+` 破坏成空格导致 isv.invalid-signature；
-     * 2. 不能直接用 URLEncoder.encode() —— 它把空格编码成 `+`，支付宝解析 timestamp 时不
-     *    解码 `+`，时间戳含 `+` 会报 isv.invalid-timestamp。
-     * 正确做法：表单编码后把 `+` 替换为 `%20`（空格→%20、`+`→%2B、`/`→%2F、`=`→%3D），
-     * 与手工验证通过的 curl 请求编码完全一致。
+     * 构建网关请求 URL：query 参数逐字节对齐手工验证通过的 curl 请求（test-alipay-sign.sh）。
+     * 编码规则（alipayEncode）：仅转义空格（→%20）与 sign 的 base64 特殊字符（+ → %2B、
+     * / → %2F、= → %3D），其余字符（冒号、字母数字、-、_ 等）保持原样。
+     * 踩坑记录：
+     * 1. UriComponentsBuilder.encode() —— 保留 `+` 与 `/`，sign 里的 `+` 未编码被网关当空格，
+     *    报 isv.invalid-signature；
+     * 2. URLEncoder.encode() —— 把空格编成 `+`（网关不解码 `+`）→ isv.invalid-timestamp；
+     *    把冒号也编成 %3A → 实测仍偶发 isv.invalid-timestamp。
+     * 手工脚本只把空格转 %20、sign 特殊字符转义即可通过，系统按同样规则拼接。
      */
     private String buildQueryUrl(String url, Map<String, String> params) {
         StringBuilder sb = new StringBuilder(url);
@@ -462,10 +459,19 @@ public class AlipayServiceImpl implements AlipayService {
             sb.append(first ? '?' : '&');
             first = false;
             sb.append(entry.getKey()).append('=')
-                    .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8)
-                            .replace("+", "%20"));
+                    .append(alipayEncode(entry.getValue()));
         }
         return sb.toString();
+    }
+
+    /**
+     * 与手工 curl 一致的 query 值编码：空格→%20、+→%2B、/→%2F、=→%3D，其余原样。
+     */
+    private static String alipayEncode(String value) {
+        return value.replace(" ", "%20")
+                .replace("+", "%2B")
+                .replace("/", "%2F")
+                .replace("=", "%3D");
     }
 
     private String postForm(String url, Map<String, String> params) {
