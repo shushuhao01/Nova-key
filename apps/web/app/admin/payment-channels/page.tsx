@@ -66,7 +66,7 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     channels: [{ code: "alipay", name: "支付宝" }],
     configFields: [
       { key: "appid", label: "支付应用Appid", placeholder: "支付宝开放平台「开发设置」中的应用Appid" },
-      { key: "private_key", label: "支付宝商家私钥", placeholder: "粘贴商家私钥（应用私钥，RSA2，可含 -----BEGIN PRIVATE KEY----- 头）", type: "textarea", sensitive: true },
+      { key: "private_key", label: "支付宝商家私钥", placeholder: "粘贴商家私钥（应用私钥，RSA2，可含 -----BEGIN PRIVATE KEY----- 头）", hint: "即支付宝官方「密钥生成工具」生成的应用私钥（须与上传到开放平台的应用公钥配套）", type: "textarea", sensitive: true },
       { key: "alipay_public_key", label: "支付宝公钥", placeholder: "粘贴开放平台「接口加签方式」页面显示的【支付宝公钥】（支付宝生成，≠ 应用公钥！用于验证支付宝回调签名）", type: "textarea", sensitive: true },
       { key: "sign_type", label: "签名类型", placeholder: "RSA2", readonly: true, readonlyValue: "RSA2" },
       { key: "notify_url", label: "支付回调地址", placeholder: "系统自动生成", readonly: true, copyable: true, hint: "支付成功后支付宝会回调此地址，请确保服务器可访问；请在支付宝开放平台「开发设置」中绑定该回调地址" },
@@ -819,17 +819,22 @@ export default function AdminPaymentChannelsPage() {
                       )}
                     </div>
                   ) : field.type === "textarea" ? (
-                    <textarea
-                      rows={4}
-                      readOnly={field.readonly}
-                      className={cn(
-                        "w-full resize-y rounded-md border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
-                        field.readonly ? "cursor-not-allowed border-dashed bg-muted/50 text-muted-foreground" : "border-input"
+                    <>
+                      <textarea
+                        rows={4}
+                        readOnly={field.readonly}
+                        className={cn(
+                          "w-full resize-y rounded-md border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
+                          field.readonly ? "cursor-not-allowed border-dashed bg-muted/50 text-muted-foreground" : "border-input"
+                        )}
+                        placeholder={field.placeholder}
+                        value={fieldValue}
+                        onChange={(e) => handleConfigChange(field.key, e.target.value)}
+                      />
+                      {field.hint && (
+                        <span className="text-[11px] text-muted-foreground">{field.hint}</span>
                       )}
-                      placeholder={field.placeholder}
-                      value={fieldValue}
-                      onChange={(e) => handleConfigChange(field.key, e.target.value)}
-                    />
+                    </>
                   ) : field.type === "switch" ? (
                     <div className="flex items-center gap-3">
                       <button
