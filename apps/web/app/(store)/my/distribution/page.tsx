@@ -7,7 +7,7 @@ import {
   ChevronLeft, ChevronRight, AlertCircle, UserPlus, Store, QrCode,
   ShoppingBag, ChevronRight as ChevronRightIcon, ScrollText, Percent,
   Layers, Users, HandCoins, ShieldCheck, Shield, Download,
-  Image as ImageIcon, ExternalLink, Eye, ShoppingCart,
+  Image as ImageIcon, ExternalLink, Eye, ShoppingCart, CheckCircle2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale } from "@/lib/context"
@@ -43,6 +43,36 @@ const commissionStatusMap: Record<CommissionStatus, { label: string; cls: string
   WITHDRAWN: { label: "已提现", cls: "bg-cyan-500/10 text-cyan-600" },
   REJECTED: { label: "结算拒绝", cls: "bg-orange-500/10 text-orange-600" },
   CANCELLED: { label: "已取消", cls: "bg-red-500/10 text-red-500" },
+}
+
+/** 佣金状态徽标（含"可结算"：待结算中订单已完成且超过结算延迟期，可直接勾选提现；感叹号图标悬浮提示 N 天） */
+function getCommissionBadge(c: any): { label: string; cls: string; tip?: string } {
+  if (c?.status === "PENDING" && c?.settlable) {
+    const n = Number(c?.settle_delay_days ?? 0)
+    return {
+      label: "可结算",
+      cls: "bg-purple-500/10 text-purple-600",
+      tip: n > 0 ? `订单支付完成并确认收货后 ${n} 天可申请结算提现` : "订单完成超过结算延迟期后可申请结算提现",
+    }
+  }
+  return commissionStatusMap[c?.status as CommissionStatus] || { label: c?.status || "—", cls: "bg-muted text-muted-foreground" }
+}
+
+function CommissionBadge({ c, small }: { c: any; small?: boolean }) {
+  const b = getCommissionBadge(c)
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full font-medium",
+        small ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-0.5 text-xs",
+        b.cls
+      )}
+      title={b.tip}
+    >
+      {b.label}
+      {b.tip && <AlertCircle className="h-3 w-3 shrink-0" />}
+    </span>
+  )
 }
 
 const withdrawalStatusMap: Record<WithdrawalStatus, { label: string; cls: string }> = {
@@ -377,6 +407,7 @@ function ApplyDistributorForm({ onApplied, compact }: { onApplied: () => void; c
 interface OverviewStats {
   available_balance?: number
   pending_settlement?: number
+  settlable_settlement?: number
   total_commission?: number
   total_sales?: number
   settled_commission?: number
@@ -444,11 +475,13 @@ function OverviewTab({
   const s = stats || {}
   const available = s.available_balance ?? profile.available_balance ?? 0
   const pending = s.pending_settlement ?? profile.pending_settlement ?? 0
+  const settlable = s.settlable_settlement ?? 0
   const total = s.total_commission ?? profile.total_commission ?? 0
   const sales = s.total_sales ?? 0
 
   const cards = [
     { label: range === "month" ? "本月成交额" : "累计成交额", value: fmtMoney(sales), icon: BarChart3, color: "text-blue-600 bg-blue-500/10" },
+    { label: "可结算", value: fmtMoney(settlable), icon: CheckCircle2, color: "text-purple-600 bg-purple-500/10" },
     { label: "待结算佣金", value: fmtMoney(pending), icon: Clock, color: "text-amber-600 bg-amber-500/10" },
     { label: "累计佣金", value: fmtMoney(total), icon: Coins, color: "text-emerald-600 bg-emerald-500/10" },
     { label: "可提现余额", value: fmtMoney(available), icon: Wallet, color: "text-cyan-600 bg-cyan-500/10" },
@@ -490,7 +523,7 @@ function OverviewTab({
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         {cards.map((c) => (
           <div key={c.label} className="rounded-xl border border-border bg-card p-5 shadow-sm">
             <div className="flex items-center justify-between">
@@ -558,7 +591,6 @@ function OverviewTab({
               <div className="py-10 text-center text-sm text-muted-foreground">{t("common.noData")}</div>
             ) : (
               recentCommissions.map((c) => {
-                const st = commissionStatusMap[c.status as CommissionStatus] || { label: c.status, cls: "bg-muted text-muted-foreground" }
                 return (
                   <div key={c.id} className="flex items-center justify-between px-5 py-3">
                     <div className="min-w-0">
@@ -567,9 +599,9 @@ function OverviewTab({
                     </div>
                     <div className="ml-3 shrink-0 text-right">
                       <p className="text-sm font-semibold text-emerald-600">{fmtMoney(c.commission_amount ?? c.amount ?? 0)}</p>
-                      <span className={cn("mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium", st.cls)}>
-                        {st.label}
-                      </span>
+                      <div className="mt-0.5 flex justify-end">
+                        <CommissionBadge c={c} small />
+                      </div>
                     </div>
                   </div>
                 )
@@ -651,6 +683,7 @@ function OverviewTab({
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">价格</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金比例</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">结算状态</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">推广员</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">付款时间</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">订单状态</th>
@@ -674,6 +707,9 @@ function OverviewTab({
                         <td className="px-4 py-3 text-muted-foreground">{fmtMoney(o.product_price)}</td>
                         <td className="px-4 py-3 text-muted-foreground">{Number(o.commission_rate || 0).toFixed(2)}%</td>
                         <td className="px-4 py-3 font-medium text-emerald-600">{fmtMoney(o.commission_amount)}</td>
+                        <td className="px-4 py-3">
+                          <CommissionBadge c={o} small />
+                        </td>
                         <td className="px-4 py-3">
                           <span className={cn(
                             "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium",
@@ -1195,7 +1231,6 @@ function CommissionsTab() {
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div className="divide-y divide-border">
             {list.map((c) => {
-              const st = commissionStatusMap[c.status as CommissionStatus] || { label: c.status, cls: "bg-muted text-muted-foreground" }
               const amount = Number(c.commission_amount ?? c.amount ?? 0)
               const rate = Number(c.rate ?? c.commission_rate_percent ?? c.commission_rate ?? 0)
               return (
@@ -1220,9 +1255,9 @@ function CommissionsTab() {
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="text-sm font-semibold text-emerald-600">{fmtMoney(amount)}</p>
-                    <span className={cn("mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium", st.cls)}>
-                      {st.label}
-                    </span>
+                    <div className="mt-1 flex justify-end">
+                      <CommissionBadge c={c} small />
+                    </div>
                   </div>
                 </div>
               )
@@ -1365,10 +1400,11 @@ function WithdrawalsTab({ balance }: { balance: number }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 汇总卡片：总佣金 / 待结算 / 已结算 / 可提现（可提现卡片含申请按钮） */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {/* 汇总卡片：总佣金 / 可结算 / 待结算 / 已结算 / 可提现（可提现卡片含申请按钮） */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         {[
           { label: "总佣金", value: fmtMoney(stats?.total_commission ?? 0), icon: Coins, color: "text-emerald-600 bg-emerald-500/10" },
+          { label: "可结算", value: fmtMoney(stats?.settlable_settlement ?? 0), icon: CheckCircle2, color: "text-purple-600 bg-purple-500/10" },
           { label: "待结算", value: fmtMoney(stats?.pending_settlement ?? 0), icon: Clock, color: "text-amber-600 bg-amber-500/10" },
           { label: "已结算", value: fmtMoney(stats?.settled_commission ?? 0), icon: ShieldCheck, color: "text-blue-600 bg-blue-500/10" },
           { label: "可提现", value: fmtMoney(stats?.available_balance ?? balance ?? 0), icon: Wallet, color: "text-cyan-600 bg-cyan-500/10" },
@@ -1687,6 +1723,9 @@ function WithdrawalModal({
   const selectedOrders = orders.filter((o) => checked[o.order_id])
   const selectedAmount = selectedOrders.reduce((s, o) => s + (Number(o.commission_amount) || 0), 0)
   const allChecked = orders.length > 0 && orders.every((o) => checked[o.order_id])
+  // 可结算部分（订单已完成但超过结算期，尚未入账）可直接勾选提现；可提现余额展示口径 = 已入账余额 + 可结算
+  const settlableAmount = orders.filter((o) => o.settlable).reduce((s, o) => s + (Number(o.commission_amount) || 0), 0)
+  const displayBalance = Number(balance || 0) + settlableAmount
 
   const toggleAll = () => {
     const next = !allChecked
@@ -1705,7 +1744,7 @@ function WithdrawalModal({
       toast.error("请选择要提现的订单")
       return
     }
-    if (selectedAmount > balance) {
+    if (selectedAmount > displayBalance) {
       toast.error("提现金额不能超过可提现余额")
       return
     }
@@ -1739,10 +1778,10 @@ function WithdrawalModal({
         <div className="border-b border-border bg-muted/40 px-5 py-3 text-sm">
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">可提现余额</span>
-            <span className="font-bold text-foreground">{fmtMoney(balance)}</span>
+            <span className="font-bold text-foreground">{fmtMoney(displayBalance)}</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            勾选已结算的订单后申请提现，提现后对应订单佣金标记为「申请中」，到账后变为「已提现」。
+            勾选「可结算」或「已结算」的订单后申请提现；可结算订单提现后直接标记为「申请中」，其余正常记录勾选多少即汇总申请多少。
           </p>
         </div>
 
@@ -1754,12 +1793,15 @@ function WithdrawalModal({
           ) : orders.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-12 text-sm text-muted-foreground">
               <Package className="h-8 w-8 opacity-40" />
-              暂无可提现订单，待结算佣金结算后可提现
+              暂无可结算或已结算的订单，待结算佣金满足结算期后可提现
             </div>
           ) : (
             <>
               <div className="mb-3 flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">共 {orders.length} 笔可提现订单</span>
+                <span className="text-sm text-muted-foreground">
+                  共 {orders.length} 笔可提现订单
+                  {settlableAmount > 0 && <span className="text-purple-600">（含 {fmtMoney(settlableAmount)} 可结算）</span>}
+                </span>
                 <button
                   type="button"
                   onClick={toggleAll}
@@ -1783,9 +1825,13 @@ function WithdrawalModal({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="truncate text-sm font-medium text-foreground">{o.product_title || "—"}</p>
-                        <span className="inline-flex shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
-                          可提现
-                        </span>
+                        {o.settlable ? (
+                          <CommissionBadge c={o} small />
+                        ) : (
+                          <span className="inline-flex shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
+                            可提现
+                          </span>
+                        )}
                       </div>
                       <p className="mt-0.5 font-mono text-xs text-muted-foreground">订单 {String(o.order_id || "").slice(0, 8)}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">

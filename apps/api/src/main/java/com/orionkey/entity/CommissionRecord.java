@@ -67,4 +67,11 @@ public class CommissionRecord extends BaseEntity {
     /** 上级抽成金额 */
     @Column(precision = 12, scale = 2)
     private BigDecimal parentCommissionAmount;
+
+    /**
+     * 是否可结算（展示用，非持久化）：PENDING 状态下，订单已完成且完成时间超过结算延迟期即为可结算。
+     * 由服务层批量计算（enrichSettlable），未计算时视为 false。
+     */
+    @Transient
+    private Boolean settlable;
 }

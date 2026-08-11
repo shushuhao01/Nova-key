@@ -3,6 +3,7 @@ package com.orionkey.service.impl;
 import com.orionkey.constant.CommissionStatus;
 import com.orionkey.constant.DistributorStatus;
 import com.orionkey.constant.ErrorCode;
+import com.orionkey.constant.OrderStatus;
 import com.orionkey.constant.WithdrawalStatus;
 import com.orionkey.entity.*;
 import com.orionkey.exception.BusinessException;
@@ -195,6 +196,13 @@ public class DistributionServiceImpl implements DistributionService {
         BigDecimal pendingCommission = from != null
                 ? nullSafe(commissionRecordRepository.sumByDistributorAndStatusSince(distId, CommissionStatus.PENDING, from))
                 : nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(distId, CommissionStatus.PENDING));
+        // 可结算部分：待结算中订单已完成且超过结算延迟期的（可直接申请提现）。区间统计按佣金创建时间同口径过滤，避免"待结算"出现负数
+        BigDecimal settlableCommission = from != null
+                ? nullSafe(commissionRecordRepository.sumSettlablePendingByDistributorSince(distId, settleCutoff(), from))
+                : nullSafe(commissionRecordRepository.sumSettlablePendingByDistributor(distId, settleCutoff()));
+        // 可提现余额口径始终取全时段可结算（余额为存量，不受统计区间影响）
+        BigDecimal allSettlable = nullSafe(commissionRecordRepository
+                .sumSettlablePendingByDistributor(distId, settleCutoff()));
         BigDecimal totalCommission = from != null
                 ? nullSafe(commissionRecordRepository.sumTotalByDistributorSince(distId, from))
                 : nullSafe(commissionRecordRepository.sumTotalByDistributorAll(distId));
@@ -214,10 +222,15 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("total_sales", sales.setScale(2, RoundingMode.HALF_UP));
         // 兼容旧字段 pending_commission（历史前端/脚本），新字段 pending_settlement 与前端对齐
         m.put("pending_commission", pendingCommission.setScale(2, RoundingMode.HALF_UP));
-        m.put("pending_settlement", pendingCommission.setScale(2, RoundingMode.HALF_UP));
+        // 待结算 = 不满足结算期（订单完成未满 N 天）的待结算佣金；扣除可结算部分，最小为 0
+        m.put("pending_settlement", pendingCommission.subtract(settlableCommission).max(BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP));
+        // 可结算：待结算中订单已完成且超过结算延迟期（可直接勾选提现），展示口径含在可提现余额中
+        m.put("settlable_settlement", settlableCommission.setScale(2, RoundingMode.HALF_UP));
         m.put("total_commission", totalCommission.setScale(2, RoundingMode.HALF_UP));
         m.put("settled_commission", settledCommission.setScale(2, RoundingMode.HALF_UP));
-        m.put("available_balance", d.getAvailableBalance());
+        // 可提现余额（展示口径）= 已入账余额 + 全时段可结算（可结算部分可直接申请提现）
+        m.put("available_balance", d.getAvailableBalance().add(allSettlable).setScale(2, RoundingMode.HALF_UP));
         m.put("withdrawn_amount", d.getWithdrawnAmount());
         m.put("subordinate_count", subCount);
         m.put("customer_count", customerCount);
@@ -592,8 +605,13 @@ public class DistributionServiceImpl implements DistributionService {
         Map<UUID, User> userMap = userIds.isEmpty() ? Map.of()
                 : userRepository.findAllById(userIds).stream().collect(Collectors.toMap(User::getId, u -> u));
 
+        // 计算"可结算"状态（PENDING + 订单已完成且超过结算延迟期），并带出结算延迟天数供前端悬浮提示
+        enrichSettlable(cp.getContent());
+        int delayDays = settleDelayDays();
+
         List<Map<String, Object>> items = cp.getContent().stream().map(cr -> {
             Map<String, Object> m = commissionToMap(cr);
+            m.put("settle_delay_days", delayDays);
             Distributor d = distMap.get(cr.getDistributorId());
             m.put("distributor_code", d != null ? d.getDistributorCode() : null);
             m.put("distributor_name", d != null && userMap.get(d.getUserId()) != null ? userMap.get(d.getUserId()).getUsername() : null);
@@ -610,11 +628,18 @@ public class DistributionServiceImpl implements DistributionService {
         BigDecimal totalCommission = nullSafe(commissionRecordRepository
                 .sumCommissionAmountBetween(RANGE_FROM_MIN, RANGE_TO_MAX));
         BigDecimal pendingTotal = BigDecimal.ZERO;
+        BigDecimal settlableTotal = BigDecimal.ZERO;
         BigDecimal settledTotal = BigDecimal.ZERO;
         BigDecimal cancelledTotal = BigDecimal.ZERO;
+        LocalDateTime cutoff = settleCutoff();
 
         for (Distributor d : all) {
-            pendingTotal = pendingTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.PENDING)));
+            BigDecimal pending = nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.PENDING));
+            pendingTotal = pendingTotal.add(pending);
+            // 可结算部分：待结算中订单已完成且超过结算延迟期的（可提前申请提现）
+            BigDecimal settlable = nullSafe(commissionRecordRepository
+                    .sumSettlablePendingByDistributor(d.getId(), cutoff));
+            settlableTotal = settlableTotal.add(settlable);
             // 已结算口径含申请中/已提现（提现不使金额"消失"）
             settledTotal = settledTotal
                     .add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.SETTLED)))
@@ -630,7 +655,9 @@ public class DistributionServiceImpl implements DistributionService {
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("total_commission", totalCommission.setScale(2, RoundingMode.HALF_UP));
-        m.put("pending_commission", pendingTotal.setScale(2, RoundingMode.HALF_UP));
+        // 待结算 = 不满足结算期（扣除可结算部分）
+        m.put("pending_commission", pendingTotal.subtract(settlableTotal).setScale(2, RoundingMode.HALF_UP));
+        m.put("settlable_commission", settlableTotal.setScale(2, RoundingMode.HALF_UP));
         m.put("settled_commission", settledTotal.setScale(2, RoundingMode.HALF_UP));
         m.put("cancelled_commission", cancelledTotal.setScale(2, RoundingMode.HALF_UP));
         m.put("today_commission", todayTotal.setScale(2, RoundingMode.HALF_UP));
@@ -1502,8 +1529,15 @@ public class DistributionServiceImpl implements DistributionService {
         Set<String> parentItemKeys = commissionRecordRepository.findParentCommissionItemKeys(me).stream()
                 .map(row -> String.valueOf(row[0]) + ":" + String.valueOf(row[1]))
                 .collect(Collectors.toSet());
+        // 计算"可结算"状态（PENDING + 订单已完成且超过结算延迟期），并带出延迟天数供前端悬浮提示
+        enrichSettlable(cp.getContent());
+        int delayDays = settleDelayDays();
         List<Map<String, Object>> items = cp.getContent().stream()
-                .map(cr -> commissionDetailToMap(cr, me, parentItemKeys))
+                .map(cr -> {
+                    Map<String, Object> m = commissionDetailToMap(cr, me, parentItemKeys);
+                    m.put("settle_delay_days", delayDays);
+                    return m;
+                })
                 .toList();
         return pageResult(items, cp.getTotalElements(), page, pageSize);
     }
@@ -1522,6 +1556,9 @@ public class DistributionServiceImpl implements DistributionService {
         Set<String> parentItemKeys = commissionRecordRepository.findParentCommissionItemKeys(me).stream()
                 .map(row -> String.valueOf(row[0]) + ":" + String.valueOf(row[1]))
                 .collect(Collectors.toSet());
+        // 计算"可结算"状态，供"最近推广成交订单"展示结算状态列
+        enrichSettlable(cp.getContent());
+        int delayDays = settleDelayDays();
 
         List<Map<String, Object>> items = cp.getContent().stream().map(cr -> {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -1535,6 +1572,8 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("source_type", fromSub ? "SUB" : "SELF");
             m.put("commission_amount", cr.getCommissionAmount());
             m.put("status", cr.getStatus().name());
+            m.put("settlable", Boolean.TRUE.equals(cr.getSettlable()));
+            m.put("settle_delay_days", delayDays);
             m.put("created_at", cr.getCreatedAt());
             orderRepository.findById(cr.getOrderId()).ifPresent(o -> {
                 m.put("order_status", o.getStatus().name());
@@ -1572,31 +1611,47 @@ public class DistributionServiceImpl implements DistributionService {
         if (commissionRecordIds == null || commissionRecordIds.isEmpty()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "请选择要提现的订单");
         }
-        // 去重后校验归属与状态，汇总提现金额（订单级提现：以勾选的已结算佣金记录为准）
+        // 去重后校验归属（订单级提现：以勾选的已结算/可结算佣金记录为准）
         List<UUID> ids = commissionRecordIds.stream().distinct().toList();
         List<CommissionRecord> records = commissionRecordRepository.findByIdIn(ids);
         if (records.size() != ids.size()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "部分佣金记录不存在，请刷新后重试");
         }
-        BigDecimal amount = BigDecimal.ZERO;
         for (CommissionRecord cr : records) {
             if (!cr.getDistributorId().equals(d.getId())) {
                 throw new BusinessException(ErrorCode.BAD_REQUEST, "存在非本人的佣金记录");
             }
-            // 已结算可提现；结算拒绝的（提现被拒）也可重新勾选
-            if (cr.getStatus() != CommissionStatus.SETTLED && cr.getStatus() != CommissionStatus.REJECTED) {
+        }
+
+        // S7: 悲观行锁 — 防止并发提现超扣余额（余额检查→扣减必须原子化）
+        Distributor locked = distributorRepository.findByIdWithLock(d.getId()).orElse(d);
+
+        // 加锁后重读佣金记录：与结算定时任务串行化（双方都先锁分销员行），避免并发导致同一笔佣金重复入账
+        records = commissionRecordRepository.findByIdIn(ids);
+        enrichSettlable(records);
+
+        BigDecimal amount = BigDecimal.ZERO;
+        BigDecimal needSettle = BigDecimal.ZERO; // 可结算但尚未自动结算的部分（PENDING，暂不在可提现余额中）
+        for (CommissionRecord cr : records) {
+            // 已结算/结算拒绝可提现；待结算中订单已完成且超过结算延迟期的"可结算"也可直接提现
+            if (cr.getStatus() == CommissionStatus.PENDING) {
+                if (!Boolean.TRUE.equals(cr.getSettlable())) {
+                    throw new BusinessException(ErrorCode.BAD_REQUEST, "存在不可提现的订单，请刷新后重试");
+                }
+                needSettle = needSettle.add(cr.getCommissionAmount());
+            } else if (cr.getStatus() != CommissionStatus.SETTLED && cr.getStatus() != CommissionStatus.REJECTED) {
                 throw new BusinessException(ErrorCode.BAD_REQUEST, "存在不可提现的订单，请刷新后重试");
             }
             amount = amount.add(cr.getCommissionAmount());
         }
 
-        // S7: 悲观行锁 — 防止并发提现超扣余额（余额检查→扣减必须原子化）
-        Distributor locked = distributorRepository.findByIdWithLock(d.getId()).orElse(d);
         DistributionRule rule = getOrCreateRule();
         if (amount.compareTo(rule.getMinWithdrawAmount()) < 0) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "提现金额不能低于最低提现金额 " + rule.getMinWithdrawAmount());
         }
-        if (locked.getAvailableBalance().compareTo(amount) < 0) {
+        // 余额校验只需覆盖已入账部分；可结算部分在申请时先按结算口径入账（available 不变，仅计入累计佣金与冻结）
+        BigDecimal inBalance = amount.subtract(needSettle);
+        if (locked.getAvailableBalance().compareTo(inBalance) < 0) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "可提现余额不足");
         }
 
@@ -1604,9 +1659,12 @@ public class DistributionServiceImpl implements DistributionService {
         BigDecimal fee = amount.multiply(nullSafe(rule.getWithdrawFeeRate())).setScale(2, RoundingMode.HALF_UP);
         BigDecimal actualAmount = amount.subtract(fee).setScale(2, RoundingMode.HALF_UP);
 
-        // 冻结金额
-        locked.setAvailableBalance(locked.getAvailableBalance().subtract(amount));
+        // 冻结金额：已入账部分从可提现余额扣减，可结算部分直接进入冻结；可结算部分按结算口径计入累计佣金
+        locked.setAvailableBalance(locked.getAvailableBalance().subtract(inBalance));
         locked.setFrozenBalance(locked.getFrozenBalance().add(amount));
+        if (needSettle.signum() > 0) {
+            locked.setTotalCommission(locked.getTotalCommission().add(needSettle));
+        }
         distributorRepository.save(locked);
 
         // 创建提现记录
@@ -1619,8 +1677,11 @@ public class DistributionServiceImpl implements DistributionService {
         wr.setAppliedAt(LocalDateTime.now());
         withdrawalRecordRepository.save(wr);
 
-        // 佣金记录 → 申请中，关联提现单
+        // 佣金记录 → 申请中，关联提现单；可结算（PENDING）部分记录实际结算时间
         for (CommissionRecord cr : records) {
+            if (cr.getStatus() == CommissionStatus.PENDING) {
+                cr.setSettledAt(LocalDateTime.now());
+            }
             cr.setStatus(CommissionStatus.WITHDRAWING);
             cr.setWithdrawalId(wr.getId());
             commissionRecordRepository.save(cr);
@@ -1661,17 +1722,26 @@ public class DistributionServiceImpl implements DistributionService {
     @Transactional(readOnly = true)
     public List<Map<String, Object>> getWithdrawableOrders(UUID userId) {
         Distributor d = requireDistributorByUserId(userId);
-        // 已结算可提现 + 结算拒绝（被拒后金额退回可提现，可重新勾选）
+        // 可提现范围：已结算 + 结算拒绝（被拒后金额退回可提现，可重新勾选）+ 可结算（PENDING 但订单已完成且超过结算延迟期）
         List<CommissionRecord> records = commissionRecordRepository
                 .findByDistributorIdAndStatusInOrderByCreatedAtDesc(d.getId(),
-                        List.of(CommissionStatus.SETTLED, CommissionStatus.REJECTED));
+                        List.of(CommissionStatus.SETTLED, CommissionStatus.REJECTED, CommissionStatus.PENDING));
         if (records.isEmpty()) {
             return List.of();
         }
+        // 计算可结算状态后，过滤掉未满足结算期的待结算佣金
+        enrichSettlable(records);
+        List<CommissionRecord> eligible = records.stream()
+                .filter(cr -> cr.getStatus() != CommissionStatus.PENDING || Boolean.TRUE.equals(cr.getSettlable()))
+                .toList();
+        if (eligible.isEmpty()) {
+            return List.of();
+        }
         // 按订单分组：一个订单可能含多笔佣金（多商品/多阶梯/上下级抽成）
-        Map<UUID, List<CommissionRecord>> byOrder = records.stream()
+        Map<UUID, List<CommissionRecord>> byOrder = eligible.stream()
                 .collect(Collectors.groupingBy(CommissionRecord::getOrderId, LinkedHashMap::new, Collectors.toList()));
 
+        int delayDays = settleDelayDays();
         List<Map<String, Object>> items = new ArrayList<>();
         for (Map.Entry<UUID, List<CommissionRecord>> e : byOrder.entrySet()) {
             List<CommissionRecord> crs = e.getValue();
@@ -1680,10 +1750,14 @@ public class DistributionServiceImpl implements DistributionService {
             List<UUID> recordIds = new ArrayList<>();
             String productTitles = crs.stream().map(CommissionRecord::getProductTitle)
                     .filter(t -> t != null && !t.isBlank()).distinct().limit(3).collect(Collectors.joining("、"));
+            boolean anySettlable = false;
             for (CommissionRecord cr : crs) {
                 orderAmount = orderAmount.add(nullSafe(cr.getOrderAmount()));
                 commission = commission.add(cr.getCommissionAmount());
                 recordIds.add(cr.getId());
+                if (cr.getStatus() == CommissionStatus.PENDING && Boolean.TRUE.equals(cr.getSettlable())) {
+                    anySettlable = true;
+                }
             }
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("order_id", e.getKey());
@@ -1691,6 +1765,9 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("order_amount", orderAmount.setScale(2, RoundingMode.HALF_UP));
             m.put("commission_amount", commission.setScale(2, RoundingMode.HALF_UP));
             m.put("commission_record_ids", recordIds);
+            // true=该订单含"可结算"（未自动结算但满足结算期），前端展示"可结算"标签
+            m.put("settlable", anySettlable);
+            m.put("settle_delay_days", delayDays);
             m.put("created_at", crs.get(0).getCreatedAt());
             items.add(m);
         }
@@ -2149,6 +2226,16 @@ public class DistributionServiceImpl implements DistributionService {
                         distributorRepository.findById(id).orElse(null));
                 if (d == null) continue;
 
+                // 与"申请提现"串行化：申请提现同样先锁分销员行，此处加锁后重读佣金状态，
+                // 若已被并发提现（转 WITHDRAWING）或取消（CANCELLED）则跳过，避免重复入账
+                Distributor locked = distributorRepository.findByIdWithLock(d.getId()).orElse(d);
+                CommissionRecord fresh = commissionRecordRepository.findById(cr.getId()).orElse(null);
+                if (fresh == null || fresh.getStatus() != CommissionStatus.PENDING) {
+                    continue;
+                }
+                cr = fresh;
+                d = locked;
+
                 cr.setStatus(CommissionStatus.SETTLED);
                 cr.setSettledAt(LocalDateTime.now());
                 commissionRecordRepository.save(cr);
@@ -2388,6 +2475,40 @@ public class DistributionServiceImpl implements DistributionService {
             log.info("Default distribution rule created");
             return r;
         });
+    }
+
+    /** 结算延迟天数（只读场景安全读取，无规则时用默认 7 天） */
+    private int settleDelayDays() {
+        return ruleRepository.getRule().map(DistributionRule::getSettleDelayDays).orElse(7);
+    }
+
+    /** 结算截止时间：订单完成时间早于此时间才可结算（即"完成后 N 天"） */
+    private LocalDateTime settleCutoff() {
+        return LocalDateTime.now().minusDays(settleDelayDays());
+    }
+
+    /**
+     * 批量计算佣金记录是否"可结算"（展示用）：
+     * 仅对 PENDING 判定——订单已完成（COMPLETED）且完成时间早于结算截止时间；
+     * 其余状态（已结算/申请中/已提现/结算拒绝/已取消）不可结算，置 false。
+     */
+    private void enrichSettlable(List<CommissionRecord> records) {
+        if (records == null || records.isEmpty()) {
+            return;
+        }
+        LocalDateTime cutoff = settleCutoff();
+        Set<UUID> orderIds = records.stream().map(CommissionRecord::getOrderId).collect(Collectors.toSet());
+        Map<UUID, Order> orderMap = orderIds.isEmpty() ? Map.of()
+                : orderRepository.findAllById(orderIds).stream().collect(Collectors.toMap(Order::getId, o -> o));
+        for (CommissionRecord cr : records) {
+            if (cr.getStatus() != CommissionStatus.PENDING) {
+                cr.setSettlable(false);
+                continue;
+            }
+            Order o = orderMap.get(cr.getOrderId());
+            cr.setSettlable(o != null && o.getStatus() == OrderStatus.COMPLETED
+                    && o.getCompletedAt() != null && o.getCompletedAt().isBefore(cutoff));
+        }
     }
 
     private Distributor requireDistributorByUserId(UUID userId) {
@@ -2779,6 +2900,9 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("wechat_bound", d.getWechatOpenid() != null && !d.getWechatOpenid().isBlank());
         m.put("total_commission", d.getTotalCommission());
         m.put("available_balance", d.getAvailableBalance());
+        // 可结算余额（待结算中订单已完成且超过结算延迟期，可直接申请提现，未计入可提现余额账本）
+        m.put("settlable_balance", nullSafe(commissionRecordRepository
+                .sumSettlablePendingByDistributor(d.getId(), settleCutoff())).setScale(2, RoundingMode.HALF_UP));
         m.put("frozen_balance", d.getFrozenBalance());
         m.put("withdrawn_amount", d.getWithdrawnAmount());
         m.put("invite_code", d.getInviteCode());
@@ -2864,6 +2988,7 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("settled_at", cr.getSettledAt());
         m.put("created_at", cr.getCreatedAt());
         m.put("withdrawal_id", cr.getWithdrawalId());
+        m.put("settlable", Boolean.TRUE.equals(cr.getSettlable()));
         return m;
     }
 

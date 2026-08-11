@@ -7,7 +7,7 @@ import {
   Clock, CheckCircle2, UserCheck, UserX, Percent, RefreshCw, ShoppingBag,
   HandCoins, Loader2, ScrollText, ShieldCheck, Layers, CalendarRange,
   ArrowUpRight, ArrowDownRight, Eye, User, AtSign, KeyRound, Link2,
-  Crown, Users,
+  Crown, Users, AlertCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -157,6 +157,10 @@ interface CommissionRecord {
   status: CommissionStatus
   created_at: string
   settled_at: string | null
+  /** 是否可结算（PENDING 且订单完成超结算延迟期） */
+  settlable?: boolean
+  /** 结算延迟天数（后台配置 settle_delay_days） */
+  settle_delay_days?: number
 }
 
 interface Withdrawal {
@@ -1766,6 +1770,32 @@ const commissionStatusMap: Record<CommissionStatus, { label: string; cls: string
   CANCELLED: { label: "已取消", cls: "bg-red-500/10 text-red-500" },
 }
 
+/** 佣金状态徽标（含"可结算"：待结算中订单已完成且超过结算延迟期，可直接勾选提现） */
+function getCommissionBadge(c: any): { label: string; cls: string; tip?: string } {
+  if (c?.status === "PENDING" && c?.settlable) {
+    const n = Number(c?.settle_delay_days ?? 0)
+    return {
+      label: "可结算",
+      cls: "bg-purple-500/10 text-purple-600",
+      tip: n > 0 ? `订单支付完成并确认收货后 ${n} 天可申请结算提现` : "订单完成超过结算延迟期后可申请结算提现",
+    }
+  }
+  return commissionStatusMap[c?.status as CommissionStatus] || { label: c?.status || "—", cls: "bg-muted text-muted-foreground" }
+}
+
+function CommissionBadge({ c }: { c: any }) {
+  const b = getCommissionBadge(c)
+  return (
+    <span
+      className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium", b.cls)}
+      title={b.tip}
+    >
+      {b.label}
+      {b.tip && <AlertCircle className="h-3 w-3 shrink-0" />}
+    </span>
+  )
+}
+
 function CommissionsTab({ dateVersion }: { dateVersion: number }) {
   const [list, setList] = useState<CommissionRecord[]>([])
   const [total, setTotal] = useState(0)
@@ -1773,7 +1803,7 @@ function CommissionsTab({ dateVersion }: { dateVersion: number }) {
   const [distributorId, setDistributorId] = useState("")
   const [statusFilter, setStatusFilter] = useState<CommissionStatus | "">("")
   const [currentPage, setCurrentPage] = useState(1)
-  const [stats, setStats] = useState<{ total_commission: number; pending_commission: number; settled_commission: number; cancelled_commission: number } | null>(null)
+  const [stats, setStats] = useState<{ total_commission: number; pending_commission: number; settlable_commission: number; settled_commission: number; cancelled_commission: number } | null>(null)
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -1817,10 +1847,14 @@ function CommissionsTab({ dateVersion }: { dateVersion: number }) {
   return (
     <div className="flex flex-col gap-4">
       {stats && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-muted-foreground">佣金总额</p>
             <p className="mt-1 text-xl font-bold text-foreground">{fmtMoney(stats.total_commission)}</p>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+            <p className="text-xs text-purple-600">可结算</p>
+            <p className="mt-1 text-xl font-bold text-purple-600">{fmtMoney(stats.settlable_commission)}</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-amber-600">待结算</p>
@@ -1895,7 +1929,6 @@ function CommissionsTab({ dateVersion }: { dateVersion: number }) {
                 <tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">暂无佣金记录</td></tr>
               ) : (
                 list.map((c) => {
-                  const st = commissionStatusMap[c.status] || { label: c.status, cls: "bg-muted text-muted-foreground" }
                   return (
                     <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
                       <td className="px-4 py-3">
@@ -1912,9 +1945,7 @@ function CommissionsTab({ dateVersion }: { dateVersion: number }) {
                       <td className="px-4 py-3 font-medium text-emerald-600">{fmtMoney(c.commission_amount)}</td>
                       <td className="px-4 py-3 text-muted-foreground">{(Number(c.commission_rate) || 0).toFixed(2)}%</td>
                       <td className="px-4 py-3">
-                        <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
-                          {st.label}
-                        </span>
+                        <CommissionBadge c={c} />
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(c.created_at)}</td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(c.settled_at)}</td>

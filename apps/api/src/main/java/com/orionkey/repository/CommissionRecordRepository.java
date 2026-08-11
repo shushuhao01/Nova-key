@@ -154,4 +154,24 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
 
     /** 某提现单关联的佣金记录（审批/拒绝/结算时联动更新状态） */
     List<CommissionRecord> findByWithdrawalId(UUID withdrawalId);
+
+    /**
+     * 可结算的待结算佣金合计：订单已完成（COMPLETED）且完成时间超过结算延迟期，但尚未被定时任务结算。
+     * 用于"可结算"状态展示与可提现余额口径（可结算部分可直接申请提现）。
+     */
+    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr JOIN Order o ON o.id = cr.orderId " +
+            "WHERE cr.distributorId = :distId AND cr.status = 'PENDING' " +
+            "AND o.status = com.orionkey.constant.OrderStatus.COMPLETED " +
+            "AND o.completedAt IS NOT NULL AND o.completedAt < :before")
+    BigDecimal sumSettlablePendingByDistributor(@Param("distId") UUID distId,
+                                                @Param("before") java.time.LocalDateTime before);
+
+    /** 同 sumSettlablePendingByDistributor，但限定佣金创建时间 >= from（用于"本月"等区间口径，from 恒非空） */
+    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr JOIN Order o ON o.id = cr.orderId " +
+            "WHERE cr.distributorId = :distId AND cr.status = 'PENDING' AND cr.createdAt >= :from " +
+            "AND o.status = com.orionkey.constant.OrderStatus.COMPLETED " +
+            "AND o.completedAt IS NOT NULL AND o.completedAt < :before")
+    BigDecimal sumSettlablePendingByDistributorSince(@Param("distId") UUID distId,
+                                                     @Param("before") java.time.LocalDateTime before,
+                                                     @Param("from") java.time.LocalDateTime from);
 }
