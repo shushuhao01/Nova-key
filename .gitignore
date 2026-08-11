@@ -58,3 +58,10 @@ start-api.sh
 start-web.sh
 run-api.sh
 run-web.sh
+
+# 支付密钥/凭据文件（支付宝应用私钥、公钥等，禁止提交）
+*.pem
+*.p12
+*.pfx
+siyao.txt
+alipayPublicKey_RSA2.txt
