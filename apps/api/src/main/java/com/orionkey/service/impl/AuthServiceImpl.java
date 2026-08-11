@@ -19,6 +19,7 @@ import com.orionkey.utils.CaptchaUtils;
 import com.orionkey.utils.JwtUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -68,7 +69,13 @@ public class AuthServiceImpl implements AuthService {
         user.setEmail(email);
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setRole(UserRole.USER);
-        userRepository.save(user);
+        try {
+            userRepository.save(user);
+        } catch (DataIntegrityViolationException e) {
+            // 并发/重复提交穿透 existsBy 检查时，DB 唯一约束冲突 → 明确提示，避免落到 500"系统异常"
+            log.warn("Register unique constraint conflict: username={}, email={}", request.getUsername(), email);
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "用户名或邮箱已被注册，请更换后重试");
+        }
 
         // 管理员通知：新用户注册
         try {
