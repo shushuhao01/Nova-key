@@ -198,9 +198,13 @@ public class DistributionServiceImpl implements DistributionService {
         BigDecimal totalCommission = from != null
                 ? nullSafe(commissionRecordRepository.sumTotalByDistributorSince(distId, from))
                 : nullSafe(commissionRecordRepository.sumTotalByDistributorAll(distId));
-        // 已结算佣金固定取全部时段（提现记录页「已结算」卡片口径）
+        // 已结算佣金固定取全部时段（提现记录页「已结算」卡片口径：含已结算、申请中、已提现）
         BigDecimal settledCommission = nullSafe(commissionRecordRepository
-                .sumByDistributorAndStatusAll(distId, CommissionStatus.SETTLED));
+                .sumByDistributorAndStatusAll(distId, CommissionStatus.SETTLED))
+                .add(nullSafe(commissionRecordRepository
+                        .sumByDistributorAndStatusAll(distId, CommissionStatus.WITHDRAWING)))
+                .add(nullSafe(commissionRecordRepository
+                        .sumByDistributorAndStatusAll(distId, CommissionStatus.WITHDRAWN)));
         long subCount = distributorRepository.findByParentId(distId).size();
         long customerCount = customerBindingRepository.countByDistributorId(distId);
 
@@ -611,7 +615,11 @@ public class DistributionServiceImpl implements DistributionService {
 
         for (Distributor d : all) {
             pendingTotal = pendingTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.PENDING)));
-            settledTotal = settledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.SETTLED)));
+            // 已结算口径含申请中/已提现（提现不使金额"消失"）
+            settledTotal = settledTotal
+                    .add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.SETTLED)))
+                    .add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.WITHDRAWING)))
+                    .add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.WITHDRAWN)));
             cancelledTotal = cancelledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.CANCELLED)));
         }
 
@@ -656,9 +664,21 @@ public class DistributionServiceImpl implements DistributionService {
             Distributor d = distMap.get(wr.getDistributorId());
             m.put("distributor_code", d != null ? d.getDistributorCode() : null);
             m.put("distributor_name", d != null && userMap.get(d.getUserId()) != null ? userMap.get(d.getUserId()).getUsername() : null);
+            // 关联的佣金明细条数（订单级提现：每条明细对应一笔佣金记录）
+            m.put("item_count", commissionRecordRepository.findByWithdrawalId(wr.getId()).size());
             return m;
         }).toList();
         return pageResult(items, wp.getTotalElements(), page, pageSize);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> adminGetWithdrawalItems(UUID withdrawalId) {
+        return commissionRecordRepository.findByWithdrawalId(withdrawalId).stream().map(cr -> {
+            Map<String, Object> m = commissionToMap(cr);
+            m.put("withdrawal_status", cr.getStatus().name());
+            return m;
+        }).toList();
     }
 
     @Override
@@ -742,6 +762,14 @@ public class DistributionServiceImpl implements DistributionService {
         d.setFrozenBalance(d.getFrozenBalance().subtract(wr.getAmount()));
         d.setWithdrawnAmount(d.getWithdrawnAmount().add(settleAmount));
         distributorRepository.save(d);
+
+        // 关联佣金记录 → 已提现
+        for (CommissionRecord cr : commissionRecordRepository.findByWithdrawalId(wr.getId())) {
+            if (cr.getStatus() == CommissionStatus.WITHDRAWING) {
+                cr.setStatus(CommissionStatus.WITHDRAWN);
+                commissionRecordRepository.save(cr);
+            }
+        }
 
         // 更新提现记录
         wr.setActualAmount(settleAmount);
@@ -834,7 +862,16 @@ public class DistributionServiceImpl implements DistributionService {
         d.setFrozenBalance(d.getFrozenBalance().subtract(amount));
         d.setAvailableBalance(d.getAvailableBalance().add(amount));
         distributorRepository.save(d);
-        log.info("Withdrawal {} rejected, distributor {} available += {}", id, d.getId(), amount);
+
+        // 关联佣金记录 → 结算拒绝（可重新勾选提现）
+        for (CommissionRecord cr : commissionRecordRepository.findByWithdrawalId(wr.getId())) {
+            if (cr.getStatus() == CommissionStatus.WITHDRAWING) {
+                cr.setStatus(CommissionStatus.REJECTED);
+                commissionRecordRepository.save(cr);
+            }
+        }
+        log.info("Withdrawal {} rejected, distributor {} available += {}, commission records -> REJECTED",
+                id, d.getId(), amount);
 
         try {
             Map<String, Object> vars = new LinkedHashMap<>();
@@ -1523,7 +1560,7 @@ public class DistributionServiceImpl implements DistributionService {
 
     @Override
     @Transactional
-    public Map<String, Object> applyWithdrawal(UUID userId, BigDecimal amount) {
+    public Map<String, Object> applyWithdrawal(UUID userId, List<UUID> commissionRecordIds) {
         Distributor d = requireDistributorByUserId(userId);
         if (d.getStatus() != DistributorStatus.APPROVED) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "分销员未审核通过");
@@ -1532,12 +1569,30 @@ public class DistributionServiceImpl implements DistributionService {
         if (d.getWechatOpenid() == null || d.getWechatOpenid().isBlank()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "请先在分销中心绑定微信后再申请提现");
         }
+        if (commissionRecordIds == null || commissionRecordIds.isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "请选择要提现的订单");
+        }
+        // 去重后校验归属与状态，汇总提现金额（订单级提现：以勾选的已结算佣金记录为准）
+        List<UUID> ids = commissionRecordIds.stream().distinct().toList();
+        List<CommissionRecord> records = commissionRecordRepository.findByIdIn(ids);
+        if (records.size() != ids.size()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "部分佣金记录不存在，请刷新后重试");
+        }
+        BigDecimal amount = BigDecimal.ZERO;
+        for (CommissionRecord cr : records) {
+            if (!cr.getDistributorId().equals(d.getId())) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "存在非本人的佣金记录");
+            }
+            // 已结算可提现；结算拒绝的（提现被拒）也可重新勾选
+            if (cr.getStatus() != CommissionStatus.SETTLED && cr.getStatus() != CommissionStatus.REJECTED) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "存在不可提现的订单，请刷新后重试");
+            }
+            amount = amount.add(cr.getCommissionAmount());
+        }
+
         // S7: 悲观行锁 — 防止并发提现超扣余额（余额检查→扣减必须原子化）
         Distributor locked = distributorRepository.findByIdWithLock(d.getId()).orElse(d);
         DistributionRule rule = getOrCreateRule();
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "提现金额必须大于 0");
-        }
         if (amount.compareTo(rule.getMinWithdrawAmount()) < 0) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "提现金额不能低于最低提现金额 " + rule.getMinWithdrawAmount());
         }
@@ -1563,7 +1618,15 @@ public class DistributionServiceImpl implements DistributionService {
         wr.setStatus(WithdrawalStatus.PENDING);
         wr.setAppliedAt(LocalDateTime.now());
         withdrawalRecordRepository.save(wr);
-        log.info("Withdrawal applied: distributor={}, amount={}, actual={}", locked.getId(), amount, actualAmount);
+
+        // 佣金记录 → 申请中，关联提现单
+        for (CommissionRecord cr : records) {
+            cr.setStatus(CommissionStatus.WITHDRAWING);
+            cr.setWithdrawalId(wr.getId());
+            commissionRecordRepository.save(cr);
+        }
+        log.info("Withdrawal applied: distributor={}, records={}, amount={}, actual={}",
+                locked.getId(), records.size(), amount, actualAmount);
 
         // 发送通知
         try {
@@ -1592,6 +1655,46 @@ public class DistributionServiceImpl implements DistributionService {
         result.put("status", wr.getStatus().name());
         result.put("available_balance", locked.getAvailableBalance());
         return result;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getWithdrawableOrders(UUID userId) {
+        Distributor d = requireDistributorByUserId(userId);
+        // 已结算可提现 + 结算拒绝（被拒后金额退回可提现，可重新勾选）
+        List<CommissionRecord> records = commissionRecordRepository
+                .findByDistributorIdAndStatusInOrderByCreatedAtDesc(d.getId(),
+                        List.of(CommissionStatus.SETTLED, CommissionStatus.REJECTED));
+        if (records.isEmpty()) {
+            return List.of();
+        }
+        // 按订单分组：一个订单可能含多笔佣金（多商品/多阶梯/上下级抽成）
+        Map<UUID, List<CommissionRecord>> byOrder = records.stream()
+                .collect(Collectors.groupingBy(CommissionRecord::getOrderId, LinkedHashMap::new, Collectors.toList()));
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (Map.Entry<UUID, List<CommissionRecord>> e : byOrder.entrySet()) {
+            List<CommissionRecord> crs = e.getValue();
+            BigDecimal orderAmount = BigDecimal.ZERO;
+            BigDecimal commission = BigDecimal.ZERO;
+            List<UUID> recordIds = new ArrayList<>();
+            String productTitles = crs.stream().map(CommissionRecord::getProductTitle)
+                    .filter(t -> t != null && !t.isBlank()).distinct().limit(3).collect(Collectors.joining("、"));
+            for (CommissionRecord cr : crs) {
+                orderAmount = orderAmount.add(nullSafe(cr.getOrderAmount()));
+                commission = commission.add(cr.getCommissionAmount());
+                recordIds.add(cr.getId());
+            }
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("order_id", e.getKey());
+            m.put("product_title", productTitles.isBlank() ? null : productTitles);
+            m.put("order_amount", orderAmount.setScale(2, RoundingMode.HALF_UP));
+            m.put("commission_amount", commission.setScale(2, RoundingMode.HALF_UP));
+            m.put("commission_record_ids", recordIds);
+            m.put("created_at", crs.get(0).getCreatedAt());
+            items.add(m);
+        }
+        return items;
     }
 
     @Override
@@ -2096,8 +2199,11 @@ public class DistributionServiceImpl implements DistributionService {
                 cr.setStatus(CommissionStatus.CANCELLED);
                 commissionRecordRepository.save(cr);
 
-                // 已结算的佣金需要从余额扣减
-                if (oldStatus == CommissionStatus.SETTLED) {
+                // 不同状态的钱所在位置不同，退款取消时需从对应余额/冻结中扣回：
+                // SETTLED/REJECTED → 已退回可提现余额（available_balance）
+                // WITHDRAWING → 金额在提现冻结中（frozen_balance）
+                // WITHDRAWN → 已打款到账，标记取消并仅记日志（后续人工追回）
+                if (oldStatus == CommissionStatus.SETTLED || oldStatus == CommissionStatus.REJECTED) {
                     Distributor d = distCache.computeIfAbsent(cr.getDistributorId(), id ->
                             distributorRepository.findById(id).orElse(null));
                     if (d != null) {
@@ -2110,6 +2216,17 @@ public class DistributionServiceImpl implements DistributionService {
                             log.warn("Distributor {} available balance went negative after cancellation: {}", d.getId(), balance);
                         }
                     }
+                } else if (oldStatus == CommissionStatus.WITHDRAWING) {
+                    Distributor d = distCache.computeIfAbsent(cr.getDistributorId(), id ->
+                            distributorRepository.findById(id).orElse(null));
+                    if (d != null) {
+                        d.setFrozenBalance(d.getFrozenBalance().subtract(cr.getCommissionAmount()));
+                        d.setTotalCommission(d.getTotalCommission().subtract(cr.getCommissionAmount()));
+                        distributorRepository.save(d);
+                    }
+                } else if (oldStatus == CommissionStatus.WITHDRAWN) {
+                    log.warn("Commission {} already withdrawn, refund needs manual recovery (orderId={})",
+                            cr.getId(), orderId);
                 }
 
                 // 发送取消通知
@@ -2169,6 +2286,14 @@ public class DistributionServiceImpl implements DistributionService {
             d.setWithdrawnAmount(d.getWithdrawnAmount().add(settleAmount));
             distributorRepository.save(d);
 
+            // 关联佣金记录 → 已提现
+            for (CommissionRecord cr : commissionRecordRepository.findByWithdrawalId(wr.getId())) {
+                if (cr.getStatus() == CommissionStatus.WITHDRAWING) {
+                    cr.setStatus(CommissionStatus.WITHDRAWN);
+                    commissionRecordRepository.save(cr);
+                }
+            }
+
             wr.setStatus(WithdrawalStatus.SUCCESS);
             wr.setCompletedAt(LocalDateTime.now());
             wr.setFailReason(null);
@@ -2188,6 +2313,14 @@ public class DistributionServiceImpl implements DistributionService {
             d.setFrozenBalance(d.getFrozenBalance().subtract(wr.getAmount()));
             d.setAvailableBalance(d.getAvailableBalance().add(wr.getAmount()));
             distributorRepository.save(d);
+
+            // 关联佣金记录 → 结算拒绝（退回可提现，可重新勾选）
+            for (CommissionRecord cr : commissionRecordRepository.findByWithdrawalId(wr.getId())) {
+                if (cr.getStatus() == CommissionStatus.WITHDRAWING) {
+                    cr.setStatus(CommissionStatus.REJECTED);
+                    commissionRecordRepository.save(cr);
+                }
+            }
 
             wr.setStatus(WithdrawalStatus.FAILED);
             wr.setFailReason(failReason != null && !failReason.isBlank() ? "微信转账失败：" + failReason : "微信转账失败");
@@ -2730,6 +2863,7 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("parent_commission_amount", cr.getParentCommissionAmount());
         m.put("settled_at", cr.getSettledAt());
         m.put("created_at", cr.getCreatedAt());
+        m.put("withdrawal_id", cr.getWithdrawalId());
         return m;
     }
 

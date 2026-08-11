@@ -913,6 +913,7 @@ export const adminDistributionApi = {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/withdrawals?${qs}`)
   },
+  withdrawalItems: (id: string) => request<any[]>(`/admin/distribution/withdrawals/${id}/items`),
   withdrawalStats: (params: { from?: string; to?: string }) => {
     const qs = buildQuery(params)
     return request<any>(`/admin/distribution/withdrawals/stats?${qs}`)
@@ -976,8 +977,9 @@ export const distributorApi = {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/distributor/commissions?${qs}`)
   },
-  applyWithdrawal: (amount: number) =>
-    request<any>("/distributor/withdrawals", { method: "POST", body: JSON.stringify({ amount }) }),
+  applyWithdrawal: (commissionRecordIds: string[]) =>
+    request<any>("/distributor/withdrawals", { method: "POST", body: JSON.stringify({ commission_record_ids: commissionRecordIds }) }),
+  withdrawableOrders: () => request<any[]>("/distributor/withdrawals/withdrawable-orders"),
   listWithdrawals: (params: { page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/distributor/withdrawals?${qs}`)

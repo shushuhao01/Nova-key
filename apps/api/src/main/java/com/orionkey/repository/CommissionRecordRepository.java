@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -143,4 +144,14 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
     /** 订单项对应的销售下级记录（用于展示抽成来源的推广员） */
     List<CommissionRecord> findByOrderIdAndOrderItemIdAndParentDistributorId(
             UUID orderId, UUID orderItemId, UUID parentDistributorId);
+
+    /** 按 ID 批量查询（申请提现时校验归属与状态） */
+    List<CommissionRecord> findByIdIn(Collection<UUID> ids);
+
+    /** 分销员可提现的佣金记录（已结算 + 结算拒绝可重新勾选），按创建时间倒序 */
+    List<CommissionRecord> findByDistributorIdAndStatusInOrderByCreatedAtDesc(
+            UUID distributorId, Collection<CommissionStatus> statuses);
+
+    /** 某提现单关联的佣金记录（审批/拒绝/结算时联动更新状态） */
+    List<CommissionRecord> findByWithdrawalId(UUID withdrawalId);
 }

@@ -150,10 +150,20 @@ public class DistributorController {
     }
 
     // ── 提现 ──
+    /** 可提现订单列表（已结算/结算拒绝的佣金记录按订单分组，供提现弹窗勾选） */
+    @GetMapping("/withdrawals/withdrawable-orders")
+    public ApiResponse<?> withdrawableOrders() {
+        return ApiResponse.success(distributionService.getWithdrawableOrders(RequestContext.getUserId()));
+    }
+
+    /** 按勾选的佣金记录申请提现（订单级提现，金额自动汇总） */
     @PostMapping("/withdrawals")
     public ApiResponse<?> applyWithdrawal(@RequestBody Map<String, Object> request) {
-        BigDecimal amount = new BigDecimal(request.get("amount").toString());
-        return ApiResponse.success(distributionService.applyWithdrawal(RequestContext.getUserId(), amount));
+        @SuppressWarnings("unchecked")
+        List<String> ids = request.get("commission_record_ids") != null
+                ? (List<String>) request.get("commission_record_ids") : List.of();
+        List<UUID> recordIds = ids.stream().map(UUID::fromString).toList();
+        return ApiResponse.success(distributionService.applyWithdrawal(RequestContext.getUserId(), recordIds));
     }
 
     @GetMapping("/withdrawals")

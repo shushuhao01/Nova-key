@@ -82,8 +82,15 @@ public interface DistributionService {
     Map<String, Object> listMyPromotionOrders(UUID userId, int page, int pageSize);
 
     // ── 前台：提现 ──
-    Map<String, Object> applyWithdrawal(UUID userId, BigDecimal amount);
+    /** 按勾选的佣金记录申请提现（订单级提现：选中已结算订单的佣金记录，金额自动汇总） */
+    Map<String, Object> applyWithdrawal(UUID userId, List<UUID> commissionRecordIds);
+    /** 可提现订单列表（已结算/结算拒绝的佣金记录按订单分组，用于提现弹窗勾选） */
+    List<Map<String, Object>> getWithdrawableOrders(UUID userId);
     Map<String, Object> listMyWithdrawals(UUID userId, int page, int pageSize);
+
+    // ── 管理后台：提现明细 ──
+    /** 提现单关联的佣金明细（用于后台查看该笔提现包含哪些订单） */
+    List<Map<String, Object>> adminGetWithdrawalItems(UUID withdrawalId);
 
     // ── 前台：下级分销员 ──
     Map<String, Object> listSubordinates(UUID userId, int page, int pageSize);

@@ -18,7 +18,7 @@ const ITEMS_PER_PAGE = 10
 type Tab = "overview" | "distributors" | "products" | "commissions" | "withdrawals" | "rules"
 
 type DistributorStatus = "PENDING" | "APPROVED" | "REJECTED" | "DISABLED"
-type CommissionStatus = "PENDING" | "SETTLED" | "CANCELLED"
+type CommissionStatus = "PENDING" | "SETTLED" | "WITHDRAWING" | "WITHDRAWN" | "REJECTED" | "CANCELLED"
 type WithdrawalStatus = "PENDING" | "APPROVED" | "REJECTED" | "PROCESSING" | "SUCCESS" | "FAILED"
 
 interface OverviewCard {
@@ -175,6 +175,8 @@ interface Withdrawal {
   approved_at: string | null
   transferred_at: string | null
   completed_at: string | null
+  /** 关联的佣金明细条数（订单级提现：每条明细对应一笔佣金记录） */
+  item_count?: number
 }
 
 interface DistributionRules {
@@ -1758,6 +1760,9 @@ function AddDistributionProductModal({ onClose, onSaved }: {
 const commissionStatusMap: Record<CommissionStatus, { label: string; cls: string }> = {
   PENDING: { label: "待结算", cls: "bg-amber-500/10 text-amber-600" },
   SETTLED: { label: "已结算", cls: "bg-emerald-500/10 text-emerald-600" },
+  WITHDRAWING: { label: "申请中", cls: "bg-blue-500/10 text-blue-600" },
+  WITHDRAWN: { label: "已提现", cls: "bg-cyan-500/10 text-cyan-600" },
+  REJECTED: { label: "结算拒绝", cls: "bg-orange-500/10 text-orange-600" },
   CANCELLED: { label: "已取消", cls: "bg-red-500/10 text-red-500" },
 }
 
@@ -1852,6 +1857,9 @@ function CommissionsTab({ dateVersion }: { dateVersion: number }) {
             <option value="">全部状态</option>
             <option value="PENDING">待结算</option>
             <option value="SETTLED">已结算</option>
+            <option value="WITHDRAWING">申请中</option>
+            <option value="WITHDRAWN">已提现</option>
+            <option value="REJECTED">结算拒绝</option>
             <option value="CANCELLED">已取消</option>
           </select>
         </div>
@@ -1945,6 +1953,7 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
   const [currentPage, setCurrentPage] = useState(1)
   const [rejectModal, setRejectModal] = useState<Withdrawal | null>(null)
   const [settleModal, setSettleModal] = useState<Withdrawal | null>(null)
+  const [detailModal, setDetailModal] = useState<Withdrawal | null>(null)
 
   // 汇总卡片：总销售额/总佣金/待结算/已结算（随日期筛选动态变化）
   const [stats, setStats] = useState<{ total_sales: number; total_commission: number; pending_commission: number; settled_commission: number } | null>(null)
@@ -2071,6 +2080,7 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
               <tr className="border-b border-border bg-muted/30">
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">分销员</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">提现金额</th>
+                <th className="px-4 py-3 text-center font-medium text-muted-foreground">订单数</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">收款账户</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">状态</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">申请时间</th>
@@ -2080,9 +2090,9 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+                <tr><td colSpan={8} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
               ) : list.length === 0 ? (
-                <tr><td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">暂无提现申请</td></tr>
+                <tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">暂无提现申请</td></tr>
               ) : (
                 list.map((w) => {
                   const st = withdrawalStatusMap[w.status] || { label: w.status, cls: "bg-muted text-muted-foreground" }
@@ -2095,6 +2105,17 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
                         </div>
                       </td>
                       <td className="px-4 py-3 font-semibold text-foreground">{fmtMoney(w.amount)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setDetailModal(w)}
+                          className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                          title="查看关联订单明细"
+                        >
+                          <ShoppingBag className="h-3.5 w-3.5" />
+                          {w.item_count ?? 0}
+                        </button>
+                      </td>
                       <td className="max-w-[240px] truncate px-4 py-3 text-xs text-muted-foreground" title={w.account_info}>
                         {w.account_info || "—"}
                       </td>
@@ -2110,6 +2131,15 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
                       <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(w.completed_at || w.transferred_at || w.approved_at)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setDetailModal(w)}
+                            className="flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                            title="查看关联订单明细"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            明细
+                          </button>
                           {w.status === "PENDING" && (
                             <>
                               <button
@@ -2174,6 +2204,13 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
           withdrawal={settleModal}
           onClose={() => setSettleModal(null)}
           onSaved={() => { setSettleModal(null); fetchList() }}
+        />
+      )}
+
+      {detailModal && (
+        <WithdrawalDetailModal
+          withdrawal={detailModal}
+          onClose={() => setDetailModal(null)}
         />
       )}
     </div>
@@ -2317,6 +2354,99 @@ function RejectWithdrawalModal({ withdrawal, onClose, onSaved }: {
             {saving ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <X className="h-4 w-4" />}
             确认拒绝
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════ 提现单关联订单明细弹窗 ═══════════════════════
+
+function WithdrawalDetailModal({ withdrawal, onClose }: {
+  withdrawal: Withdrawal
+  onClose: () => void
+}) {
+  const [items, setItems] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    adminDistributionApi.withdrawalItems(withdrawal.id)
+      .then((data) => { if (!cancelled) setItems(data || []) })
+      .catch((err) => {
+        if (!cancelled) toast.error(err instanceof Error ? err.message : "加载明细失败")
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [withdrawal.id])
+
+  const totalCommission = items.reduce((s, it) => s + (Number(it.commission_amount) || 0), 0)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-foreground">提现明细</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {withdrawal.distributor_name || "—"} · 提现金额 {fmtMoney(withdrawal.amount)}
+              {withdrawal.actual_amount != null && Number(withdrawal.actual_amount) !== Number(withdrawal.amount)
+                ? ` · 实到 ${fmtMoney(withdrawal.actual_amount)}` : ""}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          ) : items.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-12 text-sm text-muted-foreground">
+              <ShoppingBag className="h-8 w-8 opacity-40" />
+              暂无关联订单
+            </div>
+          ) : (
+            <div className="divide-y divide-border rounded-lg border border-border">
+              {items.map((it) => {
+                const st = commissionStatusMap[it.withdrawal_status as CommissionStatus] || { label: it.withdrawal_status || it.status || "—", cls: "bg-muted text-muted-foreground" }
+                return (
+                  <div key={it.id} className="flex items-center justify-between gap-3 p-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <ShoppingBag className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <p className="truncate text-sm font-medium text-foreground">{it.product_title || "—"}</p>
+                        <span className={cn("inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium", st.cls)}>
+                          {st.label}
+                        </span>
+                      </div>
+                      <p className="mt-1 font-mono text-xs text-muted-foreground">
+                        订单 {it.order_no || String(it.order_id || "").slice(0, 8)}
+                        {it.settled_at ? ` · 结算于 ${fmtDate(it.settled_at)}` : ""}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        商品金额 {fmtMoney(it.order_amount)} · 佣金比例 {Number(it.commission_rate ?? 0).toFixed(2)}%
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-semibold text-emerald-600">{fmtMoney(it.commission_amount)}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">{fmtDate(it.created_at)}</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-border px-5 py-4">
+          <span className="text-sm text-muted-foreground">共 {items.length} 笔订单明细</span>
+          <span className="text-sm font-semibold text-foreground">佣金合计 {fmtMoney(totalCommission)}</span>
         </div>
       </div>
     </div>

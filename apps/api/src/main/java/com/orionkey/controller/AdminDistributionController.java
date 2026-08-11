@@ -159,6 +159,12 @@ public class AdminDistributionController {
         return ApiResponse.success(distributionService.adminListWithdrawals(status, from, to, page, pageSize));
     }
 
+    // ── 提现单关联的佣金明细（查看该笔提现包含哪些订单） ──
+    @GetMapping("/withdrawals/{id}/items")
+    public ApiResponse<?> withdrawalItems(@PathVariable UUID id) {
+        return ApiResponse.success(distributionService.adminGetWithdrawalItems(id));
+    }
+
     // ── 提现管理汇总卡片（总销售额/总佣金/待结算/已结算，按日期区间动态统计） ──
     @GetMapping("/withdrawals/stats")
     public ApiResponse<?> withdrawalStats(

@@ -23,7 +23,7 @@ const PAGE_SIZE = 10
 
 type Tab = "overview" | "products" | "commissions" | "withdrawals" | "subordinates"
 type DistributorStatus = "PENDING" | "APPROVED" | "REJECTED" | "DISABLED"
-type CommissionStatus = "PENDING" | "SETTLED" | "CANCELED"
+type CommissionStatus = "PENDING" | "SETTLED" | "WITHDRAWING" | "WITHDRAWN" | "REJECTED" | "CANCELLED"
 type WithdrawalStatus = "PENDING" | "APPROVED" | "REJECTED" | "PROCESSING" | "SUCCESS" | "FAILED"
 
 const fmtMoney = (n: number | null | undefined) => `¥${(Number(n) || 0).toFixed(2)}`
@@ -39,7 +39,10 @@ const distributorStatusMap: Record<DistributorStatus, { label: string; cls: stri
 const commissionStatusMap: Record<CommissionStatus, { label: string; cls: string }> = {
   PENDING: { label: "待结算", cls: "bg-amber-500/10 text-amber-600" },
   SETTLED: { label: "已结算", cls: "bg-emerald-500/10 text-emerald-600" },
-  CANCELED: { label: "已取消", cls: "bg-red-500/10 text-red-500" },
+  WITHDRAWING: { label: "申请中", cls: "bg-blue-500/10 text-blue-600" },
+  WITHDRAWN: { label: "已提现", cls: "bg-cyan-500/10 text-cyan-600" },
+  REJECTED: { label: "结算拒绝", cls: "bg-orange-500/10 text-orange-600" },
+  CANCELLED: { label: "已取消", cls: "bg-red-500/10 text-red-500" },
 }
 
 const withdrawalStatusMap: Record<WithdrawalStatus, { label: string; cls: string }> = {
@@ -47,7 +50,7 @@ const withdrawalStatusMap: Record<WithdrawalStatus, { label: string; cls: string
   APPROVED: { label: "待打款", cls: "bg-blue-500/10 text-blue-600" },
   REJECTED: { label: "已拒绝", cls: "bg-red-500/10 text-red-500" },
   PROCESSING: { label: "转账中", cls: "bg-blue-500/10 text-blue-600" },
-  SUCCESS: { label: "已到账", cls: "bg-emerald-500/10 text-emerald-600" },
+  SUCCESS: { label: "已结算", cls: "bg-emerald-500/10 text-emerald-600" },
   FAILED: { label: "已失败", cls: "bg-red-500/10 text-red-500" },
 }
 
@@ -1151,7 +1154,10 @@ function CommissionsTab() {
     { k: "ALL", label: "全部" },
     { k: "PENDING", label: "待结算" },
     { k: "SETTLED", label: "已结算" },
-    { k: "CANCELED", label: "已取消" },
+    { k: "WITHDRAWING", label: "申请中" },
+    { k: "WITHDRAWN", label: "已提现" },
+    { k: "REJECTED", label: "结算拒绝" },
+    { k: "CANCELLED", label: "已取消" },
   ]
 
   return (
@@ -1656,27 +1662,56 @@ function WithdrawalModal({
   onSuccess: () => void
 }) {
   const { t } = useLocale()
-  const [amount, setAmount] = useState("")
+  const [orders, setOrders] = useState<any[]>([])
+  const [checked, setChecked] = useState<Record<string, boolean>>({})
+  const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const fetchOrders = useCallback(async () => {
+    setLoading(true)
+    try {
+      const list = await distributorApi.withdrawableOrders()
+      setOrders(list || [])
+      setChecked({})
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, t))
+      setOrders([])
+    } finally {
+      setLoading(false)
+    }
+  }, [t])
+
+  useEffect(() => { fetchOrders() }, [fetchOrders])
+
+  // 选中汇总
+  const selectedOrders = orders.filter((o) => checked[o.order_id])
+  const selectedAmount = selectedOrders.reduce((s, o) => s + (Number(o.commission_amount) || 0), 0)
+  const allChecked = orders.length > 0 && orders.every((o) => checked[o.order_id])
+
+  const toggleAll = () => {
+    const next = !allChecked
+    const m: Record<string, boolean> = {}
+    orders.forEach((o) => { m[o.order_id] = next })
+    setChecked(m)
+  }
+
+  const handleSubmit = async () => {
     if (!wechatBound) {
       toast.error("请先在分销中心绑定微信后再申请提现")
       return
     }
-    const v = parseFloat(amount)
-    if (Number.isNaN(v) || v <= 0) {
-      toast.error("请输入有效的提现金额")
+    const recordIds = selectedOrders.flatMap((o) => o.commission_record_ids || [])
+    if (recordIds.length === 0) {
+      toast.error("请选择要提现的订单")
       return
     }
-    if (v > balance) {
+    if (selectedAmount > balance) {
       toast.error("提现金额不能超过可提现余额")
       return
     }
     setSubmitting(true)
     try {
-      await distributorApi.applyWithdrawal(v)
+      await distributorApi.applyWithdrawal(recordIds)
       toast.success("提现申请已提交")
       onSuccess()
     } catch (err) {
@@ -1689,8 +1724,8 @@ function WithdrawalModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
-        <div className="mb-4 flex items-center justify-between">
+      <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-lg font-bold text-foreground">申请提现</h2>
           <button
             type="button"
@@ -1701,35 +1736,85 @@ function WithdrawalModal({
           </button>
         </div>
 
-        <div className="mb-4 rounded-lg bg-muted/40 p-3 text-sm">
-          <p className="text-muted-foreground">可提现余额</p>
-          <p className="mt-0.5 text-xl font-bold text-foreground">{fmtMoney(balance)}</p>
+        <div className="border-b border-border bg-muted/40 px-5 py-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">可提现余额</span>
+            <span className="font-bold text-foreground">{fmtMoney(balance)}</span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            勾选已结算的订单后申请提现，提现后对应订单佣金标记为「申请中」，到账后变为「已提现」。
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <label className="mb-1.5 block text-sm font-medium text-foreground">提现金额</label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="请输入提现金额"
-              className="h-11 w-full rounded-lg border border-input bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              required
-            />
-          </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          ) : orders.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-12 text-sm text-muted-foreground">
+              <Package className="h-8 w-8 opacity-40" />
+              暂无可提现订单，待结算佣金结算后可提现
+            </div>
+          ) : (
+            <>
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">共 {orders.length} 笔可提现订单</span>
+                <button
+                  type="button"
+                  onClick={toggleAll}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  {allChecked ? "取消全选" : "全选"}
+                </button>
+              </div>
+              <div className="divide-y divide-border rounded-lg border border-border">
+                {orders.map((o) => (
+                  <label
+                    key={o.order_id}
+                    className="flex cursor-pointer items-start gap-3 p-3 transition-colors hover:bg-muted/30"
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 shrink-0 accent-primary"
+                      checked={!!checked[o.order_id]}
+                      onChange={(e) => setChecked((m) => ({ ...m, [o.order_id]: e.target.checked }))}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-sm font-medium text-foreground">{o.product_title || "—"}</p>
+                        <span className="inline-flex shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
+                          可提现
+                        </span>
+                      </div>
+                      <p className="mt-0.5 font-mono text-xs text-muted-foreground">订单 {String(o.order_id || "").slice(0, 8)}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        商品金额 {fmtMoney(o.order_amount)} · 佣金 {fmtMoney(o.commission_amount)} · {fmtDate(o.created_at)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-sm font-semibold text-emerald-600">{fmtMoney(o.commission_amount)}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="border-t border-border px-5 py-4">
           {!wechatBound && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700">
+            <div className="mb-3 flex items-start gap-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <p>尚未绑定微信。提现需转账至微信零钱，请先关闭弹窗并在页面中完成绑定微信。</p>
             </div>
           )}
-          <p className="mt-1.5 text-xs text-muted-foreground">提现申请提交后，平台将审核并转账至您绑定的微信零钱</p>
-
-          <div className="mt-6 flex justify-end gap-3">
+          <div className="mb-3 space-y-1 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">已选 {selectedOrders.length} 笔订单</span>
+              <span className="font-semibold text-foreground">提现金额 {fmtMoney(selectedAmount)}</span>
+            </div>
+            <p className="text-right text-xs text-muted-foreground">审核通过后由平台转账至您绑定的微信零钱</p>
+          </div>
+          <div className="flex justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
@@ -1738,8 +1823,9 @@ function WithdrawalModal({
               {t("common.cancel")}
             </button>
             <button
-              type="submit"
-              disabled={submitting}
+              type="button"
+              onClick={handleSubmit}
+              disabled={submitting || selectedOrders.length === 0}
               className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
             >
               {submitting ? (
@@ -1750,7 +1836,7 @@ function WithdrawalModal({
               确认提现
             </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   )

@@ -36,6 +36,25 @@ public class DataMigrationRunner implements ApplicationRunner {
         migrateUserRoleColumn();
         migrateCouponCodes();
         migrateDistributionEnumColumns();
+        migrateCommissionWithdrawalId();
+    }
+
+    /**
+     * 为 commission_records 表补充 withdrawal_id 列（按订单勾选提现时需要关联提现单）。
+     * 幂等：列已存在时跳过。
+     */
+    private void migrateCommissionWithdrawalId() {
+        try {
+            List<String> cols = jdbcTemplate.queryForList(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'commission_records' AND column_name = 'withdrawal_id'",
+                    String.class);
+            if (cols.isEmpty()) {
+                jdbcTemplate.execute("ALTER TABLE commission_records ADD COLUMN withdrawal_id uuid");
+                log.info("[Migration] added column commission_records.withdrawal_id");
+            }
+        } catch (Exception e) {
+            log.warn("[Migration] commission_records.withdrawal_id column add skipped: {}", e.getMessage());
+        }
     }
 
     /**

@@ -58,6 +58,9 @@ public class CommissionRecord extends BaseEntity {
 
     private LocalDateTime settledAt;
 
+    /** 关联提现记录（申请提现时写入；提现拒绝后可被新提现单覆盖） */
+    private UUID withdrawalId;
+
     /** 上级分销员 ID（如有抽成） */
     private UUID parentDistributorId;
 
