@@ -101,6 +101,9 @@ public interface DistributionService {
     // ── 公开：推广链接解析 ──
     Map<String, Object> resolvePromotionLink(String linkCode, String ip, String userAgent);
 
+    /** 商品点击埋点：全店推广链接进店后用户点击商品时上报，计入对应商品点击/转化统计 */
+    void recordProductClick(UUID promotionLinkId, UUID productId, String ip, String userAgent);
+
     // ── 佣金预估 ──
     Map<String, Object> commissionPreview(UUID userId, List<UUID> productIds);
 

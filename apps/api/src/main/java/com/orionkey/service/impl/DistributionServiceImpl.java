@@ -452,9 +452,11 @@ public class DistributionServiceImpl implements DistributionService {
             BigDecimal commission = toBigDecimal(agg.get(0)[1], BigDecimal.ZERO);
             long paid = ((Number) agg.get(0)[2]).longValue();
             long promoters = ((Number) agg.get(0)[3]).longValue();
-            // 点击：商品推广链接产生的点击（全店推广链接无商品级点击数据）
-            List<Object[]> linkAgg = promotionLinkRepository.aggregateByProduct(p.getId());
-            long clicks = ((Number) linkAgg.get(0)[2]).longValue();
+            // 点击：DistributionClick 按商品聚合（含商品推广链接点击 + 全店推广链接进店后点击该商品的埋点，所有分销员合计）
+            long clicks = 0L;
+            for (Object[] row : clickRepository.countClicksByProductGroupedByDistributor(p.getId())) {
+                clicks += ((Number) row[1]).longValue();
+            }
             m.put("promotion_sales", sales.setScale(2, RoundingMode.HALF_UP));
             m.put("promotion_commission", commission.setScale(2, RoundingMode.HALF_UP));
             m.put("click_count", clicks);
@@ -1091,12 +1093,10 @@ public class DistributionServiceImpl implements DistributionService {
         Distributor d = requireDistributorByUserId(userId);
         UUID distId = d.getId();
 
-        // 商品推广链接的点击数（productId != null 的链接，同一商品多个链接累加）
+        // 商品点击数（DistributionClick 按商品聚合）：含商品推广链接点击 + 全店推广链接进店后点击该商品的埋点
         Map<UUID, Long> clicksByProduct = new HashMap<>();
-        for (PromotionLink pl : promotionLinkRepository.findByDistributorId(distId, Pageable.unpaged()).getContent()) {
-            if (pl.getProductId() != null) {
-                clicksByProduct.merge(pl.getProductId(), (long) pl.getClickCount(), Long::sum);
-            }
+        for (Object[] row : clickRepository.countClicksGroupedByProductForDistributor(distId)) {
+            clicksByProduct.merge((UUID) row[0], ((Number) row[1]).longValue(), Long::sum);
         }
 
         // 佣金记录按商品聚合（权威来源：商品链接与全店推广链接进来的成交/佣金都计入对应商品）
@@ -1918,6 +1918,30 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("product_id", link.getProductId());
         m.put("promotion_link_id", link.getId());
         return m;
+    }
+
+    @Override
+    @Transactional
+    public void recordProductClick(UUID promotionLinkId, UUID productId, String ip, String userAgent) {
+        if (promotionLinkId == null || productId == null) {
+            return;
+        }
+        PromotionLink link = promotionLinkRepository.findById(promotionLinkId).orElse(null);
+        if (link == null) {
+            return;
+        }
+        try {
+            DistributionClick click = new DistributionClick();
+            click.setDistributorId(link.getDistributorId());
+            click.setPromotionLinkId(link.getId());
+            click.setProductId(productId);
+            click.setIp(ip);
+            click.setUserAgent(userAgent);
+            clickRepository.save(click);
+        } catch (Exception e) {
+            // 埋点失败不影响用户操作，静默记录
+            log.warn("Failed to record product click: {}", e.getMessage());
+        }
     }
 
     // ════════════════════════════════════════════════════════════════

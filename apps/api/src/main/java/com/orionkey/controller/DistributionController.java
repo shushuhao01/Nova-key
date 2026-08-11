@@ -28,6 +28,20 @@ public class DistributionController {
         return ApiResponse.success(distributionService.resolvePromotionLink(linkCode, ip, userAgent));
     }
 
+    // ── 公开：商品点击埋点（全店推广链接进店后点击商品时上报；也兼容商品链接场景）──
+    @PostMapping("/product-click")
+    public ApiResponse<?> recordProductClick(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+        try {
+            UUID linkId = body.get("link_id") != null ? UUID.fromString(body.get("link_id").toString()) : null;
+            UUID productId = body.get("product_id") != null ? UUID.fromString(body.get("product_id").toString()) : null;
+            distributionService.recordProductClick(linkId, productId, getClientIp(request), request.getHeader("User-Agent"));
+        } catch (Exception e) {
+            // 埋点失败静默，不影响用户操作
+            return ApiResponse.success(null);
+        }
+        return ApiResponse.success(null);
+    }
+
     // ── 公开：佣金预估 ──
     @GetMapping("/commission-preview")
     public ApiResponse<?> commissionPreview(@RequestParam("product_ids") String productIds) {

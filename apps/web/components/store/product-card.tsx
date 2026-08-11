@@ -24,8 +24,27 @@ export function ProductCard({ product }: ProductCardProps) {
 
   const productUrl = `/product/${product.id}`
 
+  // 推广链接进店会话（dist_link cookie）下点击商品 → 上报埋点，计入分销员对应商品点击/转化统计（含全店推广链接流量）
+  const handleCardClick = () => {
+    try {
+      if (typeof navigator === "undefined" || !navigator.sendBeacon || typeof document === "undefined") return
+      const m = document.cookie.match(/(?:^|;\s*)dist_link=([^;]+)/)
+      if (!m) return
+      const blob = new Blob(
+        [JSON.stringify({ link_id: decodeURIComponent(m[1]), product_id: product.id })],
+        { type: "application/json" }
+      )
+      navigator.sendBeacon("/api/distribution/product-click", blob)
+    } catch {
+      /* 埋点失败静默，不影响用户操作 */
+    }
+  }
+
   return (
-    <div className="group/card relative flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-lg hover:shadow-black/5">
+    <div
+      onClick={handleCardClick}
+      className="group/card relative flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-lg hover:shadow-black/5"
+    >
       {/* Image */}
       <Link
         href={productUrl}

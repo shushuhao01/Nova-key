@@ -1002,6 +1002,12 @@ export const distributionApi = {
   resolveLink: (linkCode: string) => request<any>(`/distribution/resolve/${linkCode}`),
   commissionPreview: (productIds: string[]) =>
     request<any>(`/distribution/commission-preview?product_ids=${productIds.join(",")}`),
+  /** 商品点击埋点：全店推广链接进店后点击商品时上报，计入分销员对应商品点击统计 */
+  recordProductClick: (linkId: string, productId: string) =>
+    request<void>("/distribution/product-click", {
+      method: "POST",
+      body: JSON.stringify({ link_id: linkId, product_id: productId }),
+    }),
 }
 
 // ============================================================
