@@ -241,6 +241,10 @@ public class AlipayServiceImpl implements AlipayService {
                                     .append(" 系统请求URL=").append(debugUrl);
                         } else if ("isv.invalid-parameter".equals(subCode)) {
                             sb.append("。请求参数无效：请检查 AppID/私钥/公钥粘贴时是否带有多余空格、换行等非法字符");
+                        } else if ("isv.invalid-timestamp".equals(subCode)) {
+                            sb.append("。请求时间戳不合法：支付宝要求请求时间与其服务器时间偏差不超过 5 分钟。")
+                                    .append("请在服务器执行 date 确认系统时间为北京时间且准确（时区/时钟偏差>5 分钟会报此错）。")
+                                    .append(" 系统请求URL=").append(debugUrl);
                         }
                         connMsg = sb.toString();
                     }
