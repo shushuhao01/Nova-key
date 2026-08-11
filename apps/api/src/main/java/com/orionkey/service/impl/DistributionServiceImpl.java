@@ -200,9 +200,6 @@ public class DistributionServiceImpl implements DistributionService {
         BigDecimal settlableCommission = from != null
                 ? nullSafe(commissionRecordRepository.sumSettlablePendingByDistributorSince(distId, settleCutoff(), from))
                 : nullSafe(commissionRecordRepository.sumSettlablePendingByDistributor(distId, settleCutoff()));
-        // 可提现余额口径始终取全时段可结算（余额为存量，不受统计区间影响）
-        BigDecimal allSettlable = nullSafe(commissionRecordRepository
-                .sumSettlablePendingByDistributor(distId, settleCutoff()));
         BigDecimal totalCommission = from != null
                 ? nullSafe(commissionRecordRepository.sumTotalByDistributorSince(distId, from))
                 : nullSafe(commissionRecordRepository.sumTotalByDistributorAll(distId));
@@ -225,12 +222,12 @@ public class DistributionServiceImpl implements DistributionService {
         // 待结算 = 不满足结算期（订单完成未满 N 天）的待结算佣金；扣除可结算部分，最小为 0
         m.put("pending_settlement", pendingCommission.subtract(settlableCommission).max(BigDecimal.ZERO)
                 .setScale(2, RoundingMode.HALF_UP));
-        // 可结算：待结算中订单已完成且超过结算延迟期（可直接勾选提现），展示口径含在可提现余额中
+        // 可结算：待结算中订单已完成且超过结算延迟期（可直接勾选提现），与可提现余额相加即总可提现
         m.put("settlable_settlement", settlableCommission.setScale(2, RoundingMode.HALF_UP));
         m.put("total_commission", totalCommission.setScale(2, RoundingMode.HALF_UP));
         m.put("settled_commission", settledCommission.setScale(2, RoundingMode.HALF_UP));
-        // 可提现余额（展示口径）= 已入账余额 + 全时段可结算（可结算部分可直接申请提现）
-        m.put("available_balance", d.getAvailableBalance().add(allSettlable).setScale(2, RoundingMode.HALF_UP));
+        // 可提现余额（展示口径）= 已入账余额（不含可结算，可结算单独字段展示；两者相加即总可提现）
+        m.put("available_balance", d.getAvailableBalance().setScale(2, RoundingMode.HALF_UP));
         m.put("withdrawn_amount", d.getWithdrawnAmount());
         m.put("subordinate_count", subCount);
         m.put("customer_count", customerCount);

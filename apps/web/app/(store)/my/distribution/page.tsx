@@ -1780,6 +1780,11 @@ function WithdrawalModal({
             <span className="text-muted-foreground">可提现余额</span>
             <span className="font-bold text-foreground">{fmtMoney(displayBalance)}</span>
           </div>
+          {settlableAmount > 0 && (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              已入账 {fmtMoney(Number(balance) || 0)} + 可结算 {fmtMoney(settlableAmount)}
+            </p>
+          )}
           <p className="mt-1 text-xs text-muted-foreground">
             勾选「可结算」或「已结算」的订单后申请提现；可结算订单提现后直接标记为「申请中」，其余正常记录勾选多少即汇总申请多少。
           </p>
