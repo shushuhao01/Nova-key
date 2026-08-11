@@ -1145,11 +1145,11 @@ function ProductsTab() {
     return ((total - prev) / prev) * 100
   }
 
-  const statCards: { key: "clicks" | "paid_count" | "conversion_rate" | "commission_amount"; label: string; render: (item: StatItem | undefined) => string }[] = [
-    { key: "clicks", label: "点击率", render: (i) => `${Number(i?.total || 0).toLocaleString()} 次` },
-    { key: "paid_count", label: "下单数量", render: (i) => `${Number(i?.total || 0).toLocaleString()} 单` },
-    { key: "conversion_rate", label: "转化率", render: (i) => `${Number(i?.total || 0).toFixed(2)}%` },
-    { key: "commission_amount", label: "佣金金额", render: (i) => fmtMoney(Number(i?.total || 0)) },
+  const statCards: { key: "clicks" | "paid_count" | "conversion_rate" | "commission_amount"; label: string; tip: string; render: (item: StatItem | undefined) => string }[] = [
+    { key: "clicks", label: "点击次数", tip: "商品推广链接 + 全店链接进店后点商品的埋点合计", render: (i) => `${Number(i?.total || 0).toLocaleString()} 次` },
+    { key: "paid_count", label: "下单数量", tip: "分销链接成交且已付款的订单数", render: (i) => `${Number(i?.total || 0).toLocaleString()} 单` },
+    { key: "conversion_rate", label: "转化率", tip: "付款订单数 ÷ 点击次数 × 100%", render: (i) => `${Number(i?.total || 0).toFixed(2)}%` },
+    { key: "commission_amount", label: "佣金金额", tip: "分销佣金合计（不含已取消）", render: (i) => fmtMoney(Number(i?.total || 0)) },
   ]
 
   return (
@@ -1204,6 +1204,7 @@ function ProductsTab() {
                       环比 {Math.abs(delta).toFixed(1)}%
                     </span>
                   </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">{card.tip}</p>
                 </div>
               )
             })}
@@ -1806,7 +1807,11 @@ function CommissionsTab({ dateVersion }: { dateVersion: number }) {
   const [distributorId, setDistributorId] = useState("")
   const [statusFilter, setStatusFilter] = useState<CommissionStatus | "">("")
   const [currentPage, setCurrentPage] = useState(1)
-  const [stats, setStats] = useState<{ total_commission: number; pending_commission: number; settlable_commission: number; settled_commission: number; cancelled_commission: number } | null>(null)
+  const [stats, setStats] = useState<{
+    total_commission: number; pending_commission: number; settlable_commission: number;
+    settled_commission: number; withdrawing_commission: number; withdrawn_commission: number;
+    cancelled_commission: number;
+  } | null>(null)
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -1850,7 +1855,7 @@ function CommissionsTab({ dateVersion }: { dateVersion: number }) {
   return (
     <div className="flex flex-col gap-4">
       {stats && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-muted-foreground">佣金总额</p>
             <p className="mt-1 text-xl font-bold text-foreground">{fmtMoney(stats.total_commission)}</p>
@@ -1859,22 +1864,32 @@ function CommissionsTab({ dateVersion }: { dateVersion: number }) {
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-purple-600">可结算</p>
             <p className="mt-1 text-xl font-bold text-purple-600">{fmtMoney(stats.settlable_commission)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">订单完成超结算期，可直接提现</p>
+            <p className="mt-1 text-xs text-muted-foreground">订单完成超结算期（N 天），可直接申请提现</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-amber-600">待结算</p>
             <p className="mt-1 text-xl font-bold text-amber-600">{fmtMoney(stats.pending_commission)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">订单完成未满结算期的待结算部分</p>
+            <p className="mt-1 text-xs text-muted-foreground">订单完成未满结算期，暂不能提现</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-emerald-600">已结算</p>
             <p className="mt-1 text-xl font-bold text-emerald-600">{fmtMoney(stats.settled_commission)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">已结算/申请中/已提现合计</p>
+            <p className="mt-1 text-xs text-muted-foreground">佣金已入账，尚未提交提现申请</p>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+            <p className="text-xs text-blue-600">申请中</p>
+            <p className="mt-1 text-xl font-bold text-blue-600">{fmtMoney(stats.withdrawing_commission)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">已提交提现申请，待审核/打款</p>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+            <p className="text-xs text-cyan-600">已提现</p>
+            <p className="mt-1 text-xl font-bold text-cyan-600">{fmtMoney(stats.withdrawn_commission)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">提现成功，已完成打款</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <p className="text-xs text-red-500">已取消</p>
             <p className="mt-1 text-xl font-bold text-red-500">{fmtMoney(stats.cancelled_commission)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">退款/取消订单不计佣金</p>
+            <p className="mt-1 text-xs text-muted-foreground">退款/取消订单不计佣金，不可提现</p>
           </div>
         </div>
       )}
@@ -1995,7 +2010,11 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
   const [detailModal, setDetailModal] = useState<Withdrawal | null>(null)
 
   // 汇总卡片：总销售额/总佣金/待结算/已结算（随日期筛选动态变化）
-  const [stats, setStats] = useState<{ total_sales: number; total_commission: number; pending_commission: number; settled_commission: number } | null>(null)
+  const [stats, setStats] = useState<{
+    total_sales: number; total_commission: number;
+    pending_withdrawal: number; approved_withdrawal: number;
+    success_withdrawal: number; rejected_withdrawal: number;
+  } | null>(null)
   const [statsLoading, setStatsLoading] = useState(true)
 
   const fetchStats = useCallback(async () => {
@@ -2079,18 +2098,20 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
         </button>
       </div>
 
-      {/* 汇总卡片：总销售额 / 总佣金 / 待结算 / 已结算（随日期筛选动态变化） */}
+      {/* 汇总卡片：总销售额 / 总佣金 / 待审核 / 待打款 / 已打款 / 已拒绝（随日期筛选动态变化，按提现单金额统计） */}
       {statsLoading && !stats ? (
         <div className="flex items-center justify-center rounded-xl border border-border bg-card py-8 shadow-sm">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
             { key: "total_sales", label: "总销售额", icon: <HandCoins className="h-4 w-4" />, cls: "text-primary", tip: "区间内分销订单成交额" },
             { key: "total_commission", label: "总佣金", icon: <Coins className="h-4 w-4" />, cls: "text-emerald-600", tip: "区间内佣金合计（不含已取消）" },
-            { key: "pending_commission", label: "待结算", icon: <Clock className="h-4 w-4" />, cls: "text-amber-600", tip: "区间内按创建时间统计的待结算佣金" },
-            { key: "settled_commission", label: "已结算", icon: <Check className="h-4 w-4" />, cls: "text-blue-600", tip: "区间内已结算（含申请中/已提现）" },
+            { key: "pending_withdrawal", label: "待审核", icon: <Clock className="h-4 w-4" />, cls: "text-amber-600", tip: "已提交提现申请，等待管理员审核" },
+            { key: "approved_withdrawal", label: "待打款", icon: <Check className="h-4 w-4" />, cls: "text-blue-600", tip: "审核通过/转账中，尚未到账" },
+            { key: "success_withdrawal", label: "已打款", icon: <CheckCircle2 className="h-4 w-4" />, cls: "text-green-600", tip: "提现成功，已打款到账" },
+            { key: "rejected_withdrawal", label: "已拒绝", icon: <X className="h-4 w-4" />, cls: "text-red-500", tip: "审核拒绝/转账失败，金额退回可重新提现" },
           ].map(({ key, label, icon, cls, tip }) => (
             <div key={key} className="rounded-lg border border-border bg-card p-4 shadow-sm">
               <div className="flex items-center gap-2">

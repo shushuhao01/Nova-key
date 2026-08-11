@@ -32,4 +32,9 @@ public interface PromotionLinkRepository extends JpaRepository<PromotionLink, UU
 
     /** 商品推广员排行（按推广销售额倒序） */
     Page<PromotionLink> findByProductIdOrderByTotalSalesDesc(UUID productId, Pageable pageable);
+
+    /** 商品推广链接点击按推广员聚合（clickCount 累计，含历史数据；用于推广员点击排行） */
+    @Query("SELECT pl.distributorId, COALESCE(SUM(pl.clickCount), 0) FROM PromotionLink pl " +
+            "WHERE pl.productId = :productId GROUP BY pl.distributorId")
+    List<Object[]> sumClickCountGroupedByDistributor(@Param("productId") UUID productId);
 }

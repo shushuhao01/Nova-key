@@ -25,7 +25,13 @@ public interface DistributionClickRepository extends JpaRepository<DistributionC
     @Query("SELECT c.distributorId, COUNT(c) FROM DistributionClick c WHERE c.productId = :productId GROUP BY c.distributorId")
     List<Object[]> countClicksByProductGroupedByDistributor(@Param("productId") UUID productId);
 
-    /** 分销员各商品点击数（DistributionClick 按商品聚合：含商品推广链接点击 + 全店推广链接进店后点击商品的埋点） */
-    @Query("SELECT c.productId, COUNT(c) FROM DistributionClick c WHERE c.distributorId = :distId AND c.productId IS NOT NULL GROUP BY c.productId")
-    List<Object[]> countClicksGroupedByProductForDistributor(@Param("distId") UUID distId);
+    /** 全店推广链接进店后的商品点击埋点数，按分销员聚合（仅统计全店链接：所属链接 productId 为 null 的点击，不含商品链接点击以免与 PromotionLink.clickCount 重复） */
+    @Query("SELECT c.distributorId, COUNT(c) FROM DistributionClick c JOIN PromotionLink pl ON pl.id = c.promotionLinkId " +
+            "WHERE pl.productId IS NULL AND c.productId = :productId GROUP BY c.distributorId")
+    List<Object[]> countStoreLinkProductClicksGroupedByDistributor(@Param("productId") UUID productId);
+
+    /** 全店推广链接进店后的商品点击埋点数，按商品聚合（限定分销员；用于前台已推广商品统计） */
+    @Query("SELECT c.productId, COUNT(c) FROM DistributionClick c JOIN PromotionLink pl ON pl.id = c.promotionLinkId " +
+            "WHERE c.distributorId = :distId AND pl.productId IS NULL AND c.productId IS NOT NULL GROUP BY c.productId")
+    List<Object[]> countStoreLinkProductClicksGroupedByProductForDistributor(@Param("distId") UUID distId);
 }

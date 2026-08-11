@@ -456,9 +456,9 @@ public class DistributionServiceImpl implements DistributionService {
             BigDecimal commission = toBigDecimal(agg.get(0)[1], BigDecimal.ZERO);
             long paid = ((Number) agg.get(0)[2]).longValue();
             long promoters = ((Number) agg.get(0)[3]).longValue();
-            // 点击：DistributionClick 按商品聚合（含商品推广链接点击 + 全店推广链接进店后点击该商品的埋点，所有分销员合计）
-            long clicks = 0L;
-            for (Object[] row : clickRepository.countClicksByProductGroupedByDistributor(p.getId())) {
+            // 点击（双源，避免重复）：商品推广链接 clickCount 累计（含历史） + 全店推广链接进店后点击该商品的埋点
+            long clicks = ((Number) promotionLinkRepository.aggregateByProduct(p.getId()).get(0)[2]).longValue();
+            for (Object[] row : clickRepository.countStoreLinkProductClicksGroupedByDistributor(p.getId())) {
                 clicks += ((Number) row[1]).longValue();
             }
             m.put("promotion_sales", sales.setScale(2, RoundingMode.HALF_UP));
@@ -484,10 +484,13 @@ public class DistributionServiceImpl implements DistributionService {
         Map<UUID, User> userMap = distIds.isEmpty() ? Map.of()
                 : userRepository.findAllById(distMap.values().stream().map(Distributor::getUserId).collect(Collectors.toSet()))
                 .stream().collect(Collectors.toMap(User::getId, u -> u));
-        // 商品推广链接点击按推广员聚合（全店推广链接无商品级点击数据）
+        // 点击（双源，避免重复）：商品推广链接 clickCount 按推广员聚合（含历史） + 全店推广链接进店后点击该商品的埋点
         Map<UUID, Long> clickMap = new HashMap<>();
-        for (Object[] row : clickRepository.countClicksByProductGroupedByDistributor(productId)) {
+        for (Object[] row : promotionLinkRepository.sumClickCountGroupedByDistributor(productId)) {
             clickMap.put((UUID) row[0], ((Number) row[1]).longValue());
+        }
+        for (Object[] row : clickRepository.countStoreLinkProductClicksGroupedByDistributor(productId)) {
+            clickMap.merge((UUID) row[0], ((Number) row[1]).longValue(), Long::sum);
         }
 
         List<Map<String, Object>> items = cp.getContent().stream().map(row -> {
@@ -641,6 +644,8 @@ public class DistributionServiceImpl implements DistributionService {
         BigDecimal pendingTotal = BigDecimal.ZERO;
         BigDecimal settlableTotal = BigDecimal.ZERO;
         BigDecimal settledTotal = BigDecimal.ZERO;
+        BigDecimal withdrawingTotal = BigDecimal.ZERO;
+        BigDecimal withdrawnTotal = BigDecimal.ZERO;
         BigDecimal cancelledTotal = BigDecimal.ZERO;
         LocalDateTime cutoff = settleCutoff();
 
@@ -651,11 +656,10 @@ public class DistributionServiceImpl implements DistributionService {
             BigDecimal settlable = nullSafe(commissionRecordRepository
                     .sumSettlablePendingByDistributor(d.getId(), cutoff));
             settlableTotal = settlableTotal.add(settlable);
-            // 已结算口径含申请中/已提现（提现不使金额"消失"）
-            settledTotal = settledTotal
-                    .add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.SETTLED)))
-                    .add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.WITHDRAWING)))
-                    .add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.WITHDRAWN)));
+            // 已结算（纯已入账未提现）/ 申请中（已提交提现待审核打款）/ 已提现（打款成功）分开统计
+            settledTotal = settledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.SETTLED)));
+            withdrawingTotal = withdrawingTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.WITHDRAWING)));
+            withdrawnTotal = withdrawnTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.WITHDRAWN)));
             cancelledTotal = cancelledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.CANCELLED)));
         }
 
@@ -670,6 +674,8 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("pending_commission", pendingTotal.subtract(settlableTotal).setScale(2, RoundingMode.HALF_UP));
         m.put("settlable_commission", settlableTotal.setScale(2, RoundingMode.HALF_UP));
         m.put("settled_commission", settledTotal.setScale(2, RoundingMode.HALF_UP));
+        m.put("withdrawing_commission", withdrawingTotal.setScale(2, RoundingMode.HALF_UP));
+        m.put("withdrawn_commission", withdrawnTotal.setScale(2, RoundingMode.HALF_UP));
         m.put("cancelled_commission", cancelledTotal.setScale(2, RoundingMode.HALF_UP));
         m.put("today_commission", todayTotal.setScale(2, RoundingMode.HALF_UP));
         return m;
@@ -722,19 +728,26 @@ public class DistributionServiceImpl implements DistributionService {
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> adminWithdrawalStats(LocalDate from, LocalDate to) {
-        // 区间 [from, to)；为空则统计全量（1970 → +100年）
+        // 区间 [from, to)；为空则统计全量（1970 → 现在+100年）
         LocalDateTime fromDt = from != null ? from.atStartOfDay() : LocalDateTime.of(1970, 1, 1, 0, 0);
         LocalDateTime toDt = to != null ? to.plusDays(1).atStartOfDay() : LocalDateTime.now().plusYears(100);
         BigDecimal totalSales = nullSafe(orderRepository.sumDistributionSales(fromDt, toDt));
         BigDecimal totalCommission = nullSafe(commissionRecordRepository.sumCommissionAmountBetween(fromDt, toDt));
-        BigDecimal pendingCommission = nullSafe(commissionRecordRepository.sumPendingBetween(fromDt, toDt));
-        BigDecimal settledCommission = nullSafe(commissionRecordRepository.sumSettledBetween(fromDt, toDt));
+        // 提现单状态口径：按提现单申请金额分状态统计（区间按提现申请创建时间）
+        BigDecimal pendingWithdrawal = nullSafe(withdrawalRecordRepository.sumAmountByStatusBetween(WithdrawalStatus.PENDING, fromDt, toDt));
+        BigDecimal approvedWithdrawal = nullSafe(withdrawalRecordRepository.sumAmountByStatusBetween(WithdrawalStatus.APPROVED, fromDt, toDt))
+                .add(nullSafe(withdrawalRecordRepository.sumAmountByStatusBetween(WithdrawalStatus.PROCESSING, fromDt, toDt)));
+        BigDecimal successWithdrawal = nullSafe(withdrawalRecordRepository.sumAmountByStatusBetween(WithdrawalStatus.SUCCESS, fromDt, toDt));
+        BigDecimal rejectedWithdrawal = nullSafe(withdrawalRecordRepository.sumAmountByStatusBetween(WithdrawalStatus.REJECTED, fromDt, toDt))
+                .add(nullSafe(withdrawalRecordRepository.sumAmountByStatusBetween(WithdrawalStatus.FAILED, fromDt, toDt)));
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("total_sales", totalSales.setScale(2, RoundingMode.HALF_UP));
         m.put("total_commission", totalCommission.setScale(2, RoundingMode.HALF_UP));
-        m.put("pending_commission", pendingCommission.setScale(2, RoundingMode.HALF_UP));
-        m.put("settled_commission", settledCommission.setScale(2, RoundingMode.HALF_UP));
+        m.put("pending_withdrawal", pendingWithdrawal.setScale(2, RoundingMode.HALF_UP));
+        m.put("approved_withdrawal", approvedWithdrawal.setScale(2, RoundingMode.HALF_UP));
+        m.put("success_withdrawal", successWithdrawal.setScale(2, RoundingMode.HALF_UP));
+        m.put("rejected_withdrawal", rejectedWithdrawal.setScale(2, RoundingMode.HALF_UP));
         return m;
     }
 
@@ -1097,9 +1110,14 @@ public class DistributionServiceImpl implements DistributionService {
         Distributor d = requireDistributorByUserId(userId);
         UUID distId = d.getId();
 
-        // 商品点击数（DistributionClick 按商品聚合）：含商品推广链接点击 + 全店推广链接进店后点击该商品的埋点
+        // 商品点击数（双源，避免重复）：商品推广链接 clickCount 累计（含历史） + 全店推广链接进店后点击该商品的埋点
         Map<UUID, Long> clicksByProduct = new HashMap<>();
-        for (Object[] row : clickRepository.countClicksGroupedByProductForDistributor(distId)) {
+        for (PromotionLink pl : promotionLinkRepository.findByDistributorId(distId, Pageable.unpaged()).getContent()) {
+            if (pl.getProductId() != null) {
+                clicksByProduct.merge(pl.getProductId(), (long) pl.getClickCount(), Long::sum);
+            }
+        }
+        for (Object[] row : clickRepository.countStoreLinkProductClicksGroupedByProductForDistributor(distId)) {
             clicksByProduct.merge((UUID) row[0], ((Number) row[1]).longValue(), Long::sum);
         }
 

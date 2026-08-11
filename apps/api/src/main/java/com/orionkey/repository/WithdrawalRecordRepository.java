@@ -36,6 +36,13 @@ public interface WithdrawalRecordRepository extends JpaRepository<WithdrawalReco
     BigDecimal sumAmountBetween(@Param("from") java.time.LocalDateTime from,
                                 @Param("to") java.time.LocalDateTime to);
 
+    /** 区间内指定状态的提现单金额合计（按申请创建时间） */
+    @Query("SELECT COALESCE(SUM(wr.amount), 0) FROM WithdrawalRecord wr " +
+            "WHERE wr.status = :status AND wr.createdAt >= :from AND wr.createdAt < :to")
+    BigDecimal sumAmountByStatusBetween(@Param("status") WithdrawalStatus status,
+                                        @Param("from") java.time.LocalDateTime from,
+                                        @Param("to") java.time.LocalDateTime to);
+
     Optional<WithdrawalRecord> findByOutBillNo(String outBillNo);
 
     @Query("SELECT wr FROM WithdrawalRecord wr WHERE wr.status = 'PROCESSING' " +
