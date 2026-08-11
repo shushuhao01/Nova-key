@@ -73,6 +73,12 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             "AND o.paidAt IS NOT NULL AND o.paidAt >= :from")
     BigDecimal sumSalesByDistributorSince(@Param("distId") UUID distId, @Param("from") LocalDateTime from);
 
+    /** 分销员推广成交订单数（全部时段）：按 referral_distributor_id 关联（全店与商品推广链接都算），已付款/已发货/已完成 */
+    @Query("SELECT COUNT(o) FROM Order o WHERE o.referralDistributorId = :distId " +
+            "AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) " +
+            "AND o.paidAt IS NOT NULL")
+    long countPaidOrdersByDistributorAll(@Param("distId") UUID distId);
+
     // ── 客户管理（注册用户 / 匿名邮箱统计） ──
 
     /** 注册用户成交订单数（已支付/已发货/已完成） */

@@ -33,10 +33,13 @@ public interface DistributorRepository extends JpaRepository<Distributor, UUID> 
     /**
      * 管理后台分销员列表。from/to 由服务层传入非空哨兵值（null 时间参数出现在
      * "IS NULL" 谓词时 PG 无法推断类型，报 could not determine data type of parameter）。
+     * keyword 匹配分销员编码 / 用户名 / 邮箱（通过子查询关联用户表）。
      */
     @Query("SELECT d FROM Distributor d WHERE " +
             "(:status IS NULL OR d.status = :status) " +
-            "AND (:keyword IS NULL OR :keyword = '' OR LOWER(d.distributorCode) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            "AND (:keyword IS NULL OR :keyword = '' OR LOWER(d.distributorCode) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+            "OR d.userId IN (SELECT u.id FROM User u WHERE LOWER(u.username) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+            "OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%')))) " +
             "AND d.createdAt >= :from AND d.createdAt < :to " +
             "ORDER BY d.createdAt DESC")
     Page<Distributor> findAdminList(@Param("status") DistributorStatus status,

@@ -112,6 +112,11 @@ interface Distributor {
   withdrawn_amount: number
   subordinate_count: number
   customer_count: number
+  /** 成交数据（佣金记录/订单口径） */
+  total_sales: number
+  paid_order_count: number
+  pending_commission: number
+  settled_commission: number
   applied_at: string
   approved_at: string | null
   reject_reason: string | null
@@ -254,8 +259,8 @@ export default function AdminDistributionPage() {
         </div>
       </div>
 
-      {/* 快捷日期筛选栏（概览 + 推广员 + 佣金记录 + 提现管理联动，商品佣金/规则设置不参与） */}
-      {tab === "overview" || tab === "distributors" || tab === "commissions" || tab === "withdrawals" ? (
+      {/* 快捷日期筛选栏（概览 + 提现管理联动；推广员/佣金记录为全量管理列表不受日期过滤，商品佣金/规则设置不参与） */}
+      {tab === "overview" || tab === "withdrawals" ? (
         <DateFilterBar
           range={range}
           onRange={setRange}
@@ -268,9 +273,9 @@ export default function AdminDistributionPage() {
       ) : null}
 
       {tab === "overview" && <OverviewTab params={overviewParams} dateVersion={dateVersion} />}
-      {tab === "distributors" && <DistributorsTab dateFrom={listDates.from} dateTo={listDates.to} dateVersion={dateVersion} />}
+      {tab === "distributors" && <DistributorsTab dateVersion={dateVersion} />}
       {tab === "products" && <ProductsTab />}
-      {tab === "commissions" && <CommissionsTab dateFrom={listDates.from} dateTo={listDates.to} dateVersion={dateVersion} />}
+      {tab === "commissions" && <CommissionsTab dateVersion={dateVersion} />}
       {tab === "withdrawals" && <WithdrawalsTab dateFrom={listDates.from} dateTo={listDates.to} dateVersion={dateVersion} />}
       {tab === "rules" && <RulesTab />}
 
@@ -577,7 +582,7 @@ const distributorStatusMap: Record<DistributorStatus, { label: string; cls: stri
   DISABLED: { label: "已禁用", cls: "bg-muted text-muted-foreground" },
 }
 
-function DistributorsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; dateTo?: string; dateVersion: number }) {
+function DistributorsTab({ dateVersion }: { dateVersion: number }) {
   const [list, setList] = useState<Distributor[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -595,8 +600,6 @@ function DistributorsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string;
         page_size: ITEMS_PER_PAGE,
         keyword: keyword || undefined,
         status: statusFilter || undefined,
-        from: dateFrom,
-        to: dateTo,
       })
       setList((data.list || []) as Distributor[])
       setTotal(data.pagination?.total ?? 0)
@@ -607,12 +610,12 @@ function DistributorsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string;
     } finally {
       setLoading(false)
     }
-  }, [currentPage, keyword, statusFilter, dateFrom, dateTo])
+  }, [currentPage, keyword, statusFilter])
 
   useEffect(() => {
     const timer = setTimeout(() => setCurrentPage(1), 300)
     return () => clearTimeout(timer)
-  }, [keyword, statusFilter, dateFrom, dateTo])
+  }, [keyword, statusFilter])
 
   useEffect(() => { fetchList() }, [fetchList, dateVersion])
 
@@ -647,7 +650,7 @@ function DistributorsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string;
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
-              placeholder="搜索用户名 / 邮箱 / 手机号"
+              placeholder="搜索用户名 / 邮箱 / 分销员编码"
               className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
@@ -685,6 +688,8 @@ function DistributorsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string;
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">状态</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金比例</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">下级比例</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">成交额</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">付款订单</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">总佣金</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">可提现</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">团队</th>
@@ -694,9 +699,9 @@ function DistributorsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string;
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+                <tr><td colSpan={12} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
               ) : list.length === 0 ? (
-                <tr><td colSpan={10} className="py-8 text-center text-sm text-muted-foreground">暂无分销员数据</td></tr>
+                <tr><td colSpan={12} className="py-8 text-center text-sm text-muted-foreground">暂无分销员数据</td></tr>
               ) : (
                 list.map((d) => {
                   const st = distributorStatusMap[d.status]
@@ -733,6 +738,8 @@ function DistributorsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string;
                         </div>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{effectiveSubRate(d).toFixed(2)}%</td>
+                      <td className="px-4 py-3 font-medium text-primary">{fmtMoney(d.total_sales)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{d.paid_order_count ?? 0} 单</td>
                       <td className="px-4 py-3 font-medium text-foreground">{fmtMoney(d.total_commission)}</td>
                       <td className="px-4 py-3 text-emerald-600">{fmtMoney(d.available_balance)}</td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">
@@ -1324,7 +1331,11 @@ function ProductsTab() {
                       <td className="whitespace-nowrap px-4 py-3 text-center">{linkCell(fmtMoney(p.promotion_commission ?? 0), "查看该商品推广员佣金排行")}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-center">{linkCell(String(p.click_count ?? 0), "查看该商品推广员点击排行")}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-center">{linkCell(String(p.paid_count ?? 0), "查看该商品推广员付款排行")}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-center">{linkCell(`${Number(p.conversion_rate ?? 0).toFixed(2)}%`, "查看该商品推广员转化率排行")}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-center">
+                        {p.click_count
+                          ? linkCell(`${Number(p.conversion_rate ?? 0).toFixed(2)}%`, "查看该商品推广员转化率排行")
+                          : <span className="text-muted-foreground">—</span>}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 text-center">{linkCell(String(p.promoter_count ?? 0), "查看该商品推广员列表")}</td>
                       <td className="whitespace-nowrap px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
@@ -1487,7 +1498,11 @@ function PromoterRankModal({ product, onClose }: {
                     <td className="px-3 py-2.5 text-right text-emerald-600">{fmtMoney(r.total_commission)}</td>
                     <td className="px-3 py-2.5 text-right text-muted-foreground">{r.click_count ?? 0}</td>
                     <td className="px-3 py-2.5 text-right text-muted-foreground">{r.paid_count ?? 0}</td>
-                    <td className="px-3 py-2.5 text-right text-muted-foreground">{Number(r.conversion_rate ?? 0).toFixed(2)}%</td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground">
+                      {r.click_count
+                        ? `${Number(r.conversion_rate ?? 0).toFixed(2)}%`
+                        : "—"}
+                    </td>
                     <td className="px-3 py-2.5 text-right text-xs text-muted-foreground">{fmtDate(r.created_at)}</td>
                   </tr>
                 ))}
@@ -1746,7 +1761,7 @@ const commissionStatusMap: Record<CommissionStatus, { label: string; cls: string
   CANCELLED: { label: "已取消", cls: "bg-red-500/10 text-red-500" },
 }
 
-function CommissionsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; dateTo?: string; dateVersion: number }) {
+function CommissionsTab({ dateVersion }: { dateVersion: number }) {
   const [list, setList] = useState<CommissionRecord[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -1763,8 +1778,6 @@ function CommissionsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
         page_size: ITEMS_PER_PAGE,
         distributor_id: distributorId || undefined,
         status: statusFilter || undefined,
-        from: dateFrom,
-        to: dateTo,
       })
       setList((data.list || []) as CommissionRecord[])
       setTotal(data.pagination?.total ?? 0)
@@ -1775,7 +1788,7 @@ function CommissionsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
     } finally {
       setLoading(false)
     }
-  }, [currentPage, distributorId, statusFilter, dateFrom, dateTo])
+  }, [currentPage, distributorId, statusFilter])
 
   const fetchStats = useCallback(async () => {
     try {
@@ -1789,7 +1802,7 @@ function CommissionsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
   useEffect(() => {
     const timer = setTimeout(() => setCurrentPage(1), 300)
     return () => clearTimeout(timer)
-  }, [distributorId, statusFilter, dateFrom, dateTo])
+  }, [distributorId, statusFilter])
 
   useEffect(() => { fetchList() }, [fetchList, dateVersion])
   useEffect(() => { fetchStats() }, [fetchStats])

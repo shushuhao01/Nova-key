@@ -247,6 +247,13 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("applied_at", d.getCreatedAt());
             m.put("customer_count", customerBindingRepository.countByDistributorId(d.getId()));
             m.put("subordinate_count", distributorRepository.findByParentId(d.getId()).size());
+            // 成交数据（佣金记录/订单口径，含全店推广与商品推广链接成交）：
+            // 总佣金不依赖 Distributor 冗余字段（仅结算时累加，未结算显示 0），改从佣金记录实时聚合
+            m.put("total_sales", nullSafe(orderRepository.sumSalesByDistributorAll(d.getId())).setScale(2, RoundingMode.HALF_UP));
+            m.put("paid_order_count", orderRepository.countPaidOrdersByDistributorAll(d.getId()));
+            m.put("total_commission", nullSafe(commissionRecordRepository.sumTotalByDistributorAll(d.getId())).setScale(2, RoundingMode.HALF_UP));
+            m.put("pending_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.PENDING)).setScale(2, RoundingMode.HALF_UP));
+            m.put("settled_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.SETTLED)).setScale(2, RoundingMode.HALF_UP));
             return m;
         }).toList();
 
@@ -263,8 +270,12 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("applied_at", d.getCreatedAt());
         m.put("customer_count", customerBindingRepository.countByDistributorId(d.getId()));
         m.put("subordinate_count", distributorRepository.findByParentId(d.getId()).size());
-        m.put("pending_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.PENDING.name())));
-        m.put("settled_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.SETTLED.name())));
+        // 成交数据（佣金记录/订单口径，含全店推广与商品推广链接成交），与列表口径一致
+        m.put("total_sales", nullSafe(orderRepository.sumSalesByDistributorAll(d.getId())).setScale(2, RoundingMode.HALF_UP));
+        m.put("paid_order_count", orderRepository.countPaidOrdersByDistributorAll(d.getId()));
+        m.put("total_commission", nullSafe(commissionRecordRepository.sumTotalByDistributorAll(d.getId())).setScale(2, RoundingMode.HALF_UP));
+        m.put("pending_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.PENDING)).setScale(2, RoundingMode.HALF_UP));
+        m.put("settled_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.SETTLED)).setScale(2, RoundingMode.HALF_UP));
         return m;
     }
 
@@ -413,13 +424,15 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("custom_rate", rateToPercent(pc != null ? pc.getCustomRate() : null));
             m.put("excluded", pc != null && pc.isExcluded());
             m.put("default_rate", rateToPercent(defaultRate));
-            // 推广数据（通过推广链接产生的累计统计）
-            List<Object[]> agg = promotionLinkRepository.aggregateByProduct(p.getId());
-            BigDecimal sales = agg.get(0)[0] instanceof Number ? (BigDecimal) agg.get(0)[0] : BigDecimal.ZERO;
-            BigDecimal commission = agg.get(0)[1] instanceof Number ? (BigDecimal) agg.get(0)[1] : BigDecimal.ZERO;
-            long clicks = ((Number) agg.get(0)[2]).longValue();
-            long paid = ((Number) agg.get(0)[3]).longValue();
-            long promoters = ((Number) agg.get(0)[4]).longValue();
+            // 推广成交数据（佣金记录口径，含全店推广与商品推广链接成交）：销售额/佣金/付款订单/推广人数
+            List<Object[]> agg = commissionRecordRepository.aggregateByProductAdmin(p.getId());
+            BigDecimal sales = toBigDecimal(agg.get(0)[0], BigDecimal.ZERO);
+            BigDecimal commission = toBigDecimal(agg.get(0)[1], BigDecimal.ZERO);
+            long paid = ((Number) agg.get(0)[2]).longValue();
+            long promoters = ((Number) agg.get(0)[3]).longValue();
+            // 点击：商品推广链接产生的点击（全店推广链接无商品级点击数据）
+            List<Object[]> linkAgg = promotionLinkRepository.aggregateByProduct(p.getId());
+            long clicks = ((Number) linkAgg.get(0)[2]).longValue();
             m.put("promotion_sales", sales.setScale(2, RoundingMode.HALF_UP));
             m.put("promotion_commission", commission.setScale(2, RoundingMode.HALF_UP));
             m.put("click_count", clicks);
@@ -435,36 +448,43 @@ public class DistributionServiceImpl implements DistributionService {
     @Transactional(readOnly = true)
     public Map<String, Object> adminProductPromoters(UUID productId, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
-        Page<PromotionLink> lp = promotionLinkRepository.findByProductIdOrderByTotalSalesDesc(productId, pageable);
-        Set<UUID> distIds = lp.getContent().stream().map(PromotionLink::getDistributorId).collect(Collectors.toSet());
+        // 佣金记录口径：含全店推广与商品推广链接成交的推广员排行（按推广销售额倒序）
+        Page<Object[]> cp = commissionRecordRepository.aggregatePromotersByProduct(productId, pageable);
+        Set<UUID> distIds = cp.getContent().stream().map(row -> (UUID) row[0]).collect(Collectors.toSet());
         Map<UUID, Distributor> distMap = distIds.isEmpty() ? Map.of()
                 : distributorRepository.findAllById(distIds).stream().collect(Collectors.toMap(Distributor::getId, d -> d));
         Map<UUID, User> userMap = distIds.isEmpty() ? Map.of()
                 : userRepository.findAllById(distMap.values().stream().map(Distributor::getUserId).collect(Collectors.toSet()))
                 .stream().collect(Collectors.toMap(User::getId, u -> u));
+        // 商品推广链接点击按推广员聚合（全店推广链接无商品级点击数据）
+        Map<UUID, Long> clickMap = new HashMap<>();
+        for (Object[] row : clickRepository.countClicksByProductGroupedByDistributor(productId)) {
+            clickMap.put((UUID) row[0], ((Number) row[1]).longValue());
+        }
 
-        List<Map<String, Object>> items = lp.getContent().stream().map(pl -> {
+        List<Map<String, Object>> items = cp.getContent().stream().map(row -> {
             Map<String, Object> m = new LinkedHashMap<>();
-            Distributor d = distMap.get(pl.getDistributorId());
+            UUID distId = (UUID) row[0];
+            BigDecimal sales = toBigDecimal(row[1], BigDecimal.ZERO);
+            BigDecimal commission = toBigDecimal(row[2], BigDecimal.ZERO);
+            long paid = ((Number) row[3]).longValue();
+            long clicks = clickMap.getOrDefault(distId, 0L);
+            Distributor d = distMap.get(distId);
             User u = d != null ? userMap.get(d.getUserId()) : null;
-            m.put("distributor_id", pl.getDistributorId());
+            m.put("distributor_id", distId);
             m.put("distributor_code", d != null ? d.getDistributorCode() : null);
             m.put("username", u != null ? u.getUsername() : null);
             m.put("email", u != null ? u.getEmail() : null);
-            m.put("link_url", buildPromotionUrl(pl.getLinkCode()));
-            m.put("total_sales", pl.getTotalSales() != null ? pl.getTotalSales().setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO);
-            m.put("total_commission", pl.getTotalCommission() != null ? pl.getTotalCommission().setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO);
-            long clicks = pl.getClickCount();
-            long paid = pl.getPaidCount();
+            m.put("total_sales", sales.setScale(2, RoundingMode.HALF_UP));
+            m.put("total_commission", commission.setScale(2, RoundingMode.HALF_UP));
             m.put("click_count", clicks);
             m.put("paid_count", paid);
             m.put("conversion_rate", clicks > 0
                     ? new BigDecimal(paid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(clicks), 2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO.setScale(2));
-            m.put("created_at", pl.getCreatedAt());
             return m;
         }).toList();
-        return pageResult(items, lp.getTotalElements(), page, pageSize);
+        return pageResult(items, cp.getTotalElements(), page, pageSize);
     }
 
     @Override
@@ -582,26 +602,23 @@ public class DistributionServiceImpl implements DistributionService {
     @Transactional(readOnly = true)
     public Map<String, Object> adminCommissionStats() {
         List<Distributor> all = distributorRepository.findAll();
-        BigDecimal totalCommission = BigDecimal.ZERO;
+        // 总佣金口径：佣金记录实时汇总（不含已取消），不依赖 Distributor 冗余字段（仅结算时累加，未结算会显示 0）
+        BigDecimal totalCommission = nullSafe(commissionRecordRepository
+                .sumCommissionAmountBetween(RANGE_FROM_MIN, RANGE_TO_MAX));
         BigDecimal pendingTotal = BigDecimal.ZERO;
         BigDecimal settledTotal = BigDecimal.ZERO;
         BigDecimal cancelledTotal = BigDecimal.ZERO;
-        BigDecimal todayTotal = BigDecimal.ZERO;
-        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
 
         for (Distributor d : all) {
-            totalCommission = totalCommission.add(nullSafe(d.getTotalCommission()));
-            pendingTotal = pendingTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.PENDING.name())));
-            settledTotal = settledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.SETTLED.name())));
-            cancelledTotal = cancelledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatus(d.getId(), CommissionStatus.CANCELLED.name())));
+            pendingTotal = pendingTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.PENDING)));
+            settledTotal = settledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.SETTLED)));
+            cancelledTotal = cancelledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.CANCELLED)));
         }
 
-        // 今日佣金
-        for (CommissionRecord cr : commissionRecordRepository.findAll()) {
-            if (cr.getCreatedAt() != null && !cr.getCreatedAt().isBefore(todayStart) && cr.getStatus() != CommissionStatus.CANCELLED) {
-                todayTotal = todayTotal.add(nullSafe(cr.getCommissionAmount()));
-            }
-        }
+        // 今日佣金（不含已取消，按佣金创建时间）
+        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        BigDecimal todayTotal = nullSafe(commissionRecordRepository
+                .sumCommissionAmountBetween(todayStart, todayStart.plusDays(1)));
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("total_commission", totalCommission.setScale(2, RoundingMode.HALF_UP));

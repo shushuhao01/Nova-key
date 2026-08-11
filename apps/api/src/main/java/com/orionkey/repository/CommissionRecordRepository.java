@@ -97,6 +97,29 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
                                  @Param("to") LocalDateTime to);
 
     /**
+     * 管理后台商品维度推广聚合（佣金记录口径，含全店推广与商品推广链接成交）：
+     * 返回 [销售额(order_amount 分摊合计), 佣金合计, 付款订单数(去重), 推广人数(去重)]，剔除已取消佣金。
+     */
+    @Query(value = "SELECT COALESCE(SUM(cr.order_amount), 0), COALESCE(SUM(cr.commission_amount), 0), " +
+            "COUNT(DISTINCT cr.order_id), COUNT(DISTINCT cr.distributor_id) " +
+            "FROM commission_records cr WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED'",
+            nativeQuery = true)
+    List<Object[]> aggregateByProductAdmin(@Param("productId") UUID productId);
+
+    /**
+     * 管理后台商品推广员排行（佣金记录口径，含全店推广与商品推广链接成交）：
+     * 按推广销售额倒序分页，每行 [distributorId, 销售额, 佣金合计, 付款订单数(去重)]，剔除已取消佣金。
+     */
+    @Query(value = "SELECT cr.distributor_id, COALESCE(SUM(cr.order_amount), 0), COALESCE(SUM(cr.commission_amount), 0), " +
+            "COUNT(DISTINCT cr.order_id) FROM commission_records cr " +
+            "WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED' " +
+            "GROUP BY cr.distributor_id ORDER BY COALESCE(SUM(cr.order_amount), 0) DESC",
+            countQuery = "SELECT COUNT(DISTINCT cr.distributor_id) FROM commission_records cr " +
+                    "WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED'",
+            nativeQuery = true)
+    Page<Object[]> aggregatePromotersByProduct(@Param("productId") UUID productId, Pageable pageable);
+
+    /**
      * 待结算佣金：订单已完成（COMPLETED）且完成时间超过结算延迟期。
      * 即"订单完成 + N 天"后佣金才可结算提现，防止退款套佣（退款会走 cancelCommissions 取消佣金）。
      */
