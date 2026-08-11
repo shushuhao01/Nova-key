@@ -24,6 +24,19 @@ if [ -z "$PRIV" ] || [ ! -f "$PRIV" ]; then
   exit 1
 fi
 
+# 兼容无 PEM 头的裸 base64 私钥（支付宝密钥工具常见格式）：自动补齐头尾
+if ! grep -q "BEGIN" "$PRIV"; then
+  B64=$(tr -d '\r\n ' < "$PRIV")
+  PEM_TMP="app_private_key.pem"
+  if echo "$B64" | grep -q '^MIIEvQIBA'; then
+    { echo "-----BEGIN PRIVATE KEY-----"; echo "$B64"; echo "-----END PRIVATE KEY-----"; } > "$PEM_TMP"
+  else
+    { echo "-----BEGIN RSA PRIVATE KEY-----"; echo "$B64"; echo "-----END RSA PRIVATE KEY-----"; } > "$PEM_TMP"
+  fi
+  echo "  (检测到无头私钥，已自动补齐 PEM 头尾为 $PEM_TMP)"
+  PRIV="$PEM_TMP"
+fi
+
 # 北京时间时间戳（与系统签名一致）
 TS=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
 TS_ENC=${TS// /%20}
