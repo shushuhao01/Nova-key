@@ -168,9 +168,16 @@ public class AlipayServiceImpl implements AlipayService {
             String outTradeNo = "NOVA_TEST_" + System.currentTimeMillis();
             String bizContent = "{\"out_trade_no\":\"" + outTradeNo + "\"}";
             Map<String, String> params = baseParams(config, "alipay.trade.query", bizContent);
+            // 诊断用：记录系统实际签名内容与签名值，isv.invalid-signature 时随错误信息返回，
+            // 便于与手工脚本(test-alipay-sign.sh)逐字节对比定位差异
+            String debugContent = null;
+            String debugSign = null;
             try {
+                debugContent = buildSignContent(params, true);
                 String sign = sign(params, config.privateKey());
+                debugSign = sign;
                 params.put("sign", sign);
+                log.info("ALIPAY_TEST content={} sign={}", debugContent, debugSign);
                 String respBody = postForm(config.gatewayUrl(), params);
                 Map<String, Object> resp = objectMapper.readValue(respBody, new TypeReference<>() {
                 });
@@ -220,7 +227,9 @@ public class AlipayServiceImpl implements AlipayService {
                             sb.append("。签名校验失败：")
                                     .append(checkPrivateKeyBits(config.privateKey()))
                                     .append(privateKeyFingerprintHint(config.privateKey()))
-                                    .append("请核对 AppID 对应的「应用私钥」是否匹配（在开放平台重新生成并上传应用公钥后，使用其配套的私钥），并确认应用「加签方式」为「公钥」（若为「公钥证书」则需使用证书模式，当前系统不支持）");
+                                    .append("请核对 AppID 对应的「应用私钥」是否匹配（在开放平台重新生成并上传应用公钥后，使用其配套的私钥），并确认应用「加签方式」为「公钥」（若为「公钥证书」则需使用证书模式，当前系统不支持）")
+                                    .append("。系统实际验签串=").append(debugContent)
+                                    .append(" 系统sign=").append(debugSign);
                         } else if ("isv.invalid-parameter".equals(subCode)) {
                             sb.append("。请求参数无效：请检查 AppID/私钥/公钥粘贴时是否带有多余空格、换行等非法字符");
                         }
@@ -431,17 +440,18 @@ public class AlipayServiceImpl implements AlipayService {
         String bizContent = params.remove("biz_content");
         UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(url);
         params.forEach(builder::queryParam);
+        java.net.URI uri = builder.build().encode().toUri();
+        log.info("ALIPAY_REQ url={} body={}", uri, bizContent);
         if (bizContent != null) {
             MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
             form.add("biz_content", bizContent);
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
             ResponseEntity<String> response = restTemplate.postForEntity(
-                    builder.build().encode().toUri(), new HttpEntity<>(form, headers), String.class);
+                    uri, new HttpEntity<>(form, headers), String.class);
             return response.getBody();
         }
-        ResponseEntity<String> response = restTemplate.postForEntity(
-                builder.build().encode().toUri(), null, String.class);
+        ResponseEntity<String> response = restTemplate.postForEntity(uri, null, String.class);
         return response.getBody();
     }
 
