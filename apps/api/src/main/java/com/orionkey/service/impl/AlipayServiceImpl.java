@@ -181,6 +181,7 @@ public class AlipayServiceImpl implements AlipayService {
             String debugContent = null;
             String debugSign = null;
             String debugUrl = null;
+            String respBody = null;
             try {
                 debugContent = buildSignContent(params, true);
                 String sign = sign(params, config.privateKey());
@@ -192,7 +193,7 @@ public class AlipayServiceImpl implements AlipayService {
                 debugUrl = buildQueryUrl(config.gatewayUrl(), q)
                         + (biz != null ? " | body=" + biz : "");
                 log.info("ALIPAY_TEST content={} sign={} url={}", debugContent, debugSign, debugUrl);
-                String respBody = postForm(config.gatewayUrl(), params);
+                respBody = postForm(config.gatewayUrl(), params);
                 Map<String, Object> resp = objectMapper.readValue(respBody, new TypeReference<>() {
                 });
 
@@ -301,6 +302,7 @@ public class AlipayServiceImpl implements AlipayService {
                         respVerifyMsg = "支付宝响应验签失败：当前填写的公钥无法验证支付宝的签名。请在支付宝开放平台「密钥管理」中复制『支付宝公钥』（注意不是『应用公钥』——应用公钥是您私钥配套的公钥，无法验证支付宝的签名）填入本字段"
                                 + " 系统实际验签串=" + content
                                 + " 响应签名=" + respSign
+                                + " 完整响应JSON=" + respBody
                                 + alipayPublicKeyFingerprintCompare(config);
                     }
                 }
