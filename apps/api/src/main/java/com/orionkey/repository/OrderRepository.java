@@ -59,13 +59,19 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
                                       @Param("to") LocalDateTime to);
 
     /**
-     * 分销员推广成交额：按 referral_distributor_id 关联（全店推广与商品推广链接都算），
-     * 已付款/已发货/已完成订单按支付时间汇总；from=null 表示全部时段（累计成交额）。
+     * 分销员推广累计成交额（全部时段）：按 referral_distributor_id 关联（全店与商品推广链接都算），
+     * 已付款/已发货/已完成订单按支付时间汇总。
      */
     @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE o.referralDistributorId = :distId " +
             "AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) " +
-            "AND o.paidAt IS NOT NULL AND (:from IS NULL OR o.paidAt >= :from)")
-    BigDecimal sumSalesByDistributor(@Param("distId") UUID distId, @Param("from") LocalDateTime from);
+            "AND o.paidAt IS NOT NULL")
+    BigDecimal sumSalesByDistributorAll(@Param("distId") UUID distId);
+
+    /** 分销员推广成交额（自 from 起的支付时间，from 恒非空） */
+    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE o.referralDistributorId = :distId " +
+            "AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) " +
+            "AND o.paidAt IS NOT NULL AND o.paidAt >= :from")
+    BigDecimal sumSalesByDistributorSince(@Param("distId") UUID distId, @Param("from") LocalDateTime from);
 
     // ── 客户管理（注册用户 / 匿名邮箱统计） ──
 

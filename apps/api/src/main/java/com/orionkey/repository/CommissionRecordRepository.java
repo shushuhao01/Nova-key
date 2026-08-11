@@ -41,18 +41,28 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
     BigDecimal sumByDistributorAndStatus(@Param("distributorId") UUID distributorId,
                                          @Param("status") String status);
 
-    /** 分销员指定状态佣金合计（from=null 表示全部时段，按佣金创建时间） */
+    /** 分销员指定状态佣金合计（全部时段，按佣金创建时间） */
     @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
-            "WHERE cr.distributorId = :distId AND cr.status = :status " +
-            "AND (:from IS NULL OR cr.createdAt >= :from)")
+            "WHERE cr.distributorId = :distId AND cr.status = :status")
+    BigDecimal sumByDistributorAndStatusAll(@Param("distId") UUID distId,
+                                            @Param("status") CommissionStatus status);
+
+    /** 分销员指定状态佣金合计（自 from 起，from 恒非空） */
+    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
+            "WHERE cr.distributorId = :distId AND cr.status = :status AND cr.createdAt >= :from")
     BigDecimal sumByDistributorAndStatusSince(@Param("distId") UUID distId,
                                               @Param("status") CommissionStatus status,
                                               @Param("from") LocalDateTime from);
 
-    /** 分销员累计佣金（不含已取消，from=null 表示全部时段，按佣金创建时间） */
+    /** 分销员累计佣金（全部时段，不含已取消） */
+    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
+            "WHERE cr.distributorId = :distId AND cr.status != com.orionkey.constant.CommissionStatus.CANCELLED")
+    BigDecimal sumTotalByDistributorAll(@Param("distId") UUID distId);
+
+    /** 分销员累计佣金（自 from 起，from 恒非空，不含已取消） */
     @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
             "WHERE cr.distributorId = :distId AND cr.status != com.orionkey.constant.CommissionStatus.CANCELLED " +
-            "AND (:from IS NULL OR cr.createdAt >= :from)")
+            "AND cr.createdAt >= :from")
     BigDecimal sumTotalByDistributorSince(@Param("distId") UUID distId, @Param("from") LocalDateTime from);
 
     /**

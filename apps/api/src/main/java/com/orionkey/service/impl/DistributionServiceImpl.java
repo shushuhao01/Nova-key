@@ -187,15 +187,20 @@ public class DistributionServiceImpl implements DistributionService {
                 .getTotalElements();
         long totalClicks = clickRepository.countByDistributorId(distId);
 
-        // 按推广员 ID 汇总：全店推广与商品推广链接进来的已付款订单都计入成交额
-        BigDecimal sales = nullSafe(orderRepository.sumSalesByDistributor(distId, from));
-        BigDecimal pendingCommission = nullSafe(commissionRecordRepository
-                .sumByDistributorAndStatusSince(distId, CommissionStatus.PENDING, from));
-        BigDecimal totalCommission = nullSafe(commissionRecordRepository
-                .sumTotalByDistributorSince(distId, from));
+        // 按推广员 ID 汇总：全店推广与商品推广链接进来的已付款订单都计入成交额。
+        // from==null（累计）与 from!=null（本月）走不同查询，避免 JPQL 可空时间参数导致 PG 类型推断失败
+        BigDecimal sales = from != null
+                ? nullSafe(orderRepository.sumSalesByDistributorSince(distId, from))
+                : nullSafe(orderRepository.sumSalesByDistributorAll(distId));
+        BigDecimal pendingCommission = from != null
+                ? nullSafe(commissionRecordRepository.sumByDistributorAndStatusSince(distId, CommissionStatus.PENDING, from))
+                : nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(distId, CommissionStatus.PENDING));
+        BigDecimal totalCommission = from != null
+                ? nullSafe(commissionRecordRepository.sumTotalByDistributorSince(distId, from))
+                : nullSafe(commissionRecordRepository.sumTotalByDistributorAll(distId));
         // 已结算佣金固定取全部时段（提现记录页「已结算」卡片口径）
         BigDecimal settledCommission = nullSafe(commissionRecordRepository
-                .sumByDistributorAndStatusSince(distId, CommissionStatus.SETTLED, null));
+                .sumByDistributorAndStatusAll(distId, CommissionStatus.SETTLED));
         long subCount = distributorRepository.findByParentId(distId).size();
         long customerCount = customerBindingRepository.countByDistributorId(distId);
 

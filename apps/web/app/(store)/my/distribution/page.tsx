@@ -416,7 +416,7 @@ function OverviewTab({
   useEffect(() => {
     let cancelled = false
     async function fetchAll() {
-      setLoading(true)
+      // 切换 range 时不置 loading：保留旧卡片数据，新数据到达后无缝替换，避免闪烁
       try {
         const [s, c, w] = await Promise.all([
           distributorApi.getStats(range).catch(() => null),
