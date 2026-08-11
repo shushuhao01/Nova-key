@@ -34,4 +34,8 @@ public interface DistributionClickRepository extends JpaRepository<DistributionC
     @Query("SELECT c.productId, COUNT(c) FROM DistributionClick c JOIN PromotionLink pl ON pl.id = c.promotionLinkId " +
             "WHERE c.distributorId = :distId AND pl.productId IS NULL AND c.productId IS NOT NULL GROUP BY c.productId")
     List<Object[]> countStoreLinkProductClicksGroupedByProductForDistributor(@Param("distId") UUID distId);
+
+    /** 各推广员首次点击该商品的时间（含商品链接与全店链接点击埋点，取最早；用于初始首次推广时间） */
+    @Query("SELECT c.distributorId, MIN(c.createdAt) FROM DistributionClick c WHERE c.productId = :productId GROUP BY c.distributorId")
+    List<Object[]> minCreatedAtGroupedByDistributor(@Param("productId") UUID productId);
 }

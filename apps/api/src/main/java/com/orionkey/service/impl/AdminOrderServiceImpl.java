@@ -49,10 +49,24 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     public PageResult<?> listOrders(String status, String orderType, String paymentMethod,
                                      Boolean isRiskFlagged, String keyword, int page, int pageSize) {
         var pageable = PageRequest.of(page - 1, pageSize);
-        OrderStatus os = null;
+        // status 支持多选：逗号分隔（如 "PENDING,PAID"），空/null 表示全部
+        List<OrderStatus> statuses = new java.util.ArrayList<>();
+        boolean containsRefunded = false;
+        if (status != null && !status.isBlank()) {
+            for (String s : status.split(",")) {
+                try {
+                    OrderStatus os = OrderStatus.valueOf(s.trim());
+                    statuses.add(os);
+                    if (os == OrderStatus.REFUNDED) {
+                        containsRefunded = true;
+                    }
+                } catch (IllegalArgumentException e) {
+                    throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的筛选参数: " + s);
+                }
+            }
+        }
         OrderType ot = null;
         try {
-            if (status != null) os = OrderStatus.valueOf(status);
             if (orderType != null) ot = OrderType.valueOf(orderType);
         } catch (IllegalArgumentException e) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的筛选参数: " + e.getMessage());
@@ -60,9 +74,9 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         Page<Order> orderPage;
         String pm = paymentMethod != null && !paymentMethod.isBlank() ? paymentMethod.trim() : "";
         if (keyword != null && !keyword.isBlank()) {
-            orderPage = orderRepository.findAdminOrdersByKeyword(os, ot, pm, isRiskFlagged, "%" + keyword + "%", pageable);
+            orderPage = orderRepository.findAdminOrdersByKeyword(statuses, containsRefunded, ot, pm, isRiskFlagged, "%" + keyword + "%", pageable);
         } else {
-            orderPage = orderRepository.findAdminOrders(os, ot, pm, isRiskFlagged, pageable);
+            orderPage = orderRepository.findAdminOrders(statuses, containsRefunded, ot, pm, isRiskFlagged, pageable);
         }
 
         var list = orderPage.getContent().stream().map(this::toAdminOrder).toList();

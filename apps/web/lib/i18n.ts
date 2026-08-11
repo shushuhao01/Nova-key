@@ -330,6 +330,12 @@ const zh = {
   "profile.inviteBindSuccess": "绑定成功",
   "profile.inviteBoundAt": "绑定时间",
   "profile.inviteProtectionUntil": "保护期至",
+  "profile.bindingHistory": "绑定记录",
+  "profile.bindingStatusActive": "生效中",
+  "profile.bindingStatusUnbound": "已解绑",
+  "profile.inviteUnboundAt": "解绑时间",
+  "profile.bindingHistoryEmpty": "暂无绑定记录",
+  "profile.bindingHistoryHint": "绑定成功后可在此查看绑定关系、绑定记录与解绑时间",
 
   // My Orders
   "myOrders.title": "购买记录",
@@ -1287,6 +1293,12 @@ const en: Record<keyof typeof zh, string> = {
   "profile.inviteBindSuccess": "Bound successfully",
   "profile.inviteBoundAt": "Bound at",
   "profile.inviteProtectionUntil": "Protection until",
+  "profile.bindingHistory": "Binding History",
+  "profile.bindingStatusActive": "Active",
+  "profile.bindingStatusUnbound": "Unbound",
+  "profile.inviteUnboundAt": "Unbound at",
+  "profile.bindingHistoryEmpty": "No binding records",
+  "profile.bindingHistoryHint": "View your binding relationship, history and unbinding time here",
 
   // My Orders
   "myOrders.title": "My Orders",

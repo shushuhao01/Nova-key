@@ -37,4 +37,9 @@ public interface PromotionLinkRepository extends JpaRepository<PromotionLink, UU
     @Query("SELECT pl.distributorId, COALESCE(SUM(pl.clickCount), 0) FROM PromotionLink pl " +
             "WHERE pl.productId = :productId GROUP BY pl.distributorId")
     List<Object[]> sumClickCountGroupedByDistributor(@Param("productId") UUID productId);
+
+    /** 各推广员首次推广时间（该商品最早创建的推广链接时间） */
+    @Query("SELECT pl.distributorId, MIN(pl.createdAt) FROM PromotionLink pl " +
+            "WHERE pl.productId = :productId GROUP BY pl.distributorId")
+    List<Object[]> minCreatedAtGroupedByDistributor(@Param("productId") UUID productId);
 }

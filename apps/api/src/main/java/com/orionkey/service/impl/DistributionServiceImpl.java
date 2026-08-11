@@ -492,6 +492,14 @@ public class DistributionServiceImpl implements DistributionService {
         for (Object[] row : clickRepository.countStoreLinkProductClicksGroupedByDistributor(productId)) {
             clickMap.merge((UUID) row[0], ((Number) row[1]).longValue(), Long::sum);
         }
+        // 初始首次推广时间：该商品最早创建的推广链接时间 与 最早点击埋点时间，取更早者
+        Map<UUID, LocalDateTime> promotedAtMap = new HashMap<>();
+        for (Object[] row : promotionLinkRepository.minCreatedAtGroupedByDistributor(productId)) {
+            promotedAtMap.put((UUID) row[0], (LocalDateTime) row[1]);
+        }
+        for (Object[] row : clickRepository.minCreatedAtGroupedByDistributor(productId)) {
+            promotedAtMap.merge((UUID) row[0], (LocalDateTime) row[1], (a, b) -> a.isBefore(b) ? a : b);
+        }
 
         List<Map<String, Object>> items = cp.getContent().stream().map(row -> {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -513,6 +521,7 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("conversion_rate", clicks > 0
                     ? new BigDecimal(paid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(clicks), 2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO.setScale(2));
+            m.put("created_at", promotedAtMap.get(distId));
             return m;
         }).toList();
         return pageResult(items, cp.getTotalElements(), page, pageSize);
@@ -636,11 +645,14 @@ public class DistributionServiceImpl implements DistributionService {
 
     @Override
     @Transactional(readOnly = true)
-    public Map<String, Object> adminCommissionStats() {
+    public Map<String, Object> adminCommissionStats(LocalDate from, LocalDate to) {
+        // 区间 [from, to)；为空则统计全量（按佣金创建时间）
+        LocalDateTime fromDt = from != null ? from.atStartOfDay() : LocalDateTime.of(1970, 1, 1, 0, 0);
+        LocalDateTime toDt = to != null ? to.plusDays(1).atStartOfDay() : LocalDateTime.now().plusYears(100);
         List<Distributor> all = distributorRepository.findAll();
-        // 总佣金口径：佣金记录实时汇总（不含已取消），不依赖 Distributor 冗余字段（仅结算时累加，未结算会显示 0）
+        // 总佣金口径：佣金记录实时汇总（不含已取消），按区间佣金创建时间
         BigDecimal totalCommission = nullSafe(commissionRecordRepository
-                .sumCommissionAmountBetween(RANGE_FROM_MIN, RANGE_TO_MAX));
+                .sumCommissionAmountBetween(fromDt, toDt));
         BigDecimal pendingTotal = BigDecimal.ZERO;
         BigDecimal settlableTotal = BigDecimal.ZERO;
         BigDecimal settledTotal = BigDecimal.ZERO;
@@ -650,17 +662,17 @@ public class DistributionServiceImpl implements DistributionService {
         LocalDateTime cutoff = settleCutoff();
 
         for (Distributor d : all) {
-            BigDecimal pending = nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.PENDING));
+            BigDecimal pending = nullSafe(commissionRecordRepository.sumByDistributorAndStatusBetween(d.getId(), CommissionStatus.PENDING, fromDt, toDt));
             pendingTotal = pendingTotal.add(pending);
             // 可结算部分：待结算中订单已完成且超过结算延迟期的（可提前申请提现）
             BigDecimal settlable = nullSafe(commissionRecordRepository
-                    .sumSettlablePendingByDistributor(d.getId(), cutoff));
+                    .sumSettlablePendingByDistributorBetween(d.getId(), cutoff, fromDt, toDt));
             settlableTotal = settlableTotal.add(settlable);
             // 已结算（纯已入账未提现）/ 申请中（已提交提现待审核打款）/ 已提现（打款成功）分开统计
-            settledTotal = settledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.SETTLED)));
-            withdrawingTotal = withdrawingTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.WITHDRAWING)));
-            withdrawnTotal = withdrawnTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.WITHDRAWN)));
-            cancelledTotal = cancelledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.CANCELLED)));
+            settledTotal = settledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusBetween(d.getId(), CommissionStatus.SETTLED, fromDt, toDt)));
+            withdrawingTotal = withdrawingTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusBetween(d.getId(), CommissionStatus.WITHDRAWING, fromDt, toDt)));
+            withdrawnTotal = withdrawnTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusBetween(d.getId(), CommissionStatus.WITHDRAWN, fromDt, toDt)));
+            cancelledTotal = cancelledTotal.add(nullSafe(commissionRecordRepository.sumByDistributorAndStatusBetween(d.getId(), CommissionStatus.CANCELLED, fromDt, toDt)));
         }
 
         // 今日佣金（不含已取消，按佣金创建时间）
@@ -1034,6 +1046,9 @@ public class DistributionServiceImpl implements DistributionService {
         Set<UUID> distIds = linkMap.values().stream().map(PromotionLink::getDistributorId).collect(Collectors.toSet());
         Map<UUID, Distributor> distMap = distIds.isEmpty() ? Map.of()
                 : distributorRepository.findAllById(distIds).stream().collect(Collectors.toMap(Distributor::getId, d -> d));
+        Set<UUID> distUserIds = distMap.values().stream().map(Distributor::getUserId).filter(java.util.Objects::nonNull).collect(Collectors.toSet());
+        Map<UUID, User> distUserMap = distUserIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(distUserIds).stream().collect(Collectors.toMap(User::getId, u -> u));
         Set<UUID> userIds = orders.stream().map(Order::getUserId).filter(java.util.Objects::nonNull).collect(Collectors.toSet());
         Map<UUID, User> userMap = userIds.isEmpty() ? Map.of()
                 : userRepository.findAllById(userIds).stream().collect(Collectors.toMap(User::getId, u -> u));
@@ -1049,10 +1064,13 @@ public class DistributionServiceImpl implements DistributionService {
             List<OrderItem> ois = orderItemRepository.findByOrderId(o.getId());
             it.put("product_title", ois.isEmpty() ? "—" : ois.get(0).getProductTitle());
             it.put("quantity", ois.isEmpty() ? 0 : ois.stream().mapToInt(OrderItem::getQuantity).sum());
-            // 分销人
+            // 分销人：显示用户名（无则邮箱，再兜底推广员编号）
             PromotionLink pl = o.getPromotionLinkId() != null ? linkMap.get(o.getPromotionLinkId()) : null;
             Distributor dist = pl != null ? distMap.get(pl.getDistributorId()) : null;
-            it.put("distributor_name", dist != null ? dist.getDistributorCode() : "—");
+            User du = dist != null && dist.getUserId() != null ? distUserMap.get(dist.getUserId()) : null;
+            it.put("distributor_name", du != null
+                    ? (du.getUsername() != null && !du.getUsername().isBlank() ? du.getUsername() : du.getEmail())
+                    : (dist != null ? dist.getDistributorCode() : "—"));
             it.put("distributor_code", dist != null ? dist.getDistributorCode() : null);
             // 客户
             User buyer = o.getUserId() != null ? userMap.get(o.getUserId()) : null;
@@ -1326,6 +1344,57 @@ public class DistributionServiceImpl implements DistributionService {
         Distributor d = distributorRepository.findById(cb.getDistributorId()).orElse(null);
         if (d == null) return null;
         return customerBindingToMap(cb, d);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> getCustomerBindingHistory(UUID userId) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+            return Map.of("bindings", List.of());
+        }
+        String email = user.getEmail().trim().toLowerCase();
+        LocalDateTime now = LocalDateTime.now();
+        // 该客户全部绑定记录，最新在前（客户可换绑，旧记录保留作为历史）
+        List<CustomerBinding> all = customerBindingRepository.findAll().stream()
+                .filter(cb -> cb.getCustomerEmail() != null
+                        && email.equals(cb.getCustomerEmail().trim().toLowerCase()))
+                .sorted(Comparator.comparing(CustomerBinding::getCreatedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (int i = 0; i < all.size(); i++) {
+            CustomerBinding cb = all.get(i);
+            Distributor d = distributorRepository.findById(cb.getDistributorId()).orElse(null);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("distributor_id", cb.getDistributorId());
+            User du = d != null && d.getUserId() != null
+                    ? userRepository.findById(d.getUserId()).orElse(null) : null;
+            m.put("distributor_name", du != null ? du.getUsername() : null);
+            m.put("invite_code", d != null ? d.getInviteCode() : null);
+            m.put("bound_at", cb.getCreatedAt());
+            m.put("protection_expires_at", cb.getProtectionExpiresAt());
+            // 解绑时间：最新一条保护期未过 → 生效中；保护期已过 → 保护期截止；
+            // 历史绑定被更新的绑定取代 → 解绑时间为下一条（更新的）绑定创建时间
+            LocalDateTime end;
+            boolean active = false;
+            if (i == 0) {
+                if (cb.getProtectionExpiresAt() != null && cb.getProtectionExpiresAt().isAfter(now)) {
+                    end = null;
+                    active = true;
+                } else {
+                    end = cb.getProtectionExpiresAt();
+                }
+            } else {
+                end = all.get(i - 1).getCreatedAt();
+            }
+            m.put("unbound_at", end);
+            m.put("active", active);
+            list.add(m);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("bindings", list);
+        return result;
     }
 
     private Map<String, Object> customerBindingToMap(CustomerBinding cb, Distributor d) {

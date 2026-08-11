@@ -34,7 +34,7 @@ public interface DistributionService {
 
     // ── 管理后台：佣金记录 ──
     Map<String, Object> adminListCommissions(UUID distributorId, String status, LocalDate from, LocalDate to, int page, int pageSize);
-    Map<String, Object> adminCommissionStats();
+    Map<String, Object> adminCommissionStats(LocalDate from, LocalDate to);
 
     // ── 管理后台：提现管理 ──
     Map<String, Object> adminListWithdrawals(String status, LocalDate from, LocalDate to, int page, int pageSize);
@@ -64,6 +64,8 @@ public interface DistributionService {
     Map<String, Object> bindCustomerByInviteCode(UUID userId, String inviteCode);
     /** 当前用户绑定的推广员信息（无则返回 null） */
     Map<String, Object> getCustomerBinding(UUID userId);
+    /** 客户绑定记录（含历史绑定与解绑时间，最新一条为当前绑定） */
+    Map<String, Object> getCustomerBindingHistory(UUID userId);
 
     // ── 前台：推广海报 ──
     Map<String, Object> generateProductPoster(UUID userId, UUID productId);

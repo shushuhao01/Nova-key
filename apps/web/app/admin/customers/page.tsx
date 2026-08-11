@@ -15,8 +15,9 @@ import {
 } from "@/lib/mock-data"
 import type {
   CustomerOverview, RegisteredCustomerItem, AnonymousCustomerItem, CustomerOrderItem,
-  RegisteredCustomerDetail, AnonymousCustomerDetail,
+  RegisteredCustomerDetail, AnonymousCustomerDetail, OrderStatus,
 } from "@/types"
+import { OrderStatusBadge } from "@/components/shared/order-status-badge"
 
 const ITEMS_PER_PAGE = 10
 
@@ -165,13 +166,6 @@ export default function AdminCustomersPage() {
 
   const goMarketing = (audience: "USER_IDS" | "EMAILS", targets: string) => {
     router.push(`/admin/marketing?audience=${audience}&targets=${encodeURIComponent(targets)}`)
-  }
-
-  const orderStatusLabel = (s: string) => {
-    const map: Record<string, string> = {
-      PENDING: "待支付", PAID: "已支付", DELIVERED: "已发货", EXPIRED: "已过期",
-    }
-    return map[s] || s
   }
 
   const currency = (n: number) => `¥${Number(n ?? 0).toFixed(2)}`
@@ -563,15 +557,7 @@ export default function AdminCustomersPage() {
                                 ))}
                               </td>
                               <td className="px-3 py-2.5">
-                                <span className={cn(
-                                  "rounded-full px-2 py-0.5 text-xs font-medium",
-                                  o.status === "DELIVERED" ? "bg-emerald-500/10 text-emerald-600"
-                                    : o.status === "PAID" ? "bg-blue-500/10 text-blue-600"
-                                    : o.status === "EXPIRED" ? "bg-gray-500/10 text-gray-500"
-                                    : "bg-amber-500/10 text-amber-600"
-                                )}>
-                                  {orderStatusLabel(o.status)}
-                                </span>
+                                <OrderStatusBadge status={o.status as OrderStatus} />
                               </td>
                               <td className="px-3 py-2.5 text-right font-medium text-primary">
                                 {currency(o.actual_amount)}

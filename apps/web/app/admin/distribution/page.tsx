@@ -12,6 +12,8 @@ import {
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { adminDistributionApi } from "@/services/api"
+import { OrderStatusBadge } from "@/components/shared/order-status-badge"
+import type { OrderStatus } from "@/types"
 
 const ITEMS_PER_PAGE = 10
 
@@ -41,7 +43,7 @@ interface OverviewData {
 interface RecentDistributionOrder {
   order_id: string
   paid_at: string
-  status: string
+  status: OrderStatus
   amount: number
   product_title: string
   quantity: number
@@ -88,12 +90,6 @@ function rangeToDates(range: RangeKey): { from?: string; to?: string } {
     case "thisYear": return { from: fmtDateStr(new Date(y, 0, 1)), to: fmtDateStr(new Date(y, m, d)) }
     default: return {}
   }
-}
-
-const orderStatusMap: Record<string, { label: string; cls: string }> = {
-  PAID: { label: "已支付", cls: "bg-blue-500/10 text-blue-600" },
-  DELIVERED: { label: "已发货", cls: "bg-amber-500/10 text-amber-600" },
-  COMPLETED: { label: "已完成", cls: "bg-emerald-500/10 text-emerald-600" },
 }
 
 interface Distributor {
@@ -265,8 +261,8 @@ export default function AdminDistributionPage() {
         </div>
       </div>
 
-      {/* 快捷日期筛选栏（概览 + 提现管理联动；推广员/佣金记录为全量管理列表不受日期过滤，商品佣金/规则设置不参与） */}
-      {tab === "overview" || tab === "withdrawals" ? (
+      {/* 快捷日期筛选栏（概览 + 佣金记录 + 提现管理联动；推广员/商品佣金列表为全量管理列表不受日期过滤，规则设置不参与） */}
+      {tab === "overview" || tab === "commissions" || tab === "withdrawals" ? (
         <DateFilterBar
           range={range}
           onRange={setRange}
@@ -281,7 +277,7 @@ export default function AdminDistributionPage() {
       {tab === "overview" && <OverviewTab params={overviewParams} dateVersion={dateVersion} />}
       {tab === "distributors" && <DistributorsTab dateVersion={dateVersion} />}
       {tab === "products" && <ProductsTab />}
-      {tab === "commissions" && <CommissionsTab dateVersion={dateVersion} />}
+      {tab === "commissions" && <CommissionsTab dateFrom={listDates.from} dateTo={listDates.to} dateVersion={dateVersion} />}
       {tab === "withdrawals" && <WithdrawalsTab dateFrom={listDates.from} dateTo={listDates.to} dateVersion={dateVersion} />}
       {tab === "rules" && <RulesTab />}
 
@@ -525,7 +521,6 @@ function OverviewTab({ params, dateVersion }: { params: { range: RangeKey; from?
                 <tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">当前范围暂无分销订单</td></tr>
               ) : (
                 orders.map(o => {
-                  const st = orderStatusMap[o.status] || { label: o.status, cls: "bg-muted text-muted-foreground" }
                   return (
                     <tr key={o.order_id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
                       <td className="px-4 py-3 font-mono text-xs text-foreground">{o.order_id.slice(0, 8)}</td>
@@ -543,9 +538,7 @@ function OverviewTab({ params, dateVersion }: { params: { range: RangeKey; from?
                       <td className="px-4 py-3 text-right font-medium text-foreground">{fmtMoney(o.amount)}</td>
                       <td className="px-4 py-3 text-right font-medium text-emerald-600">{fmtMoney(o.commission)}</td>
                       <td className="px-4 py-3">
-                        <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
-                          {st.label}
-                        </span>
+                        <OrderStatusBadge status={o.status} />
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(o.paid_at)}</td>
                     </tr>
@@ -1481,7 +1474,7 @@ function PromoterRankModal({ product, onClose }: {
                   <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">点击</th>
                   <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">付款</th>
                   <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">转化率</th>
-                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">推广时间</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">首次推广时间</th>
                 </tr>
               </thead>
               <tbody>
@@ -1800,7 +1793,7 @@ function CommissionBadge({ c }: { c: any }) {
   )
 }
 
-function CommissionsTab({ dateVersion }: { dateVersion: number }) {
+function CommissionsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; dateTo?: string; dateVersion: number }) {
   const [list, setList] = useState<CommissionRecord[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -1835,12 +1828,12 @@ function CommissionsTab({ dateVersion }: { dateVersion: number }) {
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await adminDistributionApi.commissionStats()
+      const res = await adminDistributionApi.commissionStats({ from: dateFrom, to: dateTo })
       setStats(res)
     } catch {
       setStats(null)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => {
     const timer = setTimeout(() => setCurrentPage(1), 300)
@@ -1848,7 +1841,7 @@ function CommissionsTab({ dateVersion }: { dateVersion: number }) {
   }, [distributorId, statusFilter])
 
   useEffect(() => { fetchList() }, [fetchList, dateVersion])
-  useEffect(() => { fetchStats() }, [fetchStats])
+  useEffect(() => { fetchStats() }, [fetchStats, dateVersion])
 
   const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
 
@@ -1856,41 +1849,30 @@ function CommissionsTab({ dateVersion }: { dateVersion: number }) {
     <div className="flex flex-col gap-4">
       {stats && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground">佣金总额</p>
-            <p className="mt-1 text-xl font-bold text-foreground">{fmtMoney(stats.total_commission)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">全部佣金记录合计（不含已取消）</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-purple-600">可结算</p>
-            <p className="mt-1 text-xl font-bold text-purple-600">{fmtMoney(stats.settlable_commission)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">订单完成超结算期（N 天），可直接申请提现</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-amber-600">待结算</p>
-            <p className="mt-1 text-xl font-bold text-amber-600">{fmtMoney(stats.pending_commission)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">订单完成未满结算期，暂不能提现</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-emerald-600">已结算</p>
-            <p className="mt-1 text-xl font-bold text-emerald-600">{fmtMoney(stats.settled_commission)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">佣金已入账，尚未提交提现申请</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-blue-600">申请中</p>
-            <p className="mt-1 text-xl font-bold text-blue-600">{fmtMoney(stats.withdrawing_commission)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">已提交提现申请，待审核/打款</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-cyan-600">已提现</p>
-            <p className="mt-1 text-xl font-bold text-cyan-600">{fmtMoney(stats.withdrawn_commission)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">提现成功，已完成打款</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-red-500">已取消</p>
-            <p className="mt-1 text-xl font-bold text-red-500">{fmtMoney(stats.cancelled_commission)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">退款/取消订单不计佣金，不可提现</p>
-          </div>
+          {[
+            { key: "total_commission", label: "佣金总额", cls: "text-foreground", tip: "区间内佣金记录合计（不含已取消）" },
+            { key: "settlable_commission", label: "可结算", cls: "text-purple-600", tip: "区间内订单完成超结算期（N 天），可直接申请提现" },
+            { key: "pending_commission", label: "待结算", cls: "text-amber-600", tip: "区间内订单完成未满结算期，暂不能提现" },
+            { key: "settled_commission", label: "已结算", cls: "text-emerald-600", tip: "区间内佣金已入账，尚未提交提现申请" },
+            { key: "withdrawing_commission", label: "申请中", cls: "text-blue-600", tip: "区间内已提交提现申请，待审核/打款" },
+            { key: "withdrawn_commission", label: "已提现", cls: "text-cyan-600", tip: "区间内提现成功，已完成打款" },
+            { key: "cancelled_commission", label: "已取消", cls: "text-red-500", tip: "区间内退款/取消订单不计佣金，不可提现" },
+          ].map(({ key, label, cls, tip }) => (
+            <div key={key} className="rounded-lg border border-border bg-card p-4 shadow-sm">
+              <p className={cn("text-xs", cls)}>{label}</p>
+              <p className={cn("mt-1 text-xl font-bold", cls)}>{fmtMoney(Number(stats?.[key as keyof typeof stats] || 0))}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {dateFrom || dateTo
+                  ? dateFrom && dateTo
+                    ? `${dateFrom} ~ ${dateTo}`
+                    : dateFrom
+                      ? `${dateFrom} 起`
+                      : `截至 ${dateTo}`
+                  : "全部时间"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">{tip}</p>
+            </div>
+          ))}
         </div>
       )}
 

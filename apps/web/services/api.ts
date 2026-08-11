@@ -930,7 +930,10 @@ export const adminDistributionApi = {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/commissions?${qs}`)
   },
-  commissionStats: () => request<any>("/admin/distribution/commissions/stats"),
+  commissionStats: (params: { from?: string; to?: string } = {}) => {
+    const qs = buildQuery(params)
+    return request<any>(`/admin/distribution/commissions/stats?${qs}`)
+  },
   listWithdrawals: (params: { status?: string; from?: string; to?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/withdrawals?${qs}`)
@@ -977,6 +980,7 @@ export const distributorApi = {
   bindInvite: (invite_code: string) =>
     request<any>("/distributor/customer/bind", { method: "POST", body: JSON.stringify({ invite_code }) }),
   getCustomerBinding: () => request<any>("/distributor/customer/binding"),
+  getCustomerBindingHistory: () => request<any>("/distributor/customer/binding/history"),
   generateProductPoster: (productId: string) =>
     request<any>(`/distributor/products/${productId}/poster`, { method: "POST" }),
   generateStorePoster: () =>

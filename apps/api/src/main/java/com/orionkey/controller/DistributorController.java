@@ -96,6 +96,11 @@ public class DistributorController {
         return ApiResponse.success(distributionService.getCustomerBinding(RequestContext.getUserId()));
     }
 
+    @GetMapping("/customer/binding/history")
+    public ApiResponse<?> getCustomerBindingHistory() {
+        return ApiResponse.success(distributionService.getCustomerBindingHistory(RequestContext.getUserId()));
+    }
+
     // ── 推广海报 ──
     @PostMapping("/products/{productId}/poster")
     public ApiResponse<?> generateProductPoster(@PathVariable UUID productId) {

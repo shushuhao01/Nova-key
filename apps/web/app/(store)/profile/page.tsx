@@ -499,6 +499,7 @@ function CouponCard({ coupon, onCopy }: { coupon: MyCouponItem; onCopy: (code: s
 function InviteBinding() {
   const { t } = useLocale()
   const [binding, setBinding] = useState<any>(null)
+  const [history, setHistory] = useState<any[]>([])
   const [code, setCode] = useState("")
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -506,10 +507,15 @@ function InviteBinding() {
   const fetchBinding = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await distributorApi.getCustomerBinding()
+      const [data, hist] = await Promise.all([
+        distributorApi.getCustomerBinding(),
+        distributorApi.getCustomerBindingHistory(),
+      ])
       setBinding(data)
+      setHistory(hist?.bindings || [])
     } catch {
       setBinding(null)
+      setHistory([])
     } finally {
       setLoading(false)
     }
@@ -605,6 +611,50 @@ function InviteBinding() {
             </div>
           </div>
         </form>
+      )}
+
+      {/* 绑定记录（含历史绑定与解绑时间） */}
+      {history.length > 0 && (
+        <div className="mt-4 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-foreground">{t("profile.bindingHistory")}</p>
+            <p className="text-xs text-muted-foreground">{t("profile.bindingHistoryHint")}</p>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/50 text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">{t("profile.inviteBound")}</th>
+                  <th className="px-3 py-2 text-left font-medium">{t("profile.inviteCode")}</th>
+                  <th className="px-3 py-2 text-left font-medium">{t("profile.inviteBoundAt")}</th>
+                  <th className="px-3 py-2 text-left font-medium">{t("profile.inviteUnboundAt")}</th>
+                  <th className="px-3 py-2 text-left font-medium">状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((h, idx) => (
+                  <tr key={idx} className="border-t border-border/50">
+                    <td className="px-3 py-2 font-medium text-foreground">{h.distributor_name || "—"}</td>
+                    <td className="px-3 py-2 font-mono text-primary">{h.invite_code || "—"}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{h.bound_at ? new Date(h.bound_at).toLocaleString() : "—"}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{h.unbound_at ? new Date(h.unbound_at).toLocaleString() : "—"}</td>
+                    <td className="px-3 py-2">
+                      {h.active ? (
+                        <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-600">
+                          {t("profile.bindingStatusActive")}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground">
+                          {t("profile.bindingStatusUnbound")}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Search, ChevronDown, Eye, Download, ChevronLeft, ChevronRight, X, CheckCircle, Undo2, Loader2 } from "lucide-react"
 import { cn, stripInvisible } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
@@ -43,7 +43,7 @@ export default function AdminOrdersPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
-  const [statusFilter, setStatusFilter] = useState("")
+  const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [paymentFilter, setPaymentFilter] = useState("")
   const [orderTypeFilter, setOrderTypeFilter] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
@@ -114,13 +114,13 @@ export default function AdminOrdersPage() {
         () => adminOrderApi.getList({
           page: currentPage,
           page_size: ITEMS_PER_PAGE,
-          status: statusFilter || undefined,
+          status: statusFilter.length > 0 ? statusFilter.join(",") : undefined,
           order_type: orderTypeFilter || undefined,
           payment_method: paymentFilter || undefined,
           keyword: debouncedSearch || undefined,
         }),
         () => mockAdminOrderList({
-          status: statusFilter || undefined,
+          status: statusFilter.length > 0 ? statusFilter.join(",") : undefined,
           page: currentPage,
           page_size: ITEMS_PER_PAGE,
         })
@@ -213,22 +213,10 @@ export default function AdminOrdersPage() {
           />
         </div>
 
-        <div className="relative">
-          <select
-            className="h-10 appearance-none rounded-lg border border-input bg-background pl-3 pr-8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1) }}
-          >
-            <option value="">{t("admin.allStatus")}</option>
-            <option value="PENDING">待支付</option>
-            <option value="PAID">已支付</option>
-            <option value="DELIVERED">已发货</option>
-            <option value="COMPLETED">已完成</option>
-            <option value="EXPIRED">已过期</option>
-            <option value="REFUNDED">已退款</option>
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        </div>
+        <StatusMultiSelect
+          value={statusFilter}
+          onChange={(v) => { setStatusFilter(v); setCurrentPage(1) }}
+        />
 
         <div className="relative">
           <select
@@ -733,6 +721,97 @@ export default function AdminOrdersPage() {
           </>
         )}
       </Modal>
+    </div>
+  )
+}
+
+const ORDER_STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: "PENDING", label: "待支付" },
+  { value: "PAID", label: "已支付" },
+  { value: "DELIVERED", label: "已发货" },
+  { value: "COMPLETED", label: "已完成" },
+  { value: "EXPIRED", label: "已过期" },
+  { value: "REFUNDED", label: "已退款" },
+  { value: "PARTIALLY_REFUNDED", label: "部分退款" },
+]
+
+/**
+ * 订单状态多选下拉：勾选时本地暂存，关闭面板（失焦/点外部）或点"确定"才触发过滤。
+ * 面板内 mousedown preventDefault 避免点击选项时冒泡触发失焦提交。
+ */
+function StatusMultiSelect({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const { t } = useLocale()
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState<string[]>(value)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { setDraft(value) }, [value])
+
+  const commit = () => {
+    setOpen(false)
+    const changed = draft.length !== value.length || draft.some((s, i) => s !== value[i])
+    if (changed) onChange([...draft])
+  }
+
+  const toggle = (v: string) => {
+    setDraft(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v])
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative"
+      onBlur={(e) => {
+        if (!containerRef.current?.contains(e.relatedTarget as Node)) commit()
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex h-10 items-center gap-2 rounded-lg border border-input bg-background pl-3 pr-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        <span className="max-w-[120px] truncate">
+          {value.length === 0 ? t("admin.allStatus") : `已选 ${value.length} 项`}
+        </span>
+        <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 z-30 mt-1 w-48 rounded-lg border border-border bg-background p-2 shadow-lg"
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          {ORDER_STATUS_OPTIONS.map(opt => (
+            <label
+              key={opt.value}
+              className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground hover:bg-accent"
+            >
+              <input
+                type="checkbox"
+                checked={draft.includes(opt.value)}
+                onChange={() => toggle(opt.value)}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              {opt.label}
+            </label>
+          ))}
+          <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2">
+            <button
+              type="button"
+              onClick={() => setDraft([])}
+              className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
+            >
+              清空
+            </button>
+            <button
+              type="button"
+              onClick={commit}
+              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:brightness-110"
+            >
+              确定
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

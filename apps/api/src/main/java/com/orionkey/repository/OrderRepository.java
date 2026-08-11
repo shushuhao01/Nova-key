@@ -173,15 +173,16 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     long count();
 
     // 管理后台订单列表 — 无搜索词
-    // status=REFUNDED 时同时匹配全额退款（REFUNDED）与部分退款（PARTIALLY_REFUNDED）
+    // statuses 支持多选（逗号分隔解析为 List）；包含 REFUNDED 时同时匹配全额退款（REFUNDED）与部分退款（PARTIALLY_REFUNDED）
     @Query("SELECT o FROM Order o WHERE " +
-            "(:status IS NULL OR o.status = :status " +
-            " OR (:status = com.orionkey.constant.OrderStatus.REFUNDED AND o.status = com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED)) " +
+            "(:statuses IS EMPTY OR o.status IN :statuses " +
+            " OR (:containsRefunded = TRUE AND o.status = com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED)) " +
             "AND (:orderType IS NULL OR o.orderType = :orderType) " +
             "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o.paymentMethod = :paymentMethod) " +
             "AND (:isRiskFlagged IS NULL OR o.riskFlagged = :isRiskFlagged) " +
             "ORDER BY o.createdAt DESC")
-    Page<Order> findAdminOrders(@Param("status") OrderStatus status,
+    Page<Order> findAdminOrders(@Param("statuses") List<OrderStatus> statuses,
+                                @Param("containsRefunded") boolean containsRefunded,
                                 @Param("orderType") OrderType orderType,
                                 @Param("paymentMethod") String paymentMethod,
                                 @Param("isRiskFlagged") Boolean isRiskFlagged,
@@ -189,14 +190,15 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     // 管理后台订单列表 — 带搜索词（按订单ID、邮箱或商品名称搜索，keyword 保证非 null）
     @Query("SELECT DISTINCT o FROM Order o LEFT JOIN OrderItem oi ON oi.orderId = o.id WHERE " +
-            "(:status IS NULL OR o.status = :status " +
-            " OR (:status = com.orionkey.constant.OrderStatus.REFUNDED AND o.status = com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED)) " +
+            "(:statuses IS EMPTY OR o.status IN :statuses " +
+            " OR (:containsRefunded = TRUE AND o.status = com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED)) " +
             "AND (:orderType IS NULL OR o.orderType = :orderType) " +
             "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o.paymentMethod = :paymentMethod) " +
             "AND (:isRiskFlagged IS NULL OR o.riskFlagged = :isRiskFlagged) " +
             "AND (str(o.id) LIKE :keywordPattern OR o.email LIKE :keywordPattern OR oi.productTitle LIKE :keywordPattern) " +
             "ORDER BY o.createdAt DESC")
-    Page<Order> findAdminOrdersByKeyword(@Param("status") OrderStatus status,
+    Page<Order> findAdminOrdersByKeyword(@Param("statuses") List<OrderStatus> statuses,
+                                         @Param("containsRefunded") boolean containsRefunded,
                                          @Param("orderType") OrderType orderType,
                                          @Param("paymentMethod") String paymentMethod,
                                          @Param("isRiskFlagged") Boolean isRiskFlagged,

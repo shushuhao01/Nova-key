@@ -30,6 +30,12 @@ public interface CardKeyRepository extends JpaRepository<CardKey, UUID> {
 
     List<CardKey> findByOrderId(UUID orderId);
 
+    /** 订单下已锁定（下单预留）的卡密，用于过期释放回库存 */
+    List<CardKey> findByOrderIdAndStatus(UUID orderId, CardKeyStatus status);
+
+    /** 订单明细下已锁定（下单预留）的卡密，用于发货时转 SOLD */
+    List<CardKey> findByOrderItemIdAndStatus(UUID orderItemId, CardKeyStatus status);
+
     boolean existsByContentAndProductId(String content, UUID productId);
 
     @Query("SELECT CASE WHEN COUNT(ck) > 0 THEN true ELSE false END FROM CardKey ck " +

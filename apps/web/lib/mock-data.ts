@@ -737,7 +737,10 @@ export function mockCreateOrder(email: string, paymentMethod: string): CreateOrd
 export function mockAdminOrderList(params?: { status?: string; page?: number; page_size?: number }): PaginatedData<AdminOrderItem> {
   let filtered = [...mockAdminOrders]
   if (params?.status) {
-    filtered = filtered.filter(o => o.status === params.status)
+    const statuses = params.status.split(",")
+    // REFUNDED 同时匹配全额退款与部分退款（与后端查询一致）
+    const expanded = statuses.flatMap(s => s === "REFUNDED" ? [s, "PARTIALLY_REFUNDED"] : [s])
+    filtered = filtered.filter(o => expanded.includes(o.status))
   }
   const page = params?.page ?? 1
   const pageSize = params?.page_size ?? 20

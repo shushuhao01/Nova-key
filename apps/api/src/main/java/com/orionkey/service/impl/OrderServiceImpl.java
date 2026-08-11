@@ -158,6 +158,9 @@ public class OrderServiceImpl implements OrderService {
         item.setSubtotal(totalAmount);
         orderItemRepository.save(item);
 
+        // 锁定卡密库存：下单即预留，防止被其他订单占用；未支付过期后由 expireOrders 释放回库存
+        lockCardKeysForOrderItem(order.getId(), item.getId(), productId, specId, quantity);
+
         sendOrderCreatedNotice(order);
         return buildOrderResult(order, device);
     }
@@ -268,6 +271,9 @@ public class OrderServiceImpl implements OrderService {
             item.setUnitPrice(unitPrice);
             item.setSubtotal(subtotal);
             orderItemRepository.save(item);
+
+            // 锁定卡密库存：下单即预留，防止被其他订单占用；未支付过期后由 expireOrders 释放回库存
+            lockCardKeysForOrderItem(order.getId(), item.getId(), ci.getProductId(), ci.getSpecId(), ci.getQuantity());
         }
 
         // F16: 订单金额必须为正数 — 防止负数商品价格叠加导致极低金额下单
@@ -359,9 +365,41 @@ public class OrderServiceImpl implements OrderService {
     public void expireOrders() {
         List<Order> expired = orderRepository.findExpiredOrders(LocalDateTime.now());
         for (Order order : expired) {
+            // 释放下单时锁定的卡密回库存（仅 LOCKED；已发货 SOLD 与退款不释放）
+            releaseLockedCardKeys(order.getId());
             order.setStatus(OrderStatus.EXPIRED);
             orderRepository.save(order);
             log.info("Order expired: {}", order.getId());
+        }
+    }
+
+    /** 下单锁定卡密库存：AVAILABLE → LOCKED 并关联订单明细；库存不足则拒绝下单 */
+    private void lockCardKeysForOrderItem(UUID orderId, UUID orderItemId, UUID productId, UUID specId, int quantity) {
+        List<CardKey> keys = cardKeyRepository.findAndLockAvailable(productId, specId, quantity);
+        if (keys.size() < quantity) {
+            throw new BusinessException(ErrorCode.INSUFFICIENT_STOCK, "库存不足",
+                    Map.of("available", keys.size()));
+        }
+        for (CardKey key : keys) {
+            key.setStatus(CardKeyStatus.LOCKED);
+            key.setOrderId(orderId);
+            key.setOrderItemId(orderItemId);
+            cardKeyRepository.save(key);
+        }
+    }
+
+    /** 订单过期释放锁定的卡密回归库存（仅 LOCKED；已发货 SOLD 与退款不释放） */
+    private void releaseLockedCardKeys(UUID orderId) {
+        List<CardKey> locked = cardKeyRepository.findByOrderIdAndStatus(orderId, CardKeyStatus.LOCKED);
+        for (CardKey key : locked) {
+            key.setStatus(CardKeyStatus.AVAILABLE);
+            key.setOrderId(null);
+            key.setOrderItemId(null);
+            key.setSoldAt(null);
+            cardKeyRepository.save(key);
+        }
+        if (!locked.isEmpty()) {
+            log.info("Released {} locked card key(s) for expired order {}", locked.size(), orderId);
         }
     }
 

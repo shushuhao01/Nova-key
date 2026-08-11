@@ -55,6 +55,15 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
                                               @Param("status") CommissionStatus status,
                                               @Param("from") LocalDateTime from);
 
+    /** 分销员指定状态佣金合计（区间 [from, to) 内按佣金创建时间统计） */
+    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
+            "WHERE cr.distributorId = :distId AND cr.status = :status " +
+            "AND cr.createdAt >= :from AND cr.createdAt < :to")
+    BigDecimal sumByDistributorAndStatusBetween(@Param("distId") UUID distId,
+                                                @Param("status") CommissionStatus status,
+                                                @Param("from") LocalDateTime from,
+                                                @Param("to") LocalDateTime to);
+
     /** 分销员累计佣金（全部时段，不含已取消） */
     @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr " +
             "WHERE cr.distributorId = :distId AND cr.status != com.orionkey.constant.CommissionStatus.CANCELLED")
@@ -174,4 +183,15 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
     BigDecimal sumSettlablePendingByDistributorSince(@Param("distId") UUID distId,
                                                      @Param("before") java.time.LocalDateTime before,
                                                      @Param("from") java.time.LocalDateTime from);
+
+    /** 同 sumSettlablePendingByDistributor，但限定佣金创建时间在区间 [from, to) 内 */
+    @Query("SELECT COALESCE(SUM(cr.commissionAmount), 0) FROM CommissionRecord cr JOIN Order o ON o.id = cr.orderId " +
+            "WHERE cr.distributorId = :distId AND cr.status = 'PENDING' " +
+            "AND cr.createdAt >= :from AND cr.createdAt < :to " +
+            "AND o.status = com.orionkey.constant.OrderStatus.COMPLETED " +
+            "AND o.completedAt IS NOT NULL AND o.completedAt < :before")
+    BigDecimal sumSettlablePendingByDistributorBetween(@Param("distId") UUID distId,
+                                                       @Param("before") java.time.LocalDateTime before,
+                                                       @Param("from") java.time.LocalDateTime from,
+                                                       @Param("to") java.time.LocalDateTime to);
 }

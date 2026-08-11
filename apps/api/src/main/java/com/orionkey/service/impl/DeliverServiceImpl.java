@@ -172,10 +172,20 @@ public class DeliverServiceImpl implements DeliverService {
                 try {
                     List<CardKey> allAllocated = new ArrayList<>();
                     for (OrderItem item : items) {
-                        List<CardKey> keys = cardKeyRepository.findAndLockAvailable(
-                                item.getProductId(), item.getSpecId(), item.getQuantity());
-                        if (keys.size() < item.getQuantity()) {
+                        // 优先使用下单时锁定的卡密（LOCKED → SOLD）
+                        List<CardKey> keys = cardKeyRepository.findByOrderItemIdAndStatus(item.getId(), CardKeyStatus.LOCKED);
+                        if (keys.size() >= item.getQuantity()) {
+                            // 正常：下单已锁定足量卡密
+                        } else if (!keys.isEmpty()) {
+                            // 异常态：部分锁定，阻止发货避免卡密错配
                             throw new BusinessException(ErrorCode.ORDER_OUT_OF_STOCK, "缺货补货中，请联系客服");
+                        } else {
+                            // 兼容旧订单：变更前创建、未锁定卡密的订单，回退从可用库存分配
+                            keys = cardKeyRepository.findAndLockAvailable(
+                                    item.getProductId(), item.getSpecId(), item.getQuantity());
+                            if (keys.size() < item.getQuantity()) {
+                                throw new BusinessException(ErrorCode.ORDER_OUT_OF_STOCK, "缺货补货中，请联系客服");
+                            }
                         }
                         for (CardKey key : keys) {
                             key.setStatus(CardKeyStatus.SOLD);

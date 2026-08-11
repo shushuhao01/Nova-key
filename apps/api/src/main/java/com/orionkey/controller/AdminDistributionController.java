@@ -143,9 +143,12 @@ public class AdminDistributionController {
         return ApiResponse.success(distributionService.adminListCommissions(distributorId, status, from, to, page, pageSize));
     }
 
+    // ── 佣金记录汇总卡片（区间内按佣金创建时间动态统计，from/to 为空则全量） ──
     @GetMapping("/commissions/stats")
-    public ApiResponse<?> commissionStats() {
-        return ApiResponse.success(distributionService.adminCommissionStats());
+    public ApiResponse<?> commissionStats(
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to) {
+        return ApiResponse.success(distributionService.adminCommissionStats(from, to));
     }
 
     // ── 提现管理 ──

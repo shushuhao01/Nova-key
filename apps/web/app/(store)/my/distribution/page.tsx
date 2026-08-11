@@ -15,6 +15,7 @@ import { useRequireAuth } from "@/lib/hooks"
 import { distributorApi, wechatMpApi, getApiErrorMessage } from "@/services/api"
 import { cn } from "@/lib/utils"
 import { PosterModal } from "@/components/store/poster-modal"
+import { OrderStatusBadge } from "@/components/shared/order-status-badge"
 
 const PROMOTION_BASE_URL = "https://noepay.cn/p"
 // 邀请下级落地页（自动预填 ?invite= 邀请码）
@@ -82,16 +83,6 @@ const withdrawalStatusMap: Record<WithdrawalStatus, { label: string; cls: string
   PROCESSING: { label: "转账中", cls: "bg-blue-500/10 text-blue-600" },
   SUCCESS: { label: "已结算", cls: "bg-emerald-500/10 text-emerald-600" },
   FAILED: { label: "已失败", cls: "bg-red-500/10 text-red-500" },
-}
-
-const orderStatusMap: Record<string, { label: string; cls: string }> = {
-  PENDING: { label: "待支付", cls: "bg-amber-500/10 text-amber-600" },
-  PAID: { label: "已支付", cls: "bg-blue-500/10 text-blue-600" },
-  DELIVERED: { label: "已发货", cls: "bg-purple-500/10 text-purple-600" },
-  COMPLETED: { label: "已完成", cls: "bg-emerald-500/10 text-emerald-600" },
-  CANCELED: { label: "已取消", cls: "bg-muted text-muted-foreground" },
-  REFUNDED: { label: "已退款", cls: "bg-red-500/10 text-red-500" },
-  PARTIALLY_REFUNDED: { label: "部分退款", cls: "bg-red-500/10 text-red-500" },
 }
 
 export default function DistributionPage() {
@@ -716,7 +707,6 @@ function OverviewTab({
                 </thead>
                 <tbody>
                   {orders.map((o) => {
-                    const st = orderStatusMap[o.order_status || ""] || { label: o.order_status || "—", cls: "bg-muted text-muted-foreground" }
                     return (
                       <tr key={o.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
                         <td className="whitespace-nowrap px-4 py-3">
@@ -745,9 +735,7 @@ function OverviewTab({
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{fmtDate(o.paid_at || o.created_at)}</td>
                         <td className="whitespace-nowrap px-4 py-3">
-                          <span className={cn("inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
-                            {st.label}
-                          </span>
+                          <OrderStatusBadge status={o.order_status} />
                         </td>
                       </tr>
                     )
