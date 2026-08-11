@@ -1003,8 +1003,8 @@ public class DistributionServiceImpl implements DistributionService {
         // 商品推广链接的点击数（productId != null 的链接，同一商品多个链接累加）
         Map<UUID, Long> clicksByProduct = new HashMap<>();
         for (PromotionLink pl : promotionLinkRepository.findByDistributorId(distId, Pageable.unpaged()).getContent()) {
-            if (pl.getProductId() != null && pl.getClickCount() != null) {
-                clicksByProduct.merge(pl.getProductId(), pl.getClickCount(), Long::sum);
+            if (pl.getProductId() != null) {
+                clicksByProduct.merge(pl.getProductId(), (long) pl.getClickCount(), Long::sum);
             }
         }
 
@@ -1136,9 +1136,9 @@ public class DistributionServiceImpl implements DistributionService {
         long clicks = 0L, uniqueClicks = 0L, paid = 0L;
         BigDecimal sales = BigDecimal.ZERO, commission = BigDecimal.ZERO;
         for (PromotionLink pl : links) {
-            clicks += pl.getClickCount() != null ? pl.getClickCount() : 0L;
-            uniqueClicks += pl.getUniqueClickCount() != null ? pl.getUniqueClickCount() : 0L;
-            paid += pl.getPaidCount() != null ? pl.getPaidCount() : 0L;
+            clicks += pl.getClickCount();
+            uniqueClicks += pl.getUniqueClickCount();
+            paid += pl.getPaidCount();
             sales = sales.add(nullSafe(pl.getTotalSales()));
             commission = commission.add(nullSafe(pl.getTotalCommission()));
         }
