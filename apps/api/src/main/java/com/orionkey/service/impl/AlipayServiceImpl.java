@@ -89,6 +89,8 @@ public class AlipayServiceImpl implements AlipayService {
         String sign = sign(params, config.privateKey());
         params.put("sign", sign);
 
+        // 与 buildQueryUrl 一致的编码：URLEncoder 把空格编码成 `+`，需替换为 %20，
+        // 否则 timestamp 含 `+` 会被支付宝拒绝（isv.invalid-timestamp）
         StringBuilder url = new StringBuilder(config.gatewayUrl());
         url.append(config.gatewayUrl().contains("?") ? "&" : "?");
         boolean first = true;
@@ -96,7 +98,8 @@ public class AlipayServiceImpl implements AlipayService {
             if (!first) url.append('&');
             first = false;
             url.append(entry.getKey()).append('=')
-                    .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
+                    .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8)
+                            .replace("+", "%20"));
         }
         log.info("Alipay wap pay url built: outTradeNo={}", outTradeNo);
         return url.toString();
@@ -439,11 +442,14 @@ public class AlipayServiceImpl implements AlipayService {
     }
 
     /**
-     * 构建网关请求 URL：query 参数用表单编码（URLEncoder.encode）逐个拼接。
-     * 注意：不能用 UriComponentsBuilder.encode() —— 它按 RFC 3986 保留 `+` 与 `/`，
-     * 而支付宝网关按表单规则解码（URLDecoder，`+` → 空格），会导致 sign 里的 `+`
-     * 被破坏成空格而验签失败（isv.invalid-signature）。表单编码 `+`→%2B、`/`→%2F、`=`→%3D，
-     * 支付宝解码后还原，与签名内容一致。
+     * 构建网关请求 URL：query 参数按"百分号编码（RFC 3986）+ 空格转 %20"逐个拼接。
+     * 注意：
+     * 1. 不能用 UriComponentsBuilder.encode() —— 它保留 `+` 与 `/`，而支付宝网关按表单规则
+     *    解码 query（`+` → 空格），会把 sign 里的 `+` 破坏成空格导致 isv.invalid-signature；
+     * 2. 不能直接用 URLEncoder.encode() —— 它把空格编码成 `+`，支付宝解析 timestamp 时不
+     *    解码 `+`，时间戳含 `+` 会报 isv.invalid-timestamp。
+     * 正确做法：表单编码后把 `+` 替换为 `%20`（空格→%20、`+`→%2B、`/`→%2F、`=`→%3D），
+     * 与手工验证通过的 curl 请求编码完全一致。
      */
     private String buildQueryUrl(String url, Map<String, String> params) {
         StringBuilder sb = new StringBuilder(url);
@@ -452,7 +458,8 @@ public class AlipayServiceImpl implements AlipayService {
             sb.append(first ? '?' : '&');
             first = false;
             sb.append(entry.getKey()).append('=')
-                    .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
+                    .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8)
+                            .replace("+", "%20"));
         }
         return sb.toString();
     }
