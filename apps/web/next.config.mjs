@@ -8,7 +8,11 @@ process.emitWarning = function (warning, ...args) {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',   // Docker 部署必须：生成独立运行的 server.js，不依赖完整 node_modules
+  // Docker 部署必须开 standalone（Dockerfile.web 依赖 .next/standalone 的 server.js）。
+  // 生产实际用 pm2/宝塔守护 + `next start`，此时开 standalone 会报
+  // "next start does not work with output: standalone" 且错误页静态文件 ENOENT 崩溃
+  // （.next/server/pages/*.html 不生成）→ 进程反复重启。故按构建环境区分。
+  output: process.env.NEXT_OUTPUT_STANDALONE === "1" ? "standalone" : undefined,
   typescript: {
     ignoreBuildErrors: true,
   },

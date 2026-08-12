@@ -53,6 +53,9 @@ COPY apps/web/ ./apps/web/
 # 构建 Next.js 生产版本
 # --filter @nova-key/web: pnpm 工作区过滤器，只构建前端包
 # 构建产物在 apps/web/.next/ 目录下
+# NEXT_OUTPUT_STANDALONE=1：Docker 需要 standalone 产物（next.config.mjs 按此变量开关；
+# 生产 pm2/宝塔部署不设此变量，走普通 next start 构建，避免 "next start does not work with output: standalone" 崩溃重启）
+ENV NEXT_OUTPUT_STANDALONE=1
 RUN pnpm --filter @nova-key/web build
 
 
