@@ -1419,25 +1419,38 @@ function WithdrawalsTab({ balance }: { balance: number }) {
     }
   }
 
-  // 微信转账中：拉起确认收款（仅微信内有效）
-  const confirmWithdrawal = (w: any) => {
-    if (!w.package_info) {
-      toast.error("缺少收款确认信息，请稍后重试")
+  // 微信转账中：拉起确认收款（微信商家转账专用 requestMerchantTransfer，需 mchId/appId/package，仅微信内有效）
+  const confirmWithdrawal = async (w: any) => {
+    if (w.status !== "PROCESSING") {
+      toast.error("当前状态不可确认收款")
       return
     }
-    const bridge = (window as any).WeixinJSBridge
-    if (bridge && typeof bridge.invoke === "function") {
-      bridge.invoke(
-        "requestPayment",
-        { package: w.package_info },
-        () => {
-          toast.success("收款确认已提交，等待到账")
-          setConfirmedIds(prev => new Set(prev).add(w.id))
-          setTimeout(fetchList, 2000)
-        }
-      )
-    } else {
-      toast.error("请在微信内打开此页面确认收款")
+    try {
+      const info = await distributorApi.withdrawalConfirmInfo(w.id)
+      const bridge = (window as any).WeixinJSBridge
+      if (bridge && typeof bridge.invoke === "function") {
+        bridge.invoke(
+          "requestMerchantTransfer",
+          { mchId: info.mchId, appId: info.appId, package: info.packageInfo },
+          (res: any) => {
+            const errMsg = res && res.err_msg ? res.err_msg : ""
+            if (errMsg.includes("requestMerchantTransfer:ok")) {
+              // 仅表示已拉起微信确认收款页，不表示已到账；需用户在微信内确认
+              toast.success("已拉起确认收款，请在微信页面中完成确认")
+              setConfirmedIds(prev => new Set(prev).add(w.id))
+              setTimeout(fetchList, 3000)
+            } else if (errMsg.includes("cancel") || errMsg.includes("requestMerchantTransfer:cancel")) {
+              toast.error("已取消确认收款")
+            } else {
+              toast.error("确认收款拉起失败，请重试")
+            }
+          }
+        )
+      } else {
+        toast.error("请在微信内打开此页面确认收款")
+      }
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, t))
     }
   }
 

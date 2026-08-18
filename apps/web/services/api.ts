@@ -1021,6 +1021,8 @@ export const distributorApi = {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/distributor/withdrawals?${qs}`)
   },
+  /** 获取确认收款拉起参数（mchId/appId/packageInfo），供微信内调起 requestMerchantTransfer */
+  withdrawalConfirmInfo: (id: string) => request<any>(`/distributor/withdrawals/${id}/confirm-info`),
   listSubordinates: (params: { page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/distributor/subordinates?${qs}`)

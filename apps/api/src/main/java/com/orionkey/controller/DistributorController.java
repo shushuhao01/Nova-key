@@ -195,6 +195,12 @@ public class DistributorController {
         return ApiResponse.success(distributionService.listMyWithdrawals(RequestContext.getUserId(), page, pageSize));
     }
 
+    /** 获取确认收款拉起参数（mchId/appId/packageInfo），供前台微信内调起 requestMerchantTransfer 确认收款 */
+    @GetMapping("/withdrawals/{id}/confirm-info")
+    public ApiResponse<?> withdrawalConfirmInfo(@PathVariable UUID id) {
+        return ApiResponse.success(distributionService.getWithdrawalConfirmInfo(RequestContext.getUserId(), id));
+    }
+
     // ── 下级分销员 ──
     @GetMapping("/subordinates")
     public ApiResponse<?> listSubordinates(

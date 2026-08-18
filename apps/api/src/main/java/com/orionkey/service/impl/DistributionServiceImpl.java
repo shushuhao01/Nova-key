@@ -1993,6 +1993,35 @@ public class DistributionServiceImpl implements DistributionService {
         return pageResult(items, wp.getTotalElements(), page, pageSize);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> getWithdrawalConfirmInfo(UUID userId, UUID withdrawalId) {
+        Distributor d = requireDistributorByUserId(userId);
+        WithdrawalRecord wr = withdrawalRecordRepository.findById(withdrawalId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "提现记录不存在"));
+        if (!wr.getDistributorId().equals(d.getId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权操作该提现单");
+        }
+        if (wr.getStatus() != WithdrawalStatus.PROCESSING) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "当前状态不可确认收款");
+        }
+        if (wr.getPackageInfo() == null || wr.getPackageInfo().isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "缺少收款确认信息，请稍后重试");
+        }
+        PaymentChannel channel = paymentChannelRepository
+                .findByProviderTypeAndIsDeleted("native_wxpay", 0).stream()
+                .filter(PaymentChannel::isEnabled).findFirst().orElse(null);
+        if (channel == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "未配置可用的微信支付渠道");
+        }
+        WxpayConfig config = paymentServiceImpl.buildWxpayConfig(channel);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("mchId", config.mchid());
+        result.put("appId", config.appid());
+        result.put("packageInfo", wr.getPackageInfo());
+        return result;
+    }
+
     // ════════════════════════════════════════════════════════════════
     //  ── 前台：下级分销员 ──
     // ════════════════════════════════════════════════════════════════
