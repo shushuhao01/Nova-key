@@ -510,8 +510,8 @@ public class WxpayServiceImpl implements WxpayService {
 
     @Override
     public WxpayTransferQueryResult queryTransfer(WxpayConfig config, String outBillNo) {
-        // 查询商家转账单笔状态：GET /v3/fund-app/mch-transfer/transfer-bills/out-bill-no/{out_bill_no}
-        String canonicalPath = "/v3/fund-app/mch-transfer/transfer-bills/out-bill-no/" + outBillNo + "?mchid=" + config.mchid();
+        // 查询商家转账单笔状态：GET /v3/fund-app/mch-transfer/transfer-bills/out-bill-no/{out_bill_no}（普通商户版，无需 mchid 参数）
+        String canonicalPath = "/v3/fund-app/mch-transfer/transfer-bills/out-bill-no/" + outBillNo;
         String gateway = trimSlash(config.gatewayUrl());
         try {
             ResponseEntity<String> response = restTemplate.exchange(
@@ -527,10 +527,13 @@ public class WxpayServiceImpl implements WxpayService {
             if (resp.get("transfer_amount") instanceof Number n) {
                 transferAmount = n.intValue();
             }
-            return new WxpayTransferQueryResult(state, transferBillNo, failReason, transferAmount);
+            return new WxpayTransferQueryResult(state, transferBillNo, failReason, transferAmount, null);
         } catch (Exception e) {
-            log.warn("Wxpay transfer query failed: outBillNo={}, error={}", outBillNo, e.getMessage());
-            return null;
+            String detail = e instanceof org.springframework.web.client.HttpStatusCodeException hce
+                    ? hce.getResponseBodyAsString() : e.getMessage();
+            if (detail != null && detail.length() > 300) detail = detail.substring(0, 300);
+            log.warn("Wxpay transfer query failed: outBillNo={}, error={}", outBillNo, detail);
+            return new WxpayTransferQueryResult(null, null, null, null, detail);
         }
     }
 

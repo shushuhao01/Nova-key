@@ -2711,7 +2711,7 @@ public class DistributionServiceImpl implements DistributionService {
                 try {
                     WxpayConfig config = paymentServiceImpl.buildWxpayConfig(channel);
                     WxpayTransferQueryResult qr = wxpayService.queryTransfer(config, wr.getOutBillNo());
-                    if (qr != null) {
+                    if (qr != null && qr.state() != null) {
                         wxState = qr.state();
                         wxFailReason = qr.failReason();
                         if (qr.transferBillNo() != null) {
@@ -2720,6 +2720,8 @@ public class DistributionServiceImpl implements DistributionService {
                         if (isTransferSuccessState(wxState) || isTransferFailedState(wxState)) {
                             handleTransferCallback(wr.getOutBillNo(), wxState, wxFailReason);
                         }
+                    } else if (qr != null && qr.error() != null) {
+                        result.put("wx_error", qr.error());
                     }
                 } catch (Exception e) {
                     log.warn("Query transfer status failed for withdrawal {}: {}", id, e.getMessage());

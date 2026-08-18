@@ -93,7 +93,7 @@ public interface WxpayService {
      * @param failReason     失败原因（成功时为空）
      * @param transferAmount 转账金额（分）
      */
-    record WxpayTransferQueryResult(String state, String transferBillNo, String failReason, Integer transferAmount) {
+    record WxpayTransferQueryResult(String state, String transferBillNo, String failReason, Integer transferAmount, String error) {
     }
 
     /**

@@ -2548,8 +2548,8 @@ function TransferWithdrawalModal({ withdrawal, onClose, onChanged, onManualSettl
                       {wxSt.label}
                     </span>
                   ) : (
-                    <p className="mt-1.5 text-sm text-muted-foreground">
-                      {data?.out_bill_no ? "未查询到转账状态" : "尚未发起转账"}
+                    <p className="mt-1.5 break-all text-sm text-muted-foreground">
+                      {data?.wx_error ? `查询失败：${data.wx_error}` : data?.out_bill_no ? "未查询到转账状态" : "尚未发起转账"}
                     </p>
                   )}
                 </div>
