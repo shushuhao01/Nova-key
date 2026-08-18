@@ -37,6 +37,8 @@ dist/
 .env.local
 .env.*.local
 *.tsbuildinfo
+# Next.js 自动生成文件（每次 dev/build 重写，不应入库）
+apps/web/next-env.d.ts
 
 # Local tools (downloaded binaries, e.g. Maven distribution)
 .tools/
