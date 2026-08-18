@@ -48,4 +48,9 @@ public interface WithdrawalRecordRepository extends JpaRepository<WithdrawalReco
     @Query("SELECT wr FROM WithdrawalRecord wr WHERE wr.status = 'PROCESSING' " +
             "AND wr.transferredAt < :before ORDER BY wr.transferredAt ASC")
     List<WithdrawalRecord> findProcessingTimeout(@Param("before") java.time.LocalDateTime before);
+
+    /** 主动轮询微信转账状态：PROCESSING 且已生成商户单号的记录（回调丢失时兜底补账） */
+    @Query("SELECT wr FROM WithdrawalRecord wr WHERE wr.status = 'PROCESSING' " +
+            "AND wr.outBillNo IS NOT NULL AND wr.outBillNo <> '' ORDER BY wr.transferredAt ASC")
+    List<WithdrawalRecord> findProcessingWithOutBillNo();
 }

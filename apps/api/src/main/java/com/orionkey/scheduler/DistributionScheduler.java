@@ -4,11 +4,17 @@ import com.orionkey.constant.CommissionStatus;
 import com.orionkey.constant.WithdrawalStatus;
 import com.orionkey.entity.CommissionRecord;
 import com.orionkey.entity.Distributor;
+import com.orionkey.entity.PaymentChannel;
 import com.orionkey.entity.WithdrawalRecord;
 import com.orionkey.repository.CommissionRecordRepository;
 import com.orionkey.repository.DistributorRepository;
+import com.orionkey.repository.PaymentChannelRepository;
 import com.orionkey.repository.WithdrawalRecordRepository;
 import com.orionkey.service.DistributionService;
+import com.orionkey.service.impl.PaymentServiceImpl;
+import com.orionkey.service.WxpayService;
+import com.orionkey.service.WxpayService.WxpayConfig;
+import com.orionkey.service.WxpayService.WxpayTransferQueryResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -24,8 +30,9 @@ import java.util.UUID;
  * 分销推广定时任务
  *
  * 1. 佣金结算（每小时）— PENDING 佣金超过 settle_delay_days 的转为 SETTLED
- * 2. 提现超时处理（每30分钟）— PROCESSING 超过24小时退回余额
+ * 2. 提现超时处理（每30分钟）— PROCESSING 超过24小时先查微信真实状态，再决定退回或补账
  * 3. 余额对账（每天）— 核对余额一致性
+ * 4. 微信转账状态轮询（每5分钟）— 回调丢失时兜底补账
  */
 @Slf4j
 @Component
@@ -36,6 +43,9 @@ public class DistributionScheduler {
     private final CommissionRecordRepository commissionRecordRepository;
     private final WithdrawalRecordRepository withdrawalRecordRepository;
     private final DistributorRepository distributorRepository;
+    private final PaymentServiceImpl paymentServiceImpl;
+    private final PaymentChannelRepository paymentChannelRepository;
+    private final WxpayService wxpayService;
 
     /**
      * 佣金结算 — 每小时执行
@@ -53,7 +63,8 @@ public class DistributionScheduler {
 
     /**
      * 提现超时处理 — 每30分钟执行
-     * PROCESSING 状态超过24小时未确认收款的提现，退回冻结余额到可提现余额。
+     * PROCESSING 状态超过24小时的提现，先向微信查询真实状态：
+     * 微信已终态 → 走回调补账；仍是中间态 → 等待微信侧超时关闭；无法查询 → 退回余额。
      */
     @Scheduled(cron = "0 */30 * * * *")
     @Transactional
@@ -63,18 +74,37 @@ public class DistributionScheduler {
         if (timeoutList.isEmpty()) return;
 
         log.info("发现 {} 笔超时提现待处理", timeoutList.size());
+        WxpayConfig config = findTransferWxpayConfig();
         for (WithdrawalRecord wr : timeoutList) {
             try {
+                // 先查微信真实状态：终态（成功/失败）走回调补账，避免"已到账仍被退回"造成重复打款
+                if (config != null && wr.getOutBillNo() != null && !wr.getOutBillNo().isBlank()) {
+                    WxpayTransferQueryResult r = wxpayService.queryTransfer(config, wr.getOutBillNo());
+                    if (r != null && r.state() != null) {
+                        String state = r.state();
+                        boolean terminal = "FINISHED".equalsIgnoreCase(state) || "SUCCESS".equalsIgnoreCase(state)
+                                || "CLOSED".equalsIgnoreCase(state) || "FAILED".equalsIgnoreCase(state)
+                                || "FAIL".equalsIgnoreCase(state) || "CANCELLED".equalsIgnoreCase(state);
+                        if (terminal) {
+                            log.info("提现 {} 超时，微信侧终态 {}，回调补账", wr.getId(), state);
+                            distributionService.handleTransferCallback(wr.getOutBillNo(), state, r.failReason());
+                            continue;
+                        }
+                        // 微信侧仍是中间态（如 WAIT_USER_CONFIRM）：交给微信侧超时关闭机制，不盲目退回
+                        log.info("提现 {} 超时但微信侧状态 {}，等待微信终态", wr.getId(), state);
+                        continue;
+                    }
+                }
+
+                // 无法查询微信状态（无配置/查询失败）：保守退回余额并标记失败
                 Distributor d = distributorRepository.findById(wr.getDistributorId()).orElse(null);
                 if (d == null) continue;
 
-                // 退回冻结余额到可提现余额
                 BigDecimal amount = wr.getAmount();
                 d.setFrozenBalance(d.getFrozenBalance().subtract(amount));
                 d.setAvailableBalance(d.getAvailableBalance().add(amount));
                 distributorRepository.save(d);
 
-                // 更新提现状态为失败
                 wr.setStatus(WithdrawalStatus.FAILED);
                 wr.setFailReason("超时未确认收款，自动撤销并退回余额");
                 withdrawalRecordRepository.save(wr);
@@ -84,6 +114,49 @@ public class DistributionScheduler {
                 log.error("提现 {} 超时处理失败: {}", wr.getId(), e.getMessage(), e);
             }
         }
+    }
+
+    /**
+     * 微信转账状态轮询 — 每5分钟执行
+     * 回调丢失时兜底：主动查询 PROCESSING 且有商户单号的提现，微信返回终态即补账
+     * （成功 → 冻结转已提现；失败 → 退回余额；中间态保持不动）。
+     */
+    @Scheduled(cron = "0 */5 * * * *")
+    @Transactional
+    public void pollWxpayTransferStatus() {
+        List<WithdrawalRecord> processingList = withdrawalRecordRepository.findProcessingWithOutBillNo();
+        if (processingList.isEmpty()) return;
+
+        WxpayConfig config = findTransferWxpayConfig();
+        if (config == null) {
+            log.warn("转账状态轮询：未找到启用的 native_wxpay 渠道配置，跳过 {} 笔", processingList.size());
+            return;
+        }
+
+        for (WithdrawalRecord wr : processingList) {
+            try {
+                WxpayTransferQueryResult r = wxpayService.queryTransfer(config, wr.getOutBillNo());
+                if (r == null || r.state() == null) continue;
+                String state = r.state();
+                boolean terminal = "FINISHED".equalsIgnoreCase(state) || "SUCCESS".equalsIgnoreCase(state)
+                        || "CLOSED".equalsIgnoreCase(state) || "FAILED".equalsIgnoreCase(state)
+                        || "FAIL".equalsIgnoreCase(state) || "CANCELLED".equalsIgnoreCase(state);
+                if (terminal) {
+                    log.info("转账轮询：提现 {} 微信状态 {}，兜底补账", wr.getId(), state);
+                    distributionService.handleTransferCallback(wr.getOutBillNo(), state, r.failReason());
+                }
+            } catch (Exception e) {
+                log.error("转账轮询失败：withdrawal={}, error={}", wr.getId(), e.getMessage());
+            }
+        }
+    }
+
+    /** 查找启用的 native_wxpay 渠道对应的微信转账配置（无渠道返回 null） */
+    private WxpayConfig findTransferWxpayConfig() {
+        List<PaymentChannel> channels = paymentChannelRepository.findByProviderTypeAndIsDeleted("native_wxpay", 0);
+        PaymentChannel channel = channels.stream().filter(PaymentChannel::isEnabled).findFirst().orElse(null);
+        if (channel == null) return null;
+        return paymentServiceImpl.buildWxpayConfig(channel);
     }
 
     /**
