@@ -7,7 +7,7 @@ import {
   Clock, CheckCircle2, UserCheck, UserX, Percent, RefreshCw, ShoppingBag,
   HandCoins, Loader2, ScrollText, ShieldCheck, Layers, CalendarRange,
   ArrowUpRight, ArrowDownRight, Eye, User, AtSign, KeyRound, Link2,
-  Crown, Users, AlertCircle,
+  Crown, Users, AlertCircle, Send,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -1989,6 +1989,7 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
   const [currentPage, setCurrentPage] = useState(1)
   const [rejectModal, setRejectModal] = useState<Withdrawal | null>(null)
   const [settleModal, setSettleModal] = useState<Withdrawal | null>(null)
+  const [transferModal, setTransferModal] = useState<Withdrawal | null>(null)
   const [detailModal, setDetailModal] = useState<Withdrawal | null>(null)
 
   // 汇总卡片：总销售额/总佣金/待结算/已结算（随日期筛选动态变化）
@@ -2205,6 +2206,17 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
                               </button>
                             </>
                           )}
+                          {(w.status === "APPROVED" || w.status === "PROCESSING" || w.status === "FAILED" || w.status === "SUCCESS") && (
+                            <button
+                              type="button"
+                              onClick={() => setTransferModal(w)}
+                              className="flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-purple-600 hover:bg-purple-500/10"
+                              title="查看/重新发起微信转账"
+                            >
+                              <Send className="h-3.5 w-3.5" />
+                              转账详情
+                            </button>
+                          )}
                           {(w.status === "APPROVED" || w.status === "PROCESSING") && (
                             <button
                               type="button"
@@ -2216,7 +2228,7 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
                               手动结算
                             </button>
                           )}
-                          {(w.status === "REJECTED" || w.status === "SUCCESS" || w.status === "FAILED") && (
+                          {w.status === "REJECTED" && (
                             <span className="text-xs text-muted-foreground">已处理</span>
                           )}
                         </div>
@@ -2247,6 +2259,15 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
           withdrawal={settleModal}
           onClose={() => setSettleModal(null)}
           onSaved={() => { setSettleModal(null); fetchList() }}
+        />
+      )}
+
+      {transferModal && (
+        <TransferWithdrawalModal
+          withdrawal={transferModal}
+          onClose={() => setTransferModal(null)}
+          onChanged={() => { fetchList(); fetchStats() }}
+          onManualSettle={() => { setSettleModal(transferModal); setTransferModal(null) }}
         />
       )}
 
@@ -2397,6 +2418,198 @@ function RejectWithdrawalModal({ withdrawal, onClose, onSaved }: {
             {saving ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <X className="h-4 w-4" />}
             确认拒绝
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════ 转账兜底弹窗（查看 / 重试 / 手动提交商户转账单） ═══════════════════════
+
+const wxTransferStateMap: Record<string, { label: string; cls: string }> = {
+  ACCEPTED: { label: "已受理", cls: "bg-blue-500/10 text-blue-600" },
+  PROCESSING: { label: "处理中", cls: "bg-cyan-500/10 text-cyan-600" },
+  WAIT_USER_CONFIRM: { label: "待用户确认", cls: "bg-amber-500/10 text-amber-600" },
+  TRANSFERING: { label: "转账中", cls: "bg-cyan-500/10 text-cyan-600" },
+  FINISHED: { label: "已完成", cls: "bg-emerald-500/10 text-emerald-600" },
+  SUCCESS: { label: "成功", cls: "bg-emerald-500/10 text-emerald-600" },
+  CLOSED: { label: "已关闭", cls: "bg-red-500/10 text-red-500" },
+  FAILED: { label: "失败", cls: "bg-red-500/10 text-red-500" },
+  FAIL: { label: "失败", cls: "bg-red-500/10 text-red-500" },
+  CANCELLED: { label: "已取消", cls: "bg-red-500/10 text-red-500" },
+  CANCEL: { label: "已取消", cls: "bg-red-500/10 text-red-500" },
+}
+
+function TransferWithdrawalModal({ withdrawal, onClose, onChanged, onManualSettle }: {
+  withdrawal: Withdrawal
+  onClose: () => void
+  onChanged: () => void
+  onManualSettle: () => void
+}) {
+  const [data, setData] = useState<Record<string, any> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [retrying, setRetrying] = useState(false)
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await adminDistributionApi.withdrawalTransferStatus(withdrawal.id)
+      setData(res)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "加载转账状态失败")
+    } finally {
+      setLoading(false)
+    }
+  }, [withdrawal.id])
+
+  useEffect(() => {
+    setLoading(true)
+    fetchStatus()
+  }, [fetchStatus])
+
+  const status = (data?.status as WithdrawalStatus) ?? withdrawal.status
+  const st = withdrawalStatusMap[status] || { label: status, cls: "bg-muted text-muted-foreground" }
+  const wxState = data?.wx_state as string | null
+  const wxSt = wxState ? wxTransferStateMap[wxState] || { label: wxState, cls: "bg-muted text-muted-foreground" } : null
+  const canRetry = data?.can_retry === true
+  const canManualSettle = status === "APPROVED" || status === "PROCESSING"
+
+  const handleRetry = async () => {
+    if (!canRetry) return
+    if (!window.confirm(`确认重新发起微信商家转账？金额 ${fmtMoney(withdrawal.amount)}`)) return
+    setRetrying(true)
+    try {
+      const res = await adminDistributionApi.retryWithdrawalTransfer(withdrawal.id)
+      if (res?.transferred === true) {
+        toast.success("已重新发起微信商家转账")
+      } else {
+        toast.warning(res?.fail_reason || "转账未成功发起，请检查微信支付配置与分销员微信绑定")
+      }
+      await fetchStatus()
+      onChanged()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    } finally {
+      setRetrying(false)
+    }
+  }
+
+  const infoItems: { label: string; value: ReactNode }[] = [
+    { label: "提现金额", value: fmtMoney(data?.amount ?? withdrawal.amount) },
+    { label: "实到金额", value: data?.actual_amount != null ? fmtMoney(data.actual_amount) : "—" },
+    { label: "商户转账单号", value: data?.out_bill_no || "—" },
+    { label: "微信转账单号", value: data?.wx_transfer_bill_no || data?.transfer_bill_no || "—" },
+    { label: "失败原因", value: data?.wx_fail_reason || data?.fail_reason || "—" },
+    { label: "审核时间", value: fmtDate(data?.approved_at) },
+    { label: "发起转账时间", value: fmtDate(data?.transferred_at) },
+    { label: "完成时间", value: fmtDate(data?.completed_at) },
+  ]
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600">
+              <Send className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-foreground">转账详情</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {withdrawal.distributor_name || "—"} · {fmtMoney(withdrawal.amount)}
+              </p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {/* 状态摘要 */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border border-border bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground">提现单状态</p>
+                  <span className={cn("mt-1.5 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
+                    {st.label}
+                  </span>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground">微信转账状态</p>
+                  {wxSt ? (
+                    <span className={cn("mt-1.5 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", wxSt.cls)}>
+                      {wxSt.label}
+                    </span>
+                  ) : (
+                    <p className="mt-1.5 text-sm text-muted-foreground">
+                      {data?.out_bill_no ? "未查询到转账状态" : "尚未发起转账"}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* 可重试 / 已完成提示 */}
+              {canRetry ? (
+                <div className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                  该提现单尚未成功到账，可重新发起微信商家转账。
+                </div>
+              ) : status === "SUCCESS" ? (
+                <div className="rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+                  转账已完成，无需再次发起。
+                </div>
+              ) : null}
+
+              {/* 明细信息 */}
+              <div className="divide-y divide-border rounded-lg border border-border">
+                {infoItems.map((item) => (
+                  <div key={item.label} className="flex items-start gap-3 px-3 py-2.5">
+                    <span className="w-24 shrink-0 text-xs text-muted-foreground">{item.label}</span>
+                    <span className="min-w-0 flex-1 break-all text-right text-sm text-foreground">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border px-5 py-4">
+          <button
+            type="button"
+            onClick={() => { setLoading(true); fetchStatus() }}
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-input px-4 text-sm font-medium text-foreground hover:bg-accent"
+          >
+            <RefreshCw className="h-4 w-4" />
+            刷新状态
+          </button>
+          {canManualSettle && (
+            <button
+              type="button"
+              onClick={onManualSettle}
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-cyan-600 px-4 text-sm font-medium text-cyan-600 hover:bg-cyan-500/10"
+              title="系统未自动转账或转账失败时，可确认已线下支付后手动提交商户转账单完成结算"
+            >
+              <HandCoins className="h-4 w-4" />
+              手动提交商户转账单
+            </button>
+          )}
+          {canRetry && (
+            <button
+              type="button"
+              disabled={retrying}
+              onClick={handleRetry}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
+            >
+              {retrying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              重新发起转账
+            </button>
+          )}
+          <button type="button" onClick={onClose} className="h-10 rounded-lg border border-input px-4 text-sm font-medium text-foreground hover:bg-accent">关闭</button>
         </div>
       </div>
     </div>

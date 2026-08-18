@@ -952,6 +952,10 @@ export const adminDistributionApi = {
       method: "PUT",
       body: JSON.stringify(actualAmount != null ? { actual_amount: actualAmount } : {}),
     }),
+  withdrawalTransferStatus: (id: string) =>
+    request<any>(`/admin/distribution/withdrawals/${id}/transfer-status`),
+  retryWithdrawalTransfer: (id: string) =>
+    request<any>(`/admin/distribution/withdrawals/${id}/retry-transfer`, { method: "POST" }),
 }
 
 // ============================================================

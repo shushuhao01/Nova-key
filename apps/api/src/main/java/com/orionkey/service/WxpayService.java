@@ -83,6 +83,17 @@ public interface WxpayService {
     }
 
     /**
+     * 商家转账状态查询结果（GET /v3/transfer/batches/out-bill-no/{out_bill_no}）。
+     *
+     * @param state          转账批次状态（ACCEPTED / PROCESSING / FINISHED / CLOSED）
+     * @param transferBillNo 微信转账单号
+     * @param failReason     失败原因（成功时为空）
+     * @param transferAmount 转账金额（分）
+     */
+    record WxpayTransferQueryResult(String state, String transferBillNo, String failReason, Integer transferAmount) {
+    }
+
+    /**
      * 微信支付退款结果。
      *
      * @param refundId    微信退款单号（refund_id）
@@ -145,6 +156,17 @@ public interface WxpayService {
      */
     WxpayTransferResult createTransfer(WxpayConfig config, String outBillNo, String openid,
                                        BigDecimal amount, String remark, String notifyUrl);
+
+    /**
+     * 查询商家转账状态（GET /v3/transfer/batches/out-bill-no/{out_bill_no}）。
+     * <p>
+     * 用于提现兜底：转账回调丢失时，由管理后台主动查询转账终态，失败返回 null。
+     *
+     * @param config    微信支付配置
+     * @param outBillNo 商户转账单号
+     * @return 转账状态；查询失败（网络/网关错误）返回 null
+     */
+    WxpayTransferQueryResult queryTransfer(WxpayConfig config, String outBillNo);
 
     /**
      * 测试商户配置与微信支付平台的连通性（调用 GET /v3/certificates 验证

@@ -44,6 +44,10 @@ public interface DistributionService {
     void adminRejectWithdrawal(UUID id, String reason);
     /** 手动结算：管理员确认已线下支付，从冻结余额扣减，状态改为 SUCCESS */
     void adminManualSettle(UUID id, BigDecimal actualAmount);
+    /** 查询提现单转账状态（含主动查询微信商家转账终态，回调丢失时兜底补账） */
+    Map<String, Object> adminGetWithdrawalTransferStatus(UUID id);
+    /** 重新发起微信商家转账（仅已通过/转账失败状态可重试，成功后进入转账中） */
+    Map<String, Object> adminRetryWithdrawalTransfer(UUID id);
 
     // ── 管理后台：统计 ──
     Map<String, Object> adminGetOverviewStats(String range, LocalDate from, LocalDate to);

@@ -199,6 +199,18 @@ public class AdminDistributionController {
         return ApiResponse.success();
     }
 
+    /** 查询提现单转账状态（含主动查询微信商家转账终态，回调丢失时兜底补账） */
+    @GetMapping("/withdrawals/{id}/transfer-status")
+    public ApiResponse<?> withdrawalTransferStatus(@PathVariable UUID id) {
+        return ApiResponse.success(distributionService.adminGetWithdrawalTransferStatus(id));
+    }
+
+    /** 重新发起微信商家转账（仅已通过/转账失败状态可重试） */
+    @PostMapping("/withdrawals/{id}/retry-transfer")
+    public ApiResponse<?> retryWithdrawalTransfer(@PathVariable UUID id) {
+        return ApiResponse.success(distributionService.adminRetryWithdrawalTransfer(id));
+    }
+
     /** 手动结算待结算佣金：把超过结算延迟期的 PENDING 佣金转为 SETTLED 并入可提现余额（等效定时任务立即执行一次） */
     @PostMapping("/commissions/settle")
     public ApiResponse<?> settleCommissions() {

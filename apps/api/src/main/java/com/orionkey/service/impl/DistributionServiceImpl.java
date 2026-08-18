@@ -14,6 +14,7 @@ import com.orionkey.service.UserMessageService;
 import com.orionkey.service.WechatMpConfigService;
 import com.orionkey.service.WxpayService;
 import com.orionkey.service.WxpayService.WxpayConfig;
+import com.orionkey.service.WxpayService.WxpayTransferQueryResult;
 import com.orionkey.service.WxpayService.WxpayTransferResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -2591,7 +2592,7 @@ public class DistributionServiceImpl implements DistributionService {
             return;
         }
 
-        if ("FINISHED".equalsIgnoreCase(state) || "SUCCESS".equalsIgnoreCase(state)) {
+        if (isTransferSuccessState(state)) {
             // 转账成功：冻结 → 已提现
             BigDecimal settleAmount = wr.getActualAmount() != null ? wr.getActualAmount() : wr.getAmount();
             d.setFrozenBalance(d.getFrozenBalance().subtract(wr.getAmount()));
@@ -2620,7 +2621,7 @@ public class DistributionServiceImpl implements DistributionService {
             } catch (Exception e) {
                 log.warn("Failed to send withdrawal success message: {}", e.getMessage());
             }
-        } else {
+        } else if (isTransferFailedState(state)) {
             // 转账失败/关闭：冻结退回可用余额
             d.setFrozenBalance(d.getFrozenBalance().subtract(wr.getAmount()));
             d.setAvailableBalance(d.getAvailableBalance().add(wr.getAmount()));
@@ -2648,7 +2649,139 @@ public class DistributionServiceImpl implements DistributionService {
             } catch (Exception e) {
                 log.warn("Failed to send withdrawal failed message: {}", e.getMessage());
             }
+        } else {
+            // 中间态（ACCEPTED/PROCESSING/WAIT_USER_CONFIRM/TRANSFERING 等）：仅记录，保持 PROCESSING，不动余额
+            wr.setStatus(WithdrawalStatus.PROCESSING);
+            if (wr.getTransferredAt() == null) {
+                wr.setTransferredAt(LocalDateTime.now());
+            }
+            withdrawalRecordRepository.save(wr);
+            log.info("Transfer callback: withdrawal {} state={} is intermediate, keep processing", wr.getId(), state);
         }
+    }
+
+    /** 微信商家转账批次状态：成功终态 */
+    private boolean isTransferSuccessState(String state) {
+        return "FINISHED".equalsIgnoreCase(state) || "SUCCESS".equalsIgnoreCase(state);
+    }
+
+    /** 微信商家转账批次状态：失败/关闭终态 */
+    private boolean isTransferFailedState(String state) {
+        return "CLOSED".equalsIgnoreCase(state) || "FAILED".equalsIgnoreCase(state)
+                || "FAIL".equalsIgnoreCase(state) || "CANCELLED".equalsIgnoreCase(state)
+                || "CANCEL".equalsIgnoreCase(state);
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> adminGetWithdrawalTransferStatus(UUID id) {
+        WithdrawalRecord wr = withdrawalRecordRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "提现记录不存在"));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", wr.getId());
+        result.put("status", wr.getStatus().name());
+        result.put("amount", wr.getAmount());
+        result.put("actual_amount", wr.getActualAmount());
+        result.put("out_bill_no", wr.getOutBillNo());
+        result.put("transfer_bill_no", wr.getTransferBillNo());
+        result.put("fail_reason", wr.getFailReason());
+        result.put("approved_at", wr.getApprovedAt());
+        result.put("transferred_at", wr.getTransferredAt());
+        result.put("completed_at", wr.getCompletedAt());
+
+        // 主动查询微信转账状态（仅对已发起转账、且尚未到终态的提现单；回调丢失时兜底补账）
+        String wxState = null;
+        String wxFailReason = null;
+        String wxTransferBillNo = wr.getTransferBillNo();
+        if (wr.getOutBillNo() != null && !wr.getOutBillNo().isBlank()
+                && wr.getStatus() != WithdrawalStatus.SUCCESS && wr.getStatus() != WithdrawalStatus.FAILED) {
+            PaymentChannel channel = paymentChannelRepository
+                    .findByProviderTypeAndIsDeleted("native_wxpay", 0).stream()
+                    .filter(PaymentChannel::isEnabled)
+                    .findFirst().orElse(null);
+            if (channel != null) {
+                try {
+                    WxpayConfig config = paymentServiceImpl.buildWxpayConfig(channel);
+                    WxpayTransferQueryResult qr = wxpayService.queryTransfer(config, wr.getOutBillNo());
+                    if (qr != null) {
+                        wxState = qr.state();
+                        wxFailReason = qr.failReason();
+                        if (qr.transferBillNo() != null) {
+                            wxTransferBillNo = qr.transferBillNo();
+                        }
+                        if (isTransferSuccessState(wxState) || isTransferFailedState(wxState)) {
+                            handleTransferCallback(wr.getOutBillNo(), wxState, wxFailReason);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Query transfer status failed for withdrawal {}: {}", id, e.getMessage());
+                }
+            }
+        }
+
+        result.put("wx_state", wxState);
+        result.put("wx_fail_reason", wxFailReason);
+        result.put("wx_transfer_bill_no", wxTransferBillNo);
+        result.put("can_retry", wr.getStatus() == WithdrawalStatus.APPROVED || wr.getStatus() == WithdrawalStatus.FAILED);
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> adminRetryWithdrawalTransfer(UUID id) {
+        WithdrawalRecord wr = withdrawalRecordRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "提现记录不存在"));
+
+        if (wr.getStatus() != WithdrawalStatus.APPROVED && wr.getStatus() != WithdrawalStatus.FAILED) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "仅「已通过」或「转账失败」的提现可重新发起转账");
+        }
+
+        Distributor d = distributorRepository.findById(wr.getDistributorId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "分销员不存在"));
+        if (d.getWechatOpenid() == null || d.getWechatOpenid().isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "该分销员未绑定微信，无法发起转账");
+        }
+
+        BigDecimal amount = wr.getActualAmount() != null ? wr.getActualAmount() : wr.getAmount();
+
+        // 转账失败终态：失败回调已把冻结退回可用余额、佣金记录退回 REJECTED，需重新冻结 + 重新置为提现中
+        if (wr.getStatus() == WithdrawalStatus.FAILED) {
+            Distributor locked = distributorRepository.findByIdWithLock(d.getId()).orElse(d);
+            if (locked.getAvailableBalance().compareTo(wr.getAmount()) < 0) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "分销员可提现余额不足，无法重新发起转账");
+            }
+            locked.setAvailableBalance(locked.getAvailableBalance().subtract(wr.getAmount()));
+            locked.setFrozenBalance(locked.getFrozenBalance().add(wr.getAmount()));
+            distributorRepository.save(locked);
+            d = locked;
+
+            for (CommissionRecord cr : commissionRecordRepository.findByWithdrawalId(wr.getId())) {
+                if (cr.getStatus() == CommissionStatus.REJECTED) {
+                    cr.setStatus(CommissionStatus.WITHDRAWING);
+                    commissionRecordRepository.save(cr);
+                }
+            }
+        }
+
+        // 清除上次转账痕迹后重新发起（tryWxpayTransfer 会生成新的 out_bill_no）
+        wr.setStatus(WithdrawalStatus.APPROVED);
+        wr.setFailReason(null);
+        wr.setOutBillNo(null);
+        wr.setTransferBillNo(null);
+        wr.setPackageInfo(null);
+
+        boolean transferred = tryWxpayTransfer(wr, d, amount);
+        withdrawalRecordRepository.save(wr);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", wr.getId());
+        result.put("transferred", transferred);
+        result.put("status", wr.getStatus().name());
+        result.put("out_bill_no", wr.getOutBillNo());
+        result.put("transfer_bill_no", wr.getTransferBillNo());
+        result.put("fail_reason", wr.getFailReason());
+        return result;
     }
 
     // ════════════════════════════════════════════════════════════════

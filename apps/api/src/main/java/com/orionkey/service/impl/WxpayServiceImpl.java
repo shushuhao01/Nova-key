@@ -487,6 +487,31 @@ public class WxpayServiceImpl implements WxpayService {
         }
     }
 
+    @Override
+    public WxpayTransferQueryResult queryTransfer(WxpayConfig config, String outBillNo) {
+        String canonicalPath = "/v3/transfer/batches/out-bill-no/" + outBillNo + "?mchid=" + config.mchid();
+        String gateway = trimSlash(config.gatewayUrl());
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    gateway + canonicalPath, HttpMethod.GET,
+                    new HttpEntity<>(apiV3Headers(config, "GET", canonicalPath, "")),
+                    String.class);
+            Map<String, Object> resp = objectMapper.readValue(response.getBody(), new TypeReference<>() {
+            });
+            String state = resp.get("state") != null ? resp.get("state").toString() : null;
+            String transferBillNo = resp.get("transfer_bill_no") != null ? resp.get("transfer_bill_no").toString() : null;
+            String failReason = resp.get("fail_reason") != null ? resp.get("fail_reason").toString() : null;
+            Integer transferAmount = null;
+            if (resp.get("transfer_amount") instanceof Number n) {
+                transferAmount = n.intValue();
+            }
+            return new WxpayTransferQueryResult(state, transferBillNo, failReason, transferAmount);
+        } catch (Exception e) {
+            log.warn("Wxpay transfer query failed: outBillNo={}, error={}", outBillNo, e.getMessage());
+            return null;
+        }
+    }
+
     /** 从微信 APIv3 错误响应体中提取 message 字段（如签名错误的具体原因） */
     private String extractWxErrorDetail(HttpClientErrorException e) {
         String body = e.getResponseBodyAsString();
