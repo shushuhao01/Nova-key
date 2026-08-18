@@ -2449,6 +2449,7 @@ function TransferWithdrawalModal({ withdrawal, onClose, onChanged, onManualSettl
   const [data, setData] = useState<Record<string, any> | null>(null)
   const [loading, setLoading] = useState(true)
   const [retrying, setRetrying] = useState(false)
+  const [confirmRetry, setConfirmRetry] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -2475,7 +2476,6 @@ function TransferWithdrawalModal({ withdrawal, onClose, onChanged, onManualSettl
 
   const handleRetry = async () => {
     if (!canRetry) return
-    if (!window.confirm(`确认重新发起微信商家转账？金额 ${fmtMoney(withdrawal.amount)}`)) return
     setRetrying(true)
     try {
       const res = await adminDistributionApi.retryWithdrawalTransfer(withdrawal.id)
@@ -2484,6 +2484,7 @@ function TransferWithdrawalModal({ withdrawal, onClose, onChanged, onManualSettl
       } else {
         toast.warning(res?.fail_reason || "转账未成功发起，请检查微信支付配置与分销员微信绑定")
       }
+      setConfirmRetry(false)
       await fetchStatus()
       onChanged()
     } catch (err) {
@@ -2565,6 +2566,34 @@ function TransferWithdrawalModal({ withdrawal, onClose, onChanged, onManualSettl
                 </div>
               ) : null}
 
+              {/* 重新发起确认（内置弹窗） */}
+              {canRetry && confirmRetry && (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
+                  <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">确认重新发起微信商家转账？</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    金额 {fmtMoney(withdrawal.amount)}，将重新调用微信商家转账接口向分销员微信发起转账。
+                  </p>
+                  <div className="mt-3 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setConfirmRetry(false)}
+                      className="inline-flex h-9 items-center rounded-lg border border-input px-3 text-sm font-medium text-foreground hover:bg-accent"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      disabled={retrying}
+                      onClick={handleRetry}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-50"
+                    >
+                      {retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                      确认发起
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* 明细信息 */}
               <div className="divide-y divide-border rounded-lg border border-border">
                 {infoItems.map((item) => (
@@ -2601,8 +2630,8 @@ function TransferWithdrawalModal({ withdrawal, onClose, onChanged, onManualSettl
           {canRetry && (
             <button
               type="button"
-              disabled={retrying}
-              onClick={handleRetry}
+              disabled={retrying || confirmRetry}
+              onClick={() => setConfirmRetry(true)}
               className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
             >
               {retrying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
