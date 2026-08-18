@@ -1322,6 +1322,8 @@ function WithdrawalsTab({ balance }: { balance: number }) {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  // 已点击确认收款的提现单（前端即时反馈，避免重复点击/拉起）
+  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set())
   // 汇总卡片数据（总佣金/待结算/已结算/可提现）
   const [stats, setStats] = useState<OverviewStats | null>(null)
   // 微信绑定状态
@@ -1430,6 +1432,7 @@ function WithdrawalsTab({ balance }: { balance: number }) {
         { package: w.package_info },
         () => {
           toast.success("收款确认已提交，等待到账")
+          setConfirmedIds(prev => new Set(prev).add(w.id))
           setTimeout(fetchList, 2000)
         }
       )
@@ -1630,18 +1633,25 @@ function WithdrawalsTab({ balance }: { balance: number }) {
                       <p className="mt-0.5 text-xs text-red-500">原因：{w.reason}</p>
                     )}
                   </div>
-                  <div className="shrink-0 text-right">
+                  <div className="flex shrink-0 items-center gap-2">
                     <span className={cn("inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
                       {st.label}
                     </span>
                     {w.status === "PROCESSING" && w.package_info && (
-                      <button
-                        type="button"
-                        onClick={() => confirmWithdrawal(w)}
-                        className="mt-1.5 block w-full rounded-lg bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/20"
-                      >
-                        确认收款
-                      </button>
+                      confirmedIds.has(w.id) ? (
+                        <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-600">
+                          <Check className="h-3.5 w-3.5" />
+                          已确认
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => confirmWithdrawal(w)}
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/20"
+                        >
+                          确认收款
+                        </button>
+                      )
                     )}
                   </div>
                 </div>
