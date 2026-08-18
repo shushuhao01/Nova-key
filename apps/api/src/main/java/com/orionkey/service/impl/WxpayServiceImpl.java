@@ -26,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.Signature;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -452,6 +453,16 @@ public class WxpayServiceImpl implements WxpayService {
         // 转账场景ID：佣金报酬默认 1005，可从渠道配置读取
         String sceneId = isNotBlank(config.transferSceneId()) ? config.transferSceneId() : "1005";
         body.put("transfer_scene_id", sceneId);
+        // 转账场景报备信息：佣金报酬(1005)场景微信要求必填「岗位类型 + 报酬说明」，用于报备转账资金用途
+        // （info_type 为微信固定值，info_content 商户自定义，可从渠道配置覆盖）
+        if ("1005".equals(sceneId)) {
+            List<Map<String, String>> reportInfos = new ArrayList<>();
+            reportInfos.add(transferSceneReportItem("岗位类型",
+                    isNotBlank(config.transferSceneJobType()) ? config.transferSceneJobType() : "销售顾问"));
+            reportInfos.add(transferSceneReportItem("报酬说明",
+                    isNotBlank(config.transferSceneRemark()) ? config.transferSceneRemark() : "佣金报酬结算"));
+            body.put("transfer_scene_report_infos", reportInfos);
+        }
         body.put("openid", openid);
         body.put("transfer_amount", totalCents);
         body.put("transfer_remark", remark != null && !remark.isBlank() ? remark : "佣金提现");
@@ -484,6 +495,17 @@ public class WxpayServiceImpl implements WxpayService {
             log.error("Wxpay transfer API error: outBillNo={}, error={}", outBillNo, e.getMessage());
             throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信转账失败：网络错误");
         }
+    }
+
+    /**
+     * 转账场景报备信息明细项（transfer_scene_report_infos 数组元素）。
+     * info_type 为微信固定的中文取值，info_content 为商户自定义内容（长度 1~32）。
+     */
+    private Map<String, String> transferSceneReportItem(String infoType, String infoContent) {
+        Map<String, String> item = new LinkedHashMap<>();
+        item.put("info_type", infoType);
+        item.put("info_content", infoContent);
+        return item;
     }
 
     @Override

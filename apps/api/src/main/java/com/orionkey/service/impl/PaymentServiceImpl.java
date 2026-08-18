@@ -259,7 +259,8 @@ public class PaymentServiceImpl implements PaymentService {
         String notifyUrl = trimTrailingSlash(appBaseUrl) + WXPAY_WEBHOOK_PATH;
 
         return new WxpayConfig(appid, mchid, apiV3Key, serialNo, privateKey, notifyUrl,
-                "https://api.mch.weixin.qq.com", cfg.get("transfer_scene_id"), cfg.get("app_secret"));
+                "https://api.mch.weixin.qq.com", cfg.get("transfer_scene_id"), cfg.get("app_secret"),
+                cfg.get("transfer_scene_job_type"), cfg.get("transfer_scene_remark"));
     }
 
     /**
@@ -320,7 +321,8 @@ public class PaymentServiceImpl implements PaymentService {
         String privateKey = resolveWxpayPrivateKeyLenient(cfg, channel.getChannelCode());
         String notifyUrl = trimTrailingSlash(appBaseUrl) + WXPAY_WEBHOOK_PATH;
         return new WxpayConfig(appid, mchid, apiV3Key, serialNo, privateKey, notifyUrl,
-                "https://api.mch.weixin.qq.com", cfg.get("transfer_scene_id"), cfg.get("app_secret"));
+                "https://api.mch.weixin.qq.com", cfg.get("transfer_scene_id"), cfg.get("app_secret"),
+                cfg.get("transfer_scene_job_type"), cfg.get("transfer_scene_remark"));
     }
 
     /**
