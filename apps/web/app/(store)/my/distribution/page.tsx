@@ -1658,7 +1658,7 @@ function WithdrawalsTab({ balance }: { balance: number }) {
           balance={balance}
           wechatBound={!!wechat?.wechat_bound}
           onClose={() => setModalOpen(false)}
-          onSuccess={() => { setModalOpen(false); fetchList() }}
+          onSuccess={() => { setModalOpen(false); fetchList(); fetchStats() }}
         />
       )}
 
