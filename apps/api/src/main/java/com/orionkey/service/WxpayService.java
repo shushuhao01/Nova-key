@@ -83,7 +83,7 @@ public interface WxpayService {
     }
 
     /**
-     * 商家转账状态查询结果（GET /v3/transfer/batches/out-bill-no/{out_bill_no}）。
+     * 商家转账状态查询结果（GET /v3/fund-app/mch-transfer/transfer-bills/out-bill-no/{out_bill_no}）。
      *
      * @param state          转账批次状态（ACCEPTED / PROCESSING / FINISHED / CLOSED）
      * @param transferBillNo 微信转账单号
@@ -141,13 +141,13 @@ public interface WxpayService {
                                    String reason, String notifyUrl);
 
     /**
-     * 商家转账到零钱（POST /v3/transfer/batches）。
+     * 商家转账到零钱单笔转账（POST /v3/fund-app/mch-transfer/transfer-bills）。
      * <p>
      * 用于分销佣金提现，管理员审批通过后调用此接口发起转账。
      * 返回 package_info 后，前端在微信内通过 WeixinJSBridge.invoke('requestPayment') 拉起用户确认收款。
      *
      * @param config          微信支付配置（含 transferSceneId）
-     * @param outBillNo       商户单号（唯一，幂等键）
+     * @param outBillNo       商户单号（唯一，幂等键，对应 out_bill_no）
      * @param openid          收款用户 openid
      * @param amount          转账金额（元）
      * @param remark          转账备注（如"佣金提现"）
@@ -158,7 +158,7 @@ public interface WxpayService {
                                        BigDecimal amount, String remark, String notifyUrl);
 
     /**
-     * 查询商家转账状态（GET /v3/transfer/batches/out-bill-no/{out_bill_no}）。
+     * 查询商家转账单笔状态（GET /v3/fund-app/mch-transfer/transfer-bills/out-bill-no/{out_bill_no}）。
      * <p>
      * 用于提现兜底：转账回调丢失时，由管理后台主动查询转账终态，失败返回 null。
      *

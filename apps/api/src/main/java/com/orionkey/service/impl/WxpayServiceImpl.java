@@ -434,7 +434,8 @@ public class WxpayServiceImpl implements WxpayService {
     @Override
     public WxpayTransferResult createTransfer(WxpayConfig config, String outBillNo, String openid,
                                               BigDecimal amount, String remark, String notifyUrl) {
-        String canonicalPath = "/v3/transfer/batches";
+        // 商家转账单笔接口（场景ID/感知文案等字段属此接口）：POST /v3/fund-app/mch-transfer/transfer-bills
+        String canonicalPath = "/v3/fund-app/mch-transfer/transfer-bills";
         String gateway = trimSlash(config.gatewayUrl());
 
         int totalCents = amount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
@@ -489,7 +490,8 @@ public class WxpayServiceImpl implements WxpayService {
 
     @Override
     public WxpayTransferQueryResult queryTransfer(WxpayConfig config, String outBillNo) {
-        String canonicalPath = "/v3/transfer/batches/out-bill-no/" + outBillNo + "?mchid=" + config.mchid();
+        // 查询商家转账单笔状态：GET /v3/fund-app/mch-transfer/transfer-bills/out-bill-no/{out_bill_no}
+        String canonicalPath = "/v3/fund-app/mch-transfer/transfer-bills/out-bill-no/" + outBillNo + "?mchid=" + config.mchid();
         String gateway = trimSlash(config.gatewayUrl());
         try {
             ResponseEntity<String> response = restTemplate.exchange(
