@@ -886,14 +886,19 @@ public class DistributionServiceImpl implements DistributionService {
 
         try {
             WxpayConfig config = paymentServiceImpl.buildWxpayConfig(channel);
-            String outBillNo = "WD" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
-                    + String.format("%04d", ThreadLocalRandom.current().nextInt(10000));
+            // 复用原商户单号（微信支持失败后原单号重试，如运营账户资金不足场景；换新单号有重复打款风险）
+            String outBillNo = wr.getOutBillNo();
+            if (outBillNo == null || outBillNo.isBlank()) {
+                outBillNo = "WD" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                        + String.format("%04d", ThreadLocalRandom.current().nextInt(10000));
+            }
+            // 先落单号：即便本次调用失败（如资金不足），也保留单号供充值后原单号重试
+            wr.setOutBillNo(outBillNo);
             String transferNotifyUrl = baseUrl.replaceAll("/+$", "") + "/api/payments/webhook/wxpay-transfer";
 
             WxpayTransferResult result = wxpayService.createTransfer(
                     config, outBillNo, d.getWechatOpenid(), amount, "佣金提现", transferNotifyUrl);
 
-            wr.setOutBillNo(outBillNo);
             wr.setTransferBillNo(result.transferBillNo());
             wr.setPackageInfo(result.packageInfo());
             wr.setStatus(WithdrawalStatus.PROCESSING);
@@ -2766,10 +2771,9 @@ public class DistributionServiceImpl implements DistributionService {
             }
         }
 
-        // 清除上次转账痕迹后重新发起（tryWxpayTransfer 会生成新的 out_bill_no）
+        // 清除上次转账痕迹后重新发起（保留原 out_bill_no：微信支持失败后原单号重试，换新单号有重复打款风险）
         wr.setStatus(WithdrawalStatus.APPROVED);
         wr.setFailReason(null);
-        wr.setOutBillNo(null);
         wr.setTransferBillNo(null);
         wr.setPackageInfo(null);
 
