@@ -2042,6 +2042,26 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
 
   useEffect(() => { fetchList() }, [fetchList, dateVersion])
 
+  // 每 20 秒静默刷新统计与列表（不置 loading、不打断筛选/分页），确保转账/到账状态及时反映，避免卡片误导
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchStats()
+      adminDistributionApi.listWithdrawals({
+        page: currentPage,
+        page_size: ITEMS_PER_PAGE,
+        status: statusFilter || undefined,
+        from: dateFrom,
+        to: dateTo,
+      })
+        .then(data => {
+          setList((data.list || []) as Withdrawal[])
+          setTotal(data.pagination?.total ?? 0)
+        })
+        .catch(() => {})
+    }, 20000)
+    return () => clearInterval(timer)
+  }, [fetchStats, currentPage, statusFilter, dateFrom, dateTo])
+
   const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
 
   const handleApprove = async (w: Withdrawal) => {
