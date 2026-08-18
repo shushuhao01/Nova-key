@@ -456,8 +456,6 @@ public class WxpayServiceImpl implements WxpayService {
         body.put("transfer_amount", totalCents);
         body.put("transfer_remark", remark != null && !remark.isBlank() ? remark : "佣金提现");
         body.put("notify_url", notifyUrl);
-        // 用户收款感知文案
-        body.put("user_recv_perception", "佣金提现");
 
         try {
             String jsonBody = objectMapper.writeValueAsString(body);
