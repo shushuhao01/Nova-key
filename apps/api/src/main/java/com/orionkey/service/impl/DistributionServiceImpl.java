@@ -721,6 +721,8 @@ public class DistributionServiceImpl implements DistributionService {
             Distributor d = distMap.get(wr.getDistributorId());
             m.put("distributor_code", d != null ? d.getDistributorCode() : null);
             m.put("distributor_name", d != null && userMap.get(d.getUserId()) != null ? userMap.get(d.getUserId()).getUsername() : null);
+            // 收款账户：微信昵称 + 脱敏 openid（转账到零钱收款账号）
+            m.put("account_info", buildAccountInfo(d));
             // 关联的佣金明细条数（订单级提现：每条明细对应一笔佣金记录）
             m.put("item_count", commissionRecordRepository.findByWithdrawalId(wr.getId()).size());
             return m;
@@ -3348,6 +3350,30 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("withdrawal_id", cr.getWithdrawalId());
         m.put("settlable", Boolean.TRUE.equals(cr.getSettlable()));
         return m;
+    }
+
+    /**
+     * 提现收款账户展示：微信昵称 + 脱敏 openid（转账到零钱收款账号）；未绑定微信返回 null（前端显示 —）。
+     */
+    private String buildAccountInfo(Distributor d) {
+        if (d == null) return null;
+        String nickname = d.getWechatNickname();
+        String openid = d.getWechatOpenid();
+        boolean hasNickname = nickname != null && !nickname.isBlank();
+        boolean hasOpenid = openid != null && !openid.isBlank();
+        if (!hasNickname && !hasOpenid) return null;
+        String masked = hasOpenid ? maskWechatOpenid(openid) : null;
+        if (hasNickname && masked != null) return nickname + " (" + masked + ")";
+        if (hasNickname) return nickname;
+        return masked;
+    }
+
+    /** 脱敏 openid：保留首尾，如 oxxxxxxxx****xxxx */
+    private String maskWechatOpenid(String openid) {
+        if (openid.length() <= 8) {
+            return openid.substring(0, 1) + "***" + openid.substring(openid.length() - 1);
+        }
+        return openid.substring(0, 4) + "****" + openid.substring(openid.length() - 4);
     }
 
     private Map<String, Object> withdrawalToMap(WithdrawalRecord wr) {
