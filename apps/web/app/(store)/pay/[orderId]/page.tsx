@@ -50,6 +50,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
   const [hasRedirected, setHasRedirected] = useState(false)
   // 微信内 JSAPI 支付拉起参数与状态
   const [jsapiParams, setJsapiParams] = useState<JsapiPayParams | null>(null)
+  const [jsapiErrorMsg, setJsapiErrorMsg] = useState<string | null>(null)
   const [jsapiPending, setJsapiPending] = useState(false)
   const [jsapiError, setJsapiError] = useState(false)
 
@@ -87,7 +88,10 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
         if (res && res.err_msg === "get_brand_wcpay_request:ok") {
           toast.success(t("payment.success"))
         } else if (res && res.err_msg !== "get_brand_wcpay_request:cancel") {
+          console.error("WeixinJSBridge getBrandWCPayRequest fail:", res)
           setJsapiError(true)
+          // 透出微信 WebView 返回的真实错误信息，便于精准定位拉起失败根因
+          setJsapiErrorMsg(res?.err_msg || t("payment.wechatJsapiError"))
         }
       })
     }
@@ -103,6 +107,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
   const ensureJsapiPay = useCallback(async (orderId: string, openid: string) => {
     setJsapiPending(true)
     setJsapiError(false)
+    setJsapiErrorMsg(null)
     try {
       let params: JsapiPayParams | null = null
       let res: Awaited<ReturnType<typeof orderApi.repay>> | null = null
@@ -129,9 +134,11 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
       setJsapiParams(params)
       setJsapiPending(false)
       invokeJsapiPay(params)
-    } catch {
+    } catch (err) {
       setJsapiPending(false)
       setJsapiError(true)
+      // 例如"操作过于频繁"等真实错误透出，避免误引导为通用的"拉起失败"
+      setJsapiErrorMsg(err instanceof Error ? err.message : null)
     }
   }, [invokeJsapiPay])
 
@@ -292,6 +299,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
       if (isWechatMobile && result.jsapi_params) {
         setJsapiParams(result.jsapi_params)
         setJsapiError(false)
+        setJsapiErrorMsg(null)
         invokeJsapiPay(result.jsapi_params)
         return
       }
@@ -523,7 +531,12 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
             {jsapiPending || jsapiParams ? (
               <p className="animate-pulse text-sm text-primary">{t("payment.wechatJsapiLoading")}</p>
             ) : jsapiError ? (
-              <p className="text-sm text-muted-foreground">{t("payment.wechatJsapiError")}</p>
+              <>
+                <p className="text-sm text-muted-foreground">{t("payment.wechatJsapiError")}</p>
+                {jsapiErrorMsg ? (
+                  <p className="mt-1 max-w-xs break-all text-xs text-muted-foreground/70">{jsapiErrorMsg}</p>
+                ) : null}
+              </>
             ) : qrcodeUrl ? (
               <div className="flex h-52 w-52 items-center justify-center rounded-xl bg-white p-3">
                 <QrCodeImage value={qrcodeUrl} size={184} alt="支付二维码" />
