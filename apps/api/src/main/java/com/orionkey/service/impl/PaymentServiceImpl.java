@@ -212,8 +212,14 @@ public class PaymentServiceImpl implements PaymentService {
                 log.info("Wxpay JSAPI order created for order: {}", order.getId());
                 return;
             } catch (Exception e) {
-                // JSAPI 下单失败（如商户号未开通、openid 无效等），回退扫码，避免阻断支付
-                log.warn("Wxpay JSAPI failed, fallback to Native QR for order {}: {}", order.getId(), e.getMessage());
+                // JSAPI 下单失败（如商户号未开通、openid 无效、appid 与 openid 不匹配等）。
+                // 微信浏览器内回退 Native 扫码是无效的（微信内无法长按识别自身页面生成的二维码），
+                // 因此直接抛出真实原因，让前端提示具体错误，便于定位根因。
+                log.warn("Wxpay JSAPI failed for order {}: {}", order.getId(), e.getMessage());
+                if ("wechat".equals(device)) {
+                    throw e;
+                }
+                // 非微信环境才回退扫码，避免阻断支付
             }
         }
 
@@ -501,8 +507,12 @@ public class PaymentServiceImpl implements PaymentService {
             throw new BusinessException(ErrorCode.ORDER_EXPIRED, "订单已过期");
         }
 
-        // 频率限制：距上次更新不足 REPAY_COOLDOWN_SECONDS 秒则拒绝
-        if (order.getUpdatedAt() != null
+        // 频率限制：距上次更新不足 REPAY_COOLDOWN_SECONDS 秒则拒绝。
+        // 微信内 JSAPI 为交互式拉起（用户取消后常需立即重试），且每次都会生成独立的 prepay_id，
+        // 不适用该「防网关冲击」冷却；冷却仅针对 PC 扫码 / 移动 H5 的自动重复下单。
+        boolean jsapiContext = "wechat".equals(device) && openid != null && !openid.isBlank();
+        if (!jsapiContext
+                && order.getUpdatedAt() != null
                 && order.getUpdatedAt().plusSeconds(REPAY_COOLDOWN_SECONDS).isAfter(java.time.LocalDateTime.now())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "操作过于频繁，请稍后再试");
         }

@@ -293,7 +293,16 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
     setRetrying(true)
     try {
       const device = detectPaymentDevice()
-      const openid = sessionStorage.getItem(MP_OPENID_KEY)
+      let openid = sessionStorage.getItem(MP_OPENID_KEY)
+      // 微信内丢失 openid（sessionStorage 在微信授权跳转后可能被清）时重新授权，
+      // 避免重试时误走无效的 native 扫码（微信内无法长按识别自身页面二维码）
+      if (isWechatMobile && !openid) {
+        setJsapiPending(true)
+        const redirect = window.location.origin + window.location.pathname + window.location.search
+        const oauth = await wechatMpApi.getOauthUrl(redirect)
+        window.location.href = oauth.oauth_url
+        return
+      }
       const result = await orderApi.repay(orderId, device, openid || undefined)
       // 微信内 JSAPI：直接拉起微信支付
       if (isWechatMobile && result.jsapi_params) {
