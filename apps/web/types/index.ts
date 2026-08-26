@@ -203,6 +203,8 @@ export interface PaymentCreateResult {
   expires_at: string
   // 微信内 JSAPI 支付拉起参数（WeixinJSBridge.invoke('getBrandWCPayRequest') 所需）
   jsapi_params?: JsapiPayParams
+  // 微信内 JSAPI 下单失败原因（已回退扫码兜底时返回，用于提示真实错误）
+  jsapi_error?: string
   // USDT 新增（仅 USDT 渠道返回）
   wallet_address?: string
   crypto_amount?: string

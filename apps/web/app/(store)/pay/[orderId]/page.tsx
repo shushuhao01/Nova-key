@@ -124,11 +124,15 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
         params = res.jsapi_params || null
       }
       if (!params) {
-        // 后端未走 JSAPI（如商户号未开通或 openid 无效），回退为扫码/H5
+        // 后端未走 JSAPI（下单失败已回退扫码），透出真实失败原因 + 展示二维码兜底
         if (res) {
           if (res.qrcode_url) setQrcodeUrl(res.qrcode_url)
           else if (res.payment_url) setQrcodeUrl(res.payment_url)
           if (res.pay_url) setPayUrlH5(res.pay_url)
+          if (res.jsapi_error) {
+            setJsapiError(true)
+            setJsapiErrorMsg(res.jsapi_error)
+          }
         }
         setJsapiPending(false)
         return
@@ -319,7 +323,16 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
       if (result.qrcode_url) setQrcodeUrl(result.qrcode_url)
       else if (result.payment_url) setQrcodeUrl(result.payment_url)
 
-      if (isMobile && result.pay_url && !isWechatMobile) {
+      if (isWechatMobile) {
+        // 微信内未拿到 JSAPI 参数：显示后端透出的真实失败原因（已回退扫码兜底）
+        if (result.jsapi_error) {
+          setJsapiError(true)
+          setJsapiErrorMsg(result.jsapi_error)
+          toast.error(result.jsapi_error)
+        } else {
+          toast.success(t("payment.statusRefreshed"))
+        }
+      } else if (isMobile && result.pay_url && !isWechatMobile) {
         // 清除跳转标记，允许重新跳转
         sessionStorage.removeItem(`pay_redirected_${orderId}`)
         window.location.href = result.pay_url

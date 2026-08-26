@@ -111,15 +111,21 @@ public class PaymentServiceImpl implements PaymentService {
 
         // 4. 按 providerType 路由到不同的支付实现
         String providerType = channel.getProviderType();
+        String wxpayJsapiError = null;
         switch (providerType) {
             case "epay" -> createEpayPayment(channel, order, paymentMethod, amount, device);
             case "native_alipay" -> createNativeAlipayPayment(channel, order, amount, device);
-            case "native_wxpay" -> createNativeWxpayPayment(channel, order, amount, device, openid);
+            case "native_wxpay" -> wxpayJsapiError = createNativeWxpayPayment(channel, order, amount, device, openid);
             case "usdt" -> createBepusdtPayment(channel, order, amount);
             default -> throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE, "不支持的支付提供商类型: " + providerType);
         }
 
-        return buildResult(order);
+        Map<String, Object> result = buildResult(order);
+        // 微信内 JSAPI 下单失败原因透出（已回退扫码兜底），便于前端提示与排查根因
+        if (wxpayJsapiError != null) {
+            result.put("jsapi_error", wxpayJsapiError);
+        }
+        return result;
     }
 
     /**
@@ -193,14 +199,17 @@ public class PaymentServiceImpl implements PaymentService {
      * - 微信浏览器内且传了 openid → JSAPI 支付（直接拉起微信支付，不展示二维码）
      * - 移动端（非微信）→ H5 支付（拉起微信 App）
      * - PC → Native 扫码（二维码）
+     *
+     * @return JSAPI 下单失败原因（已回退扫码兜底时非 null）；成功或非 JSAPI 路径返回 null
      */
-    private void createNativeWxpayPayment(PaymentChannel channel, Order order, BigDecimal amount,
-                                          String device, String openid) {
+    private String createNativeWxpayPayment(PaymentChannel channel, Order order, BigDecimal amount,
+                                            String device, String openid) {
         WxpayConfig config = buildWxpayConfig(channel);
         String productName = buildProductName(order.getId());
         Map<String, String> cfg = parseConfigData(channel.getConfigData());
 
         boolean wechatJsapi = "wechat".equals(device) && openid != null && !openid.isBlank();
+        String jsapiError = null;
         // 微信浏览器内 + 已获取 openid：优先 JSAPI 直接拉起微信支付
         if (wechatJsapi) {
             try {
@@ -210,12 +219,14 @@ public class PaymentServiceImpl implements PaymentService {
                 order.setJsapiPayParams(serializeJson(params));
                 orderRepository.save(order);
                 log.info("Wxpay JSAPI order created for order: {}", order.getId());
-                return;
+                return null;
             } catch (Exception e) {
-                // JSAPI 下单失败（如商户号未开通、openid 无效、appid 与 openid 不匹配等），
+                // JSAPI 下单失败（如 appid 与 openid 不匹配、商户号未绑定公众号等），
                 // 回退生成 Native 收款码兜底，避免阻断支付。微信内二维码虽不支持长按识别，
                 // 但可引导用户用其他手机扫码或截图到电脑后扫码。
+                // 失败原因返回给前端透出，便于定位根因（最常见的根因：支付渠道 appid 与公众号 AppID 不一致）。
                 log.warn("Wxpay JSAPI failed, fallback to Native QR for order {}: {}", order.getId(), e.getMessage());
+                jsapiError = e.getMessage();
             }
         }
 
@@ -240,6 +251,7 @@ public class PaymentServiceImpl implements PaymentService {
             }
         }
         orderRepository.save(order);
+        return jsapiError;
     }
 
     /**
