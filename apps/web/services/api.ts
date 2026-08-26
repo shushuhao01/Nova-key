@@ -522,13 +522,13 @@ export const adminProductApi = {
   create: (data: {
     title: string; description?: string; detail_md?: string; detail_images?: string[]; cover_url?: string;
     base_price: number; category_id: string; low_stock_threshold?: number;
-    wholesale_enabled?: boolean; is_enabled?: boolean; sort_order?: number
+    wholesale_enabled?: boolean; is_enabled?: boolean; sort_order?: number; homepage_visible?: boolean
   }) =>
     request<ProductDetail>("/admin/products", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<{
     title: string; description: string; detail_md: string; detail_images: string[]; cover_url: string;
     base_price: number; category_id: string; low_stock_threshold: number;
-    wholesale_enabled: boolean; is_enabled: boolean; sort_order: number
+    wholesale_enabled: boolean; is_enabled: boolean; sort_order: number; homepage_visible: boolean
   }>) =>
     request<null>(`/admin/products/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string) =>

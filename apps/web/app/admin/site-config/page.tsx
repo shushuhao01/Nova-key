@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send, Bell, Webhook, CheckCircle2, XCircle, Plus, ChevronLeft, ChevronRight, ChevronDown, RefreshCw, Link2 } from "lucide-react"
+import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send, Bell, Webhook, CheckCircle2, XCircle, Plus, ChevronLeft, ChevronRight, ChevronDown, RefreshCw, Link2, Eye, EyeOff, Copy } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { adminConfigApi, adminProductApi, adminNotificationApi, adminWechatMpApi, withMockFallback, type MpMessageTemplate } from "@/services/api"
@@ -115,6 +115,7 @@ export default function AdminSiteConfigPage() {
     server_url: "", token: "", aes_key: "", encrypt_mode: "plain", data_format: "XML", bind_link: "", configured: false,
   })
   const [mpSaving, setMpSaving] = useState(false)
+  const [mpShowSecret, setMpShowSecret] = useState(false)
   const [mpTesting, setMpTesting] = useState(false)
   const [mpFollowUploading, setMpFollowUploading] = useState(false)
   const [mpTestResult, setMpTestResult] = useState<{ passed: boolean; items: { name: string; status: string; message: string }[] } | null>(null)
@@ -1481,13 +1482,34 @@ export default function AdminSiteConfigPage() {
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-foreground">公众号 AppSecret</label>
-                <input
-                  type="password"
-                  placeholder="AppSecret（注意不要带空格或换行）"
-                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={mpConfig.appsecret}
-                  onChange={(e) => setMpConfig((c) => ({ ...c, appsecret: e.target.value }))}
-                />
+                <div className="relative">
+                  <input
+                    type={mpShowSecret ? "text" : "password"}
+                    placeholder="AppSecret（注意不要带空格或换行）"
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 pr-20 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    value={mpConfig.appsecret}
+                    onChange={(e) => setMpConfig((c) => ({ ...c, appsecret: e.target.value }))}
+                  />
+                  {mpShowSecret && (
+                    <button
+                      type="button"
+                      onClick={() => copyText(mpConfig.appsecret, "AppSecret")}
+                      disabled={!mpConfig.appsecret}
+                      title="复制 AppSecret"
+                      className="absolute right-10 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setMpShowSecret((v) => !v)}
+                    title={mpShowSecret ? "隐藏 AppSecret" : "显示 AppSecret"}
+                    className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    {mpShowSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
               <div className="rounded-lg border border-border bg-muted/30 p-4">
                 <div className="flex items-center gap-2">

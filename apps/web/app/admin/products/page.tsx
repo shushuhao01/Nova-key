@@ -358,7 +358,7 @@ export default function AdminProductsPage() {
   const handleCloseModal = () => {
     setShowModal(false)
     setEditingProduct(null)
-    setFormData({ title: "", description: "", detail_md: "", detail_images: [], category_id: "", base_price: "", currency: "CNY", cover_url: "", video_url: "", low_stock_threshold: "10", wholesale_enabled: false, is_enabled: true, initial_sales: "", sort_order: "", delivery_type: "AUTO" })
+    setFormData({ title: "", description: "", detail_md: "", detail_images: [], category_id: "", base_price: "", currency: "CNY", cover_url: "", video_url: "", low_stock_threshold: "10", wholesale_enabled: false, is_enabled: true, homepage_visible: true, initial_sales: "", sort_order: "", delivery_type: "AUTO" })
     setFormSpecs([])
     setSpecsEnabled(false)
     setSpecDeleteConfirm(null)
