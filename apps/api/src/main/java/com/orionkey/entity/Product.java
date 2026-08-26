@@ -62,6 +62,10 @@ public class Product extends BaseEntity {
     @Column(name = "homepage_visible", columnDefinition = "boolean not null default true")
     private boolean homepageVisible = true;
 
+    /** 商品短链编码（/s/{shortCode}），后台复制商品链接使用；创建时自动生成，存量商品惰性补生成 */
+    @Column(name = "short_code", unique = true)
+    private String shortCode;
+
     @Column(columnDefinition = "INTEGER DEFAULT 0")
     private int initialSales = 0;
 

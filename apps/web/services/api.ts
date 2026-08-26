@@ -372,6 +372,9 @@ export const productApi = {
   },
   getDetail: (id: string) =>
     request<ProductDetail>(`/products/${id}`),
+  /** 商品短链解析（/s/{code} 跳转页使用） */
+  resolveShortCode: (code: string) =>
+    request<{ product_id: string }>(`/products/short/${encodeURIComponent(code)}`),
   getCategories: () =>
     request<Category[]>("/categories"),
 }

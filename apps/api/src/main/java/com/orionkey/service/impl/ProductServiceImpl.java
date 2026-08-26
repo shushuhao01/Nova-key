@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 @RequiredArgsConstructor
@@ -64,13 +65,16 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional
     public Map<String, Object> getAdminProductDetail(UUID id) {
         Product product = productRepository.findById(id)
                 .filter(p -> p.getIsDeleted() == 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PRODUCT_NOT_FOUND, "商品不存在"));
+        ensureShortCode(product);
         Map<String, Object> detail = toProductDetail(product);
         detail.put("is_enabled", product.isEnabled());
         detail.put("homepage_visible", product.isHomepageVisible());
+        detail.put("short_code", product.getShortCode());
         detail.put("sort_order", product.getSortOrder());
         detail.put("low_stock_threshold", product.getLowStockThreshold());
         detail.put("created_at", product.getCreatedAt());
@@ -79,6 +83,7 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional
     public PageResult<?> listAdminProducts(UUID categoryId, String keyword, Boolean isEnabled, int page, int pageSize) {
         var pageable = PageRequest.of(page - 1, pageSize, Sort.by("sortOrder").ascending());
         Page<Product> productPage;
@@ -88,9 +93,11 @@ public class ProductServiceImpl implements ProductService {
             productPage = productRepository.findAdminProducts(categoryId, isEnabled, pageable);
         }
         var list = productPage.getContent().stream().map(p -> {
+            ensureShortCode(p);
             Map<String, Object> detail = toProductDetail(p);
             detail.put("is_enabled", p.isEnabled());
             detail.put("homepage_visible", p.isHomepageVisible());
+            detail.put("short_code", p.getShortCode());
             detail.put("sort_order", p.getSortOrder());
             detail.put("low_stock_threshold", p.getLowStockThreshold());
             detail.put("sales_count", orderItemRepository.sumQuantityByProductId(p.getId()));
@@ -99,6 +106,17 @@ public class ProductServiceImpl implements ProductService {
             return detail;
         }).toList();
         return PageResult.of(productPage, list);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> resolveShortCode(String code) {
+        Product product = productRepository.findByShortCodeAndIsDeleted(code, 0)
+                .filter(p -> p.isEnabled())
+                .orElseThrow(() -> new BusinessException(ErrorCode.PRODUCT_NOT_FOUND, "商品链接无效或已失效"));
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("product_id", product.getId());
+        return m;
     }
 
     @Override
@@ -122,6 +140,7 @@ public class ProductServiceImpl implements ProductService {
         if (req.containsKey("homepage_visible")) product.setHomepageVisible((boolean) req.get("homepage_visible"));
         if (req.containsKey("initial_sales")) product.setInitialSales(((Number) req.get("initial_sales")).intValue());
         if (req.containsKey("sort_order")) product.setSortOrder(((Number) req.get("sort_order")).intValue());
+        product.setShortCode(generateShortCode());
         productRepository.save(product);
         return toProductDetail(product);
     }
@@ -293,6 +312,31 @@ public class ProductServiceImpl implements ProductService {
         map.put("initial_sales", p.getInitialSales());
         map.put("created_at", p.getCreatedAt());
         return map;
+    }
+
+    /** 确保商品存在短链编码（存量商品惰性补生成） */
+    private void ensureShortCode(Product p) {
+        if (p.getShortCode() == null || p.getShortCode().isBlank()) {
+            p.setShortCode(generateShortCode());
+            productRepository.save(p);
+        }
+    }
+
+    /** 生成 6 位商品短链编码（去混淆字符集，唯一性冲突时重试） */
+    private String generateShortCode() {
+        String chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        ThreadLocalRandom rnd = ThreadLocalRandom.current();
+        for (int attempt = 0; attempt < 10; attempt++) {
+            StringBuilder sb = new StringBuilder(6);
+            for (int i = 0; i < 6; i++) {
+                sb.append(chars.charAt(rnd.nextInt(chars.length())));
+            }
+            String code = sb.toString();
+            if (!productRepository.existsByShortCode(code)) {
+                return code;
+            }
+        }
+        return UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     }
 
     private Map<String, Object> toProductDetail(Product p) {

@@ -11,6 +11,9 @@ public interface ProductService {
 
     Map<String, Object> getProductDetail(UUID id);
 
+    /** 通过商品短链编码解析商品（返回 { product_id }），供 /s/{code} 短链跳转使用 */
+    Map<String, Object> resolveShortCode(String code);
+
     Map<String, Object> getAdminProductDetail(UUID id);
 
     PageResult<?> listAdminProducts(UUID categoryId, String keyword, Boolean isEnabled, int page, int pageSize);

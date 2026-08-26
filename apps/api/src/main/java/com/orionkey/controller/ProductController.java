@@ -26,4 +26,10 @@ public class ProductController {
     public ApiResponse<?> getProduct(@PathVariable UUID id) {
         return ApiResponse.success(productService.getProductDetail(id));
     }
+
+    /** 商品短链解析：/s/{code} 跳转页调用，返回商品 ID */
+    @GetMapping("/products/short/{code}")
+    public ApiResponse<?> getProductByShortCode(@PathVariable String code) {
+        return ApiResponse.success(productService.resolveShortCode(code));
+    }
 }

@@ -220,7 +220,9 @@ export default function AdminProductsPage() {
   }
 
   const handleCopyLink = async (product: ProductDetail) => {
-    const url = `${window.location.origin}/product/${product.id}`
+    // 优先使用短链（/s/{shortCode}），存量商品无短码时回退长链接
+    const path = product.short_code ? `/s/${product.short_code}` : `/product/${product.id}`
+    const url = `${window.location.origin}${path}`
     try {
       await navigator.clipboard.writeText(url)
       toast.success("商品链接已复制")

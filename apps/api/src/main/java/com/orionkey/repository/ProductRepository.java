@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Optional;
+
 import java.util.UUID;
 
 public interface ProductRepository extends JpaRepository<Product, UUID> {
@@ -29,6 +31,12 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     // 分销/统计侧商品列表 — 不过滤首页可见性（可推广性由商品佣金配置决定，与首页显示相互独立）
     @Query("SELECT p FROM Product p WHERE p.isDeleted = 0 AND p.enabled = true")
     Page<Product> findEnabledProducts(Pageable pageable);
+
+    // 商品短链解析：通过短码查询未删除商品
+    Optional<Product> findByShortCodeAndIsDeleted(String shortCode, int isDeleted);
+
+    // 短码唯一性校验（生成商品短链编码时使用）
+    boolean existsByShortCode(String shortCode);
 
     // 管理后台商品列表 — 无搜索词
     @Query("SELECT p FROM Product p WHERE p.isDeleted = 0 " +

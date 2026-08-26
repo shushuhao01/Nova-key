@@ -101,6 +101,8 @@ export interface ProductCard {
   is_enabled?: boolean
   /** 是否在商城首页/分类/搜索列表展示（关闭后仍可通过商品链接直接访问） */
   homepage_visible?: boolean
+  /** 商品短链编码（/s/{shortCode}） */
+  short_code?: string
   sort_order?: number
   created_at?: string
 }
