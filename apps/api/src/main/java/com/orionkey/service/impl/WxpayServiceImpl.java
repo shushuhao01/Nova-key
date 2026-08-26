@@ -161,6 +161,83 @@ public class WxpayServiceImpl implements WxpayService {
     }
 
     @Override
+    public WxpayJsapiResult createJsapiPayment(WxpayConfig config, String outTradeNo, String description,
+                                                BigDecimal amount, String openid) {
+        // 微信内（公众号 H5）支付：POST /v3/pay/transactions/jsapi，需 payer.openid
+        String canonicalPath = "/v3/pay/transactions/jsapi";
+        String gateway = trimSlash(config.gatewayUrl());
+
+        int totalCents = amount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        if (totalCents <= 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "微信支付金额必须大于 0");
+        }
+        if (openid == null || openid.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "微信JSAPI支付缺少用户 openid");
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("appid", config.appid());
+        body.put("mchid", config.mchid());
+        body.put("description", description);
+        body.put("out_trade_no", outTradeNo);
+        body.put("notify_url", config.notifyUrl());
+        Map<String, Object> amountMap = new LinkedHashMap<>();
+        amountMap.put("total", totalCents);
+        amountMap.put("currency", "CNY");
+        body.put("amount", amountMap);
+        body.put("payer", Map.of("openid", openid));
+
+        try {
+            String jsonBody = objectMapper.writeValueAsString(body);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    gateway + canonicalPath, HttpMethod.POST,
+                    new HttpEntity<>(jsonBody, apiV3Headers(config, "POST", canonicalPath, jsonBody)),
+                    String.class);
+            Map<String, Object> resp = objectMapper.readValue(response.getBody(), new TypeReference<>() {
+            });
+            String prepayId = resp.get("prepay_id") != null ? resp.get("prepay_id").toString() : null;
+            if (prepayId == null || prepayId.isBlank()) {
+                log.error("Wxpay JSAPI order failed: outTradeNo={}, resp={}", outTradeNo, response.getBody());
+                throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信JSAPI支付下单失败：" + response.getBody());
+            }
+            log.info("Wxpay JSAPI order created: outTradeNo={}, totalCents={}", outTradeNo, totalCents);
+            return new WxpayJsapiResult(prepayId);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (HttpClientErrorException e) {
+            String detail = extractWxErrorDetail(e);
+            log.error("Wxpay JSAPI API error: outTradeNo={}, status={}, detail={}", outTradeNo, e.getStatusCode().value(), detail);
+            throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信JSAPI支付下单失败：" + detail);
+        } catch (Exception e) {
+            log.error("Wxpay JSAPI order API error: outTradeNo={}, error={}", outTradeNo, e.getMessage());
+            throw new BusinessException(ErrorCode.WEBHOOK_VERIFY_FAIL, "微信JSAPI支付下单失败：网络错误");
+        }
+    }
+
+    @Override
+    public Map<String, String> buildJsapiParams(WxpayConfig config, String prepayId) {
+        if (prepayId == null || prepayId.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "缺少 prepay_id，无法拉起微信支付");
+        }
+        String nonceStr = UUID.randomUUID().toString().replace("-", "");
+        String timeStamp = String.valueOf(System.currentTimeMillis() / 1000);
+        String pkg = "prepay_id=" + prepayId;
+        // JSAPI 拉起签名消息：appId\ntimeStamp\nnonceStr\npackage\n
+        String message = config.appid() + "\n" + timeStamp + "\n" + nonceStr + "\n" + pkg + "\n";
+        String paySign = PaymentCryptoUtils.sign(
+                PaymentCryptoUtils.parsePrivateKey(config.privateKey()), message);
+
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("appId", config.appid());
+        params.put("timeStamp", timeStamp);
+        params.put("nonceStr", nonceStr);
+        params.put("package", pkg);
+        params.put("signType", "RSA");
+        params.put("paySign", paySign);
+        return params;
+    }
+
+    @Override
     public WxpayOrderQueryResult queryOrder(WxpayConfig config, String outTradeNo) {
         String canonicalPath = "/v3/pay/transactions/out-trade-no/" + outTradeNo + "?mchid=" + config.mchid();
         String gateway = trimSlash(config.gatewayUrl());

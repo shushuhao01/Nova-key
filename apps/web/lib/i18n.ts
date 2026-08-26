@@ -213,6 +213,9 @@ const zh = {
   "payment.wechatMobileScanHint": "长按下方二维码识别支付",
   "payment.mobileScreenshotHint": "截图后用微信或其他手机扫一扫完成支付",
   "payment.longPressHint": "长按二维码 → 识别图中二维码 → 完成支付",
+  "payment.wechatJsapiLoading": "正在拉起微信支付...",
+  "payment.wechatJsapiError": "拉起微信支付失败，请点击下方按钮重试",
+  "payment.wechatJsapiReady": "请在微信中完成支付；若未拉起，请点击下方按钮重试",
   "payment.completedPayment": "已完成支付？去",
   "payment.goQueryOrder": "查询订单",
 
@@ -1176,6 +1179,9 @@ const en: Record<keyof typeof zh, string> = {
   "payment.wechatMobileScanHint": "Long press the QR code below to pay",
   "payment.mobileScreenshotHint": "Screenshot and scan with WeChat or another phone to pay",
   "payment.longPressHint": "Long press QR code → Recognize → Complete payment",
+  "payment.wechatJsapiLoading": "Launching WeChat Pay...",
+  "payment.wechatJsapiError": "Failed to launch WeChat Pay. Tap below to retry.",
+  "payment.wechatJsapiReady": "Complete payment in WeChat. If it doesn't launch, tap below to retry.",
   "payment.completedPayment": "Payment completed? ",
   "payment.goQueryOrder": "Check order status",
 

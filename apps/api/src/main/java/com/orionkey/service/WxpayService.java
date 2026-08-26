@@ -50,6 +50,14 @@ public interface WxpayService {
     }
 
     /**
+     * JSAPI 支付下单结果。
+     *
+     * @param prepayId 微信预支付交易单号（prepay_id），用于生成前端拉起支付参数
+     */
+    record WxpayJsapiResult(String prepayId) {
+    }
+
+    /**
      * 微信支付回调通知（已验签并解密）。
      *
      * @param id            通知 ID（幂等键）
@@ -118,6 +126,25 @@ public interface WxpayService {
      */
     WxpayPaymentResult createH5Payment(WxpayConfig config, String outTradeNo, String description,
                                        BigDecimal amount, String clientIp);
+
+    /**
+     * JSAPI 支付下单（POST /v3/pay/transactions/jsapi）。
+     * <p>
+     * 用于微信浏览器内（公众号 H5）直接拉起微信支付，而非展示二维码。
+     * 必须携带 payer.openid（当前微信用户在该公众号下的 openid），由公众号网页授权获取。
+     *
+     * @return 预支付交易单号 prepay_id，供 {@link #buildJsapiParams} 生成前端拉起参数
+     */
+    WxpayJsapiResult createJsapiPayment(WxpayConfig config, String outTradeNo, String description,
+                                         BigDecimal amount, String openid);
+
+    /**
+     * 生成 JSAPI 支付前端拉起参数（WeixinJSBridge.invoke('getBrandWCPayRequest') 所需）。
+     * <p>
+     * 包含 appId / timeStamp / nonceStr / package(=prepay_id=xxx) / signType=RSA / paySign。
+     * paySign 使用商户 API 私钥对 "appId\ntimeStamp\nnonceStr\npackage\n" 做 SHA256withRSA 签名。
+     */
+    Map<String, String> buildJsapiParams(WxpayConfig config, String prepayId);
 
     /**
      * 主动查询订单状态。查询失败（网络/网关错误）返回 null。

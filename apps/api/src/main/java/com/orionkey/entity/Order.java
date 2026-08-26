@@ -94,6 +94,10 @@ public class Order extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String qrcodeUrl;
 
+    /** 微信内 JSAPI 支付拉起参数 JSON（appId/timeStamp/nonceStr/package/signType/paySign），仅微信内调用 */
+    @Column(columnDefinition = "TEXT")
+    private String jsapiPayParams;
+
     private String epayTradeNo;
 
     // ── USDT 支付字段 ──

@@ -71,6 +71,9 @@ public class SecurityConfig {
                         // 微信公众号服务器回调（GET 验证 + POST 消息/事件，均来自微信服务器，无 JWT）
                         .requestMatchers(HttpMethod.GET, "/wechat-mp/callback").permitAll()
                         .requestMatchers(HttpMethod.POST, "/wechat-mp/callback").permitAll()
+                        // 微信内静默网页授权取 openid（游客 JSAPI 支付）：生成授权链接 + 微信回调
+                        .requestMatchers(HttpMethod.GET, "/wechat-mp/oauth2/url").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/wechat-mp/oauth2/callback").permitAll()
                         // Distributor endpoints (authenticated)
                         .requestMatchers("/distributor/**").authenticated()
                         // User messages (authenticated)

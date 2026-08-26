@@ -12,6 +12,8 @@ import com.orionkey.service.NotificationService;
 import com.orionkey.service.OrderService;
 import com.orionkey.service.PaymentService;
 import com.orionkey.service.DistributionService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -43,6 +45,7 @@ public class OrderServiceImpl implements OrderService {
     private final DistributionService distributionService;
     private final DistributorRepository distributorRepository;
     private final PromotionLinkRepository promotionLinkRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -346,6 +349,16 @@ public class OrderServiceImpl implements OrderService {
             String effectiveUrl = order.getQrcodeUrl() != null ? order.getQrcodeUrl() : order.getPaymentUrl();
             if (effectiveUrl != null) {
                 result.put("payment_url", effectiveUrl);
+            }
+            // 微信内 JSAPI 支付拉起参数（前端轮询到此直接拉起微信支付）
+            if (order.getJsapiPayParams() != null && !order.getJsapiPayParams().isEmpty()) {
+                try {
+                    Map<String, Object> params = objectMapper.readValue(order.getJsapiPayParams(), new TypeReference<>() {
+                    });
+                    result.put("jsapi_params", params);
+                } catch (Exception e) {
+                    log.warn("Parse jsapiPayParams failed for order {}: {}", orderId, e.getMessage());
+                }
             }
         }
         return result;

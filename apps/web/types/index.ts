@@ -186,12 +186,23 @@ export interface OrderDetail extends OrderBrief {
   items: OrderItemDetail[]
 }
 
+export interface JsapiPayParams {
+  appId: string
+  timeStamp: string
+  nonceStr: string
+  package: string
+  signType: string
+  paySign: string
+}
+
 export interface PaymentCreateResult {
   order_id: string
   payment_url: string
   qrcode_url?: string
   pay_url?: string
   expires_at: string
+  // 微信内 JSAPI 支付拉起参数（WeixinJSBridge.invoke('getBrandWCPayRequest') 所需）
+  jsapi_params?: JsapiPayParams
   // USDT 新增（仅 USDT 渠道返回）
   wallet_address?: string
   crypto_amount?: string

@@ -140,7 +140,8 @@ public class OrderController {
     public ApiResponse<?> repayOrder(@PathVariable UUID id,
                                      @RequestBody(required = false) Map<String, String> body) {
         String device = body != null ? body.get("device") : null;
-        return ApiResponse.success(paymentService.repay(id, device, RequestContext.getUserId()));
+        String openid = body != null ? body.get("openid") : null;
+        return ApiResponse.success(paymentService.repay(id, device, openid, RequestContext.getUserId()));
     }
 
     /**

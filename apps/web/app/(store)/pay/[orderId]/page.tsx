@@ -20,14 +20,15 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale, useCart, useSiteConfig } from "@/lib/context"
-import { orderApi } from "@/services/api"
-import type { OrderStatus } from "@/types"
+import { orderApi, wechatMpApi } from "@/services/api"
+import type { OrderStatus, JsapiPayParams } from "@/types"
 import { cn, detectPaymentDevice, isMobileDevice } from "@/lib/utils"
 import { PaymentIcon, getPaymentLabel, getPaymentBrandColor, getPaymentScanHint } from "@/components/shared/payment-icon"
 import { QrCodeImage } from "@/components/shared/qr-code-image"
 
 const POLL_INTERVAL = 3000 // 3 seconds
 const MANUAL_REFRESH_COOLDOWN = 10 // 10 seconds
+const MP_OPENID_KEY = "wx_mp_openid" // 微信内静默授权拿到的 openid（同公众号用户全站一致）
 
 export default function PaymentPage({ params }: { params: Promise<{ orderId: string }> }) {
   const { orderId } = use(params)
@@ -47,6 +48,10 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
   const [retrying, setRetrying] = useState(false)
   // 标记是否已经跳转过支付 App（从 sessionStorage 初始化，防止返回后文案错误）
   const [hasRedirected, setHasRedirected] = useState(false)
+  // 微信内 JSAPI 支付拉起参数与状态
+  const [jsapiParams, setJsapiParams] = useState<JsapiPayParams | null>(null)
+  const [jsapiPending, setJsapiPending] = useState(false)
+  const [jsapiError, setJsapiError] = useState(false)
 
   const isMobile = isMobileDevice()
   const deviceType = detectPaymentDevice()
@@ -65,6 +70,70 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
   const cryptoAmount = searchParams.get("crypto_amount") || ""
   const usdtChain = searchParams.get("chain") || paymentMethod
   const chainDisplayName = usdtChain.includes("trc20") ? "TRC-20" : usdtChain.includes("bep20") ? "BEP-20" : usdtChain
+
+  // 拉起微信 JSAPI 支付（微信内直接弹出支付，不展示二维码）
+  const invokeJsapiPay = useCallback((params: JsapiPayParams) => {
+    const bridge = (window as unknown as { WeixinJSBridge?: { invoke(api: string, args: unknown, cb: (res: { err_msg?: string }) => void): void } }).WeixinJSBridge
+    const doInvoke = () => {
+      bridge!.invoke("getBrandWCPayRequest", {
+        appId: params.appId,
+        timeStamp: params.timeStamp,
+        nonceStr: params.nonceStr,
+        package: params.package,
+        signType: params.signType,
+        paySign: params.paySign,
+      }, (res) => {
+        // get_brand_wcpay_request:ok = 支付成功；:cancel = 用户取消
+        if (res && res.err_msg === "get_brand_wcpay_request:ok") {
+          toast.success(t("payment.success"))
+        } else if (res && res.err_msg !== "get_brand_wcpay_request:cancel") {
+          setJsapiError(true)
+        }
+      })
+    }
+    if (bridge) {
+      doInvoke()
+    } else {
+      // WeixinJSBridge 未就绪时监听 ready 事件
+      document.addEventListener("WeixinJSBridgeReady", doInvoke, { once: true })
+    }
+  }, [t])
+
+  // 确保拿到 JSAPI 拉起参数（优先复用已下发；未下发则用 openid 重新发起 JSAPI 下单）
+  const ensureJsapiPay = useCallback(async (orderId: string, openid: string) => {
+    setJsapiPending(true)
+    setJsapiError(false)
+    try {
+      let params: JsapiPayParams | null = null
+      let res: Awaited<ReturnType<typeof orderApi.repay>> | null = null
+      try {
+        const st = await orderApi.getStatus(orderId)
+        params = st.jsapi_params || null
+      } catch {
+        // ignore — 订单可能刚创建，继续走 repay 拉新参数
+      }
+      if (!params) {
+        res = await orderApi.repay(orderId, "wechat", openid)
+        params = res.jsapi_params || null
+      }
+      if (!params) {
+        // 后端未走 JSAPI（如商户号未开通或 openid 无效），回退为扫码/H5
+        if (res) {
+          if (res.qrcode_url) setQrcodeUrl(res.qrcode_url)
+          else if (res.payment_url) setQrcodeUrl(res.payment_url)
+          if (res.pay_url) setPayUrlH5(res.pay_url)
+        }
+        setJsapiPending(false)
+        return
+      }
+      setJsapiParams(params)
+      setJsapiPending(false)
+      invokeJsapiPay(params)
+    } catch {
+      setJsapiPending(false)
+      setJsapiError(true)
+    }
+  }, [invokeJsapiPay])
 
   // 初始化：获取订单状态 + QR code + H5 pay URL + 真实倒计时
   useEffect(() => {
@@ -116,6 +185,36 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
     setHasRedirected(true)
     window.location.href = payUrlH5
   }, [isMobile, payUrlH5, status, orderId, isUsdtPayment, isWechatMobile])
+
+  // 微信内 JSAPI 支付：静默授权拿 openid → 下发并拉起微信支付（不展示二维码）
+  useEffect(() => {
+    if (!isWechatMobile || !isWechatPayment || status !== "PENDING") return
+
+    // ① 微信授权回调带回 openid（URL 参数）：存入 sessionStorage 并清理 URL，避免重复授权
+    const urlParams = new URLSearchParams(window.location.search)
+    const openidFromUrl = urlParams.get("mp_openid")
+    let openid = sessionStorage.getItem(MP_OPENID_KEY)
+    if (openidFromUrl) {
+      openid = openidFromUrl
+      sessionStorage.setItem(MP_OPENID_KEY, openidFromUrl)
+      const url = new URL(window.location.href)
+      url.searchParams.delete("mp_openid")
+      window.history.replaceState({}, "", url.toString())
+    }
+
+    // ② 无 openid：跳微信静默授权（snsapi_base），授权成功后重回本页并携带 openid
+    if (!openid) {
+      setJsapiPending(true)
+      const redirect = window.location.pathname + window.location.search
+      wechatMpApi.getOauthUrl(redirect)
+        .then((res) => { window.location.href = res.oauth_url })
+        .catch(() => { setJsapiPending(false); setJsapiError(true) })
+      return
+    }
+
+    // ③ 有 openid：确保拿到 JSAPI 拉起参数并拉起微信支付
+    ensureJsapiPay(orderId, openid)
+  }, [isWechatMobile, isWechatPayment, status, orderId, ensureJsapiPay])
 
   // Countdown timer — 仅在服务端返回真实倒计时后才开始递减
   // 倒计时归零时仅停止递减，不单方面设置 EXPIRED — 等待下一次轮询从服务端获取真实状态
@@ -186,14 +285,22 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
     setRetrying(true)
     try {
       const device = detectPaymentDevice()
-      const result = await orderApi.repay(orderId, device)
+      const openid = sessionStorage.getItem(MP_OPENID_KEY)
+      const result = await orderApi.repay(orderId, device, openid || undefined)
+      // 微信内 JSAPI：直接拉起微信支付
+      if (isWechatMobile && result.jsapi_params) {
+        setJsapiParams(result.jsapi_params)
+        setJsapiError(false)
+        invokeJsapiPay(result.jsapi_params)
+        return
+      }
       // 更新支付链接
       if (result.pay_url) setPayUrlH5(result.pay_url)
       if (result.qrcode_url) setQrcodeUrl(result.qrcode_url)
       else if (result.payment_url) setQrcodeUrl(result.payment_url)
 
       if (isMobile && result.pay_url && !isWechatMobile) {
-        // 清除跳转标记，允许重新跳转（微信走 JSAPI 不能跳转，只刷新二维码）
+        // 清除跳转标记，允许重新跳转
         sessionStorage.removeItem(`pay_redirected_${orderId}`)
         window.location.href = result.pay_url
       } else {
@@ -205,7 +312,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
     } finally {
       setRetrying(false)
     }
-  }, [retrying, orderId, isMobile, t])
+  }, [retrying, orderId, isMobile, isWechatMobile, invokeJsapiPay, t])
 
   const copyToClipboard = useCallback((text: string) => {
     if (navigator.clipboard?.writeText) {
@@ -398,8 +505,51 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
             {/* 检测状态 */}
             <p className="animate-pulse text-sm text-primary">{t("payment.detecting")}</p>
           </div>
-        ) : (!isMobile || isWechatMobile || !payUrlH5) ? (
-          /* ========== PC / 微信移动端 — 二维码视图 ========== */
+        ) : isWechatMobile ? (
+          /* ========== 微信内 — JSAPI 直接拉起微信支付（不展示二维码） ========== */
+          <>
+            <div
+              className="flex w-full max-w-sm flex-col items-center gap-4 rounded-2xl px-6 pb-6 pt-6"
+              style={{ backgroundColor: brandColor || "#374151" }}
+            >
+              <div className="flex items-center gap-2.5">
+                <PaymentIcon method={paymentMethod} className="h-10 w-10" variant="plain" />
+                <span className="text-xl font-bold text-white">{paymentMethodName}</span>
+              </div>
+              <Smartphone className="h-8 w-8 text-white/80" />
+            </div>
+
+            {jsapiPending || jsapiParams ? (
+              <p className="animate-pulse text-sm text-primary">{t("payment.wechatJsapiLoading")}</p>
+            ) : jsapiError ? (
+              <p className="text-sm text-muted-foreground">{t("payment.wechatJsapiError")}</p>
+            ) : qrcodeUrl ? (
+              <div className="flex h-52 w-52 items-center justify-center rounded-xl bg-white p-3">
+                <QrCodeImage value={qrcodeUrl} size={184} alt="支付二维码" />
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">{t("payment.wechatJsapiReady")}</p>
+            )}
+
+            {/* 检测状态 */}
+            <p className="animate-pulse text-sm text-primary">{t("payment.detecting")}</p>
+
+            {/* 重新发起支付按钮 */}
+            <button
+              onClick={handleRetryPayment}
+              disabled={retrying}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
+            >
+              {retrying ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              {t("payment.retryPay")}
+            </button>
+          </>
+        ) : (!isMobile || !payUrlH5) ? (
+          /* ========== PC — 二维码视图 ========== */
           <>
             <div
               className="flex w-72 flex-col items-center gap-4 rounded-2xl px-6 pb-8 pt-6"
@@ -410,11 +560,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
                 <span className="text-xl font-bold text-white">{paymentMethodName}</span>
               </div>
               <p className="text-sm font-medium text-white/90">
-                {isWechatMobile
-                  ? t("payment.wechatMobileScanHint")
-                  : isMobile
-                    ? t("payment.mobileScreenshotHint")
-                    : scanHint}
+                {isMobile ? t("payment.mobileScreenshotHint") : scanHint}
               </p>
               <div className="flex h-52 w-52 items-center justify-center rounded-xl bg-white p-3">
                 {qrcodeUrl ? (
@@ -426,11 +572,6 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
                   </div>
                 )}
               </div>
-              {isWechatMobile && (
-                <p className="animate-pulse text-center text-sm font-medium text-white/90">
-                  {t("payment.longPressHint")}
-                </p>
-              )}
             </div>
             <p className="animate-pulse text-sm text-primary">{t("payment.detecting")}</p>
 

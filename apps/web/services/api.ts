@@ -404,7 +404,7 @@ export const orderApi = {
   createFromCart: (data: CreateCartOrderRequest) =>
     request<CreateOrderResult>("/orders/from-cart", { method: "POST", body: JSON.stringify(data) }),
   getStatus: (orderId: string) =>
-    request<{ order_id: string; status: OrderStatus; expires_at: string; remaining_seconds: number; payment_url?: string }>(`/orders/${orderId}/status`),
+    request<{ order_id: string; status: OrderStatus; expires_at: string; remaining_seconds: number; payment_url?: string; jsapi_params?: import("@/types").JsapiPayParams }>(`/orders/${orderId}/status`),
   refreshStatus: (orderId: string) =>
     request<{ status: OrderStatus }>(`/orders/${orderId}/refresh`, { method: "POST" }),
   query: (data: { order_ids?: string[]; emails?: string[] }) =>
@@ -418,10 +418,10 @@ export const orderApi = {
       method: "POST",
       body: JSON.stringify({ txid }),
     }),
-  repay: (orderId: string, device?: string) =>
+  repay: (orderId: string, device?: string, openid?: string) =>
     request<import("@/types").PaymentCreateResult>(`/orders/${orderId}/repay`, {
       method: "POST",
-      body: JSON.stringify({ device }),
+      body: JSON.stringify({ device, openid }),
     }),
 }
 
@@ -475,6 +475,9 @@ export const wechatMpApi = {
   /** 用微信授权 code 完成公众号账号绑定，需登录 */
   bind: (code: string, state: string) =>
     request<{ bound: boolean; openid: string }>("/wechat-mp/bind", { method: "POST", body: JSON.stringify({ code, state }) }),
+  /** 微信内静默授权（snsapi_base，游客无需登录）换取 openid：生成授权链接 */
+  getOauthUrl: (redirect: string) =>
+    request<{ oauth_url: string; state: string }>(`/wechat-mp/oauth2/url?redirect=${encodeURIComponent(redirect)}`),
 }
 
 // ============================================================

@@ -81,11 +81,17 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Override
     public Map<String, Object> createPayment(UUID orderId, String paymentMethod, BigDecimal amount) {
-        return createPayment(orderId, paymentMethod, amount, null);
+        return createPayment(orderId, paymentMethod, amount, null, null);
     }
 
     @Override
     public Map<String, Object> createPayment(UUID orderId, String paymentMethod, BigDecimal amount, String device) {
+        return createPayment(orderId, paymentMethod, amount, device, null);
+    }
+
+    @Override
+    public Map<String, Object> createPayment(UUID orderId, String paymentMethod, BigDecimal amount,
+                                             String device, String openid) {
         // 1. 查找渠道并验证已启用
         PaymentChannel channel = paymentChannelRepository.findByChannelCodeAndIsDeleted(paymentMethod, 0)
                 .filter(PaymentChannel::isEnabled)
@@ -95,9 +101,10 @@ public class PaymentServiceImpl implements PaymentService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
 
-        // 3. 幂等：已有支付URL直接返回（paymentUrl 或 qrcodeUrl 任一存在即可）
+        // 3. 幂等：已有支付URL直接返回（paymentUrl / qrcodeUrl / jsapiPayParams 任一存在即可）
         if ((order.getPaymentUrl() != null && !order.getPaymentUrl().isEmpty())
-                || (order.getQrcodeUrl() != null && !order.getQrcodeUrl().isEmpty())) {
+                || (order.getQrcodeUrl() != null && !order.getQrcodeUrl().isEmpty())
+                || (order.getJsapiPayParams() != null && !order.getJsapiPayParams().isEmpty())) {
             log.info("Returning cached payment URL for order: {}", orderId);
             return buildResult(order);
         }
@@ -107,7 +114,7 @@ public class PaymentServiceImpl implements PaymentService {
         switch (providerType) {
             case "epay" -> createEpayPayment(channel, order, paymentMethod, amount, device);
             case "native_alipay" -> createNativeAlipayPayment(channel, order, amount, device);
-            case "native_wxpay" -> createNativeWxpayPayment(channel, order, amount, device);
+            case "native_wxpay" -> createNativeWxpayPayment(channel, order, amount, device, openid);
             case "usdt" -> createBepusdtPayment(channel, order, amount);
             default -> throw new BusinessException(ErrorCode.CHANNEL_UNAVAILABLE, "不支持的支付提供商类型: " + providerType);
         }
@@ -182,12 +189,33 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     /**
-     * 原生微信支付下单流程：PC 使用 Native 扫码（二维码），移动端使用 H5 支付（拉起微信 App）
+     * 原生微信支付下单流程：
+     * - 微信浏览器内且传了 openid → JSAPI 支付（直接拉起微信支付，不展示二维码）
+     * - 移动端（非微信）→ H5 支付（拉起微信 App）
+     * - PC → Native 扫码（二维码）
      */
-    private void createNativeWxpayPayment(PaymentChannel channel, Order order, BigDecimal amount, String device) {
+    private void createNativeWxpayPayment(PaymentChannel channel, Order order, BigDecimal amount,
+                                          String device, String openid) {
         WxpayConfig config = buildWxpayConfig(channel);
         String productName = buildProductName(order.getId());
         Map<String, String> cfg = parseConfigData(channel.getConfigData());
+
+        boolean wechatJsapi = "wechat".equals(device) && openid != null && !openid.isBlank();
+        // 微信浏览器内 + 已获取 openid：优先 JSAPI 直接拉起微信支付
+        if (wechatJsapi) {
+            try {
+                var jsapiResult = wxpayService.createJsapiPayment(
+                        config, formatOutTradeNo(order.getId()), productName, amount, openid);
+                var params = wxpayService.buildJsapiParams(config, jsapiResult.prepayId());
+                order.setJsapiPayParams(serializeJson(params));
+                orderRepository.save(order);
+                log.info("Wxpay JSAPI order created for order: {}", order.getId());
+                return;
+            } catch (Exception e) {
+                // JSAPI 下单失败（如商户号未开通、openid 无效等），回退扫码，避免阻断支付
+                log.warn("Wxpay JSAPI failed, fallback to Native QR for order {}: {}", order.getId(), e.getMessage());
+            }
+        }
 
         // H5 支付需在后台开启且非 PC/微信浏览器内
         boolean h5Enabled = "true".equals(cfg.get("h5_enabled"));
@@ -381,6 +409,11 @@ public class PaymentServiceImpl implements PaymentService {
         result.put("pay_url", order.getPaymentUrl());
         result.put("expires_at", order.getExpiresAt());
 
+        // 微信内 JSAPI 支付拉起参数（WeixinJSBridge.invoke('getBrandWCPayRequest') 所需）
+        if (order.getJsapiPayParams() != null && !order.getJsapiPayParams().isEmpty()) {
+            result.put("jsapi_params", parseJsonObject(order.getJsapiPayParams()));
+        }
+
         // USDT 支付额外字段
         if (order.getUsdtWalletAddress() != null) {
             result.put("wallet_address", order.getUsdtWalletAddress());
@@ -388,6 +421,28 @@ public class PaymentServiceImpl implements PaymentService {
             result.put("chain", order.getUsdtChain());
         }
         return result;
+    }
+
+    /** 序列化对象为 JSON 字符串（本项目仅用于内部字段存储，异常兜底为空串）。 */
+    private String serializeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            log.error("serializeJson failed: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    /** 解析 JSON 字符串为 Map（失败返回空 Map）。 */
+    private Map<String, Object> parseJsonObject(String json) {
+        try {
+            Map<String, Object> m = objectMapper.readValue(json, new TypeReference<>() {
+            });
+            return m != null ? m : Map.of();
+        } catch (Exception e) {
+            log.warn("parseJsonObject failed: {}", e.getMessage());
+            return Map.of();
+        }
     }
 
     private String buildProductName(UUID orderId) {
@@ -421,6 +476,12 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     @org.springframework.transaction.annotation.Transactional
     public Map<String, Object> repay(UUID orderId, String device, UUID requestUserId) {
+        return repay(orderId, device, null, requestUserId);
+    }
+
+    @Override
+    @org.springframework.transaction.annotation.Transactional
+    public Map<String, Object> repay(UUID orderId, String device, String openid, UUID requestUserId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
 
@@ -450,10 +511,11 @@ public class PaymentServiceImpl implements PaymentService {
         order.setPaymentUrl(null);
         order.setQrcodeUrl(null);
         order.setEpayTradeNo(null);
+        order.setJsapiPayParams(null);
         orderRepository.save(order);
 
         // 重新创建支付
-        return createPayment(order.getId(), order.getPaymentMethod(), order.getActualAmount(), device);
+        return createPayment(order.getId(), order.getPaymentMethod(), order.getActualAmount(), device, openid);
     }
 
     private static String requireConfig(Map<String, String> cfg, String field, String channelCode) {
