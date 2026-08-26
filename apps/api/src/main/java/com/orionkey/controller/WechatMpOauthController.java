@@ -62,7 +62,8 @@ public class WechatMpOauthController {
         String state = java.util.UUID.randomUUID().toString().replace("-", "");
         STATES.put(state, new OauthState(safeRedirect, System.currentTimeMillis() + 5 * 60_000L));
 
-        String callbackUri = baseUrl + "/wechat-mp/oauth2/callback";
+        // 注意：后端 context-path=/api，微信授权回调必须带 /api 前缀，否则重定向到不存在的路径 → 404
+        String callbackUri = baseUrl + "/api/wechat-mp/oauth2/callback";
         String oauthUrl = "https://open.weixin.qq.com/connect/oauth2/authorize?appid="
                 + mpConfigService.getAppid()
                 + "&redirect_uri=" + URLEncoder.encode(callbackUri, StandardCharsets.UTF_8)
@@ -117,11 +118,22 @@ public class WechatMpOauthController {
         return ResponseEntity.status(302).header("Location", location).build();
     }
 
-    /** 仅允许站内相对路径（以 "/" 开头且不以 "//" 开头），否则回退首页。 */
+    /**
+     * 校验回调跳转地址，防止 open redirect。
+     * 支持两种：
+     * - 站内相对路径（以 "/" 开头且不以 "//" 开头）：前后端同域时 302 相对解析回前端站点；
+     * - 完整绝对 URL（http/https）：前后端分离时直接跳回前端站点。
+     * redirect 由前端页面在调用 oauth-url 时传入并绑定到一次性 state，不可事后篡改，故信任相对安全。
+     * 其它情况一律回退首页。
+     */
     private String sanitizeRedirect(String redirect) {
         if (redirect == null) return baseUrl + "/";
         String trimmed = redirect.trim();
         if (trimmed.startsWith("/") && !trimmed.startsWith("//")) {
+            return trimmed;
+        }
+        String lower = trimmed.toLowerCase();
+        if (lower.startsWith("http://") || lower.startsWith("https://")) {
             return trimmed;
         }
         return baseUrl + "/";

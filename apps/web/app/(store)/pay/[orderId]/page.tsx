@@ -202,10 +202,11 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
       window.history.replaceState({}, "", url.toString())
     }
 
-    // ② 无 openid：跳微信静默授权（snsapi_base），授权成功后重回本页并携带 openid
+    // ② 无 openid：跳微信静默授权（snsapi_base），授权成功后重回本页并携带 openid。
+    //    重定向地址用完整前端 URL（含站点域名），前后端分离时也能正确跳回前端站点
     if (!openid) {
       setJsapiPending(true)
-      const redirect = window.location.pathname + window.location.search
+      const redirect = window.location.origin + window.location.pathname + window.location.search
       wechatMpApi.getOauthUrl(redirect)
         .then((res) => { window.location.href = res.oauth_url })
         .catch(() => { setJsapiPending(false); setJsapiError(true) })
