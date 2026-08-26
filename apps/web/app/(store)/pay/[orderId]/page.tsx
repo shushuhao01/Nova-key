@@ -92,6 +92,8 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
           setJsapiError(true)
           // 透出微信 WebView 返回的真实错误信息，便于精准定位拉起失败根因
           setJsapiErrorMsg(res?.err_msg || t("payment.wechatJsapiError"))
+          // 清空拉起参数，使视图落入「错误/扫码兜底」分支，避免一直停留在"正在拉起"
+          setJsapiParams(null)
         }
       })
     }
@@ -539,7 +541,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
 
             {jsapiPending || jsapiParams ? (
               <p className="animate-pulse text-sm text-primary">{t("payment.wechatJsapiLoading")}</p>
-            ) : jsapiError ? (
+            ) : jsapiError && !qrcodeUrl ? (
               <>
                 <p className="text-sm text-muted-foreground">{t("payment.wechatJsapiError")}</p>
                 {jsapiErrorMsg ? (
@@ -547,9 +549,18 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
                 ) : null}
               </>
             ) : qrcodeUrl ? (
-              <div className="flex h-52 w-52 items-center justify-center rounded-xl bg-white p-3">
-                <QrCodeImage value={qrcodeUrl} size={184} alt="支付二维码" />
-              </div>
+              <>
+                <div className="flex h-52 w-52 items-center justify-center rounded-xl bg-white p-3">
+                  <QrCodeImage value={qrcodeUrl} size={184} alt="支付二维码" />
+                </div>
+                {isWechatMobile ? (
+                  <p className="mt-2 max-w-xs text-xs leading-relaxed text-muted-foreground/80">
+                    当前页面二维码不支持长按识别，请用其他手机微信「扫一扫」，或截图发送到电脑后扫码完成支付。
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground/80">请使用微信「扫一扫」扫描二维码完成支付。</p>
+                )}
+              </>
             ) : (
               <p className="text-sm text-muted-foreground">{t("payment.wechatJsapiReady")}</p>
             )}

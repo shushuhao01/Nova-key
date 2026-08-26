@@ -212,14 +212,10 @@ public class PaymentServiceImpl implements PaymentService {
                 log.info("Wxpay JSAPI order created for order: {}", order.getId());
                 return;
             } catch (Exception e) {
-                // JSAPI 下单失败（如商户号未开通、openid 无效、appid 与 openid 不匹配等）。
-                // 微信浏览器内回退 Native 扫码是无效的（微信内无法长按识别自身页面生成的二维码），
-                // 因此直接抛出真实原因，让前端提示具体错误，便于定位根因。
-                log.warn("Wxpay JSAPI failed for order {}: {}", order.getId(), e.getMessage());
-                if ("wechat".equals(device)) {
-                    throw e;
-                }
-                // 非微信环境才回退扫码，避免阻断支付
+                // JSAPI 下单失败（如商户号未开通、openid 无效、appid 与 openid 不匹配等），
+                // 回退生成 Native 收款码兜底，避免阻断支付。微信内二维码虽不支持长按识别，
+                // 但可引导用户用其他手机扫码或截图到电脑后扫码。
+                log.warn("Wxpay JSAPI failed, fallback to Native QR for order {}: {}", order.getId(), e.getMessage());
             }
         }
 
