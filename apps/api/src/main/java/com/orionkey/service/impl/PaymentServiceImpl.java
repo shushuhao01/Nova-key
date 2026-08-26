@@ -230,6 +230,17 @@ public class PaymentServiceImpl implements PaymentService {
             }
         }
 
+        // 微信内但尚未拿到 openid：延迟下单。
+        // 同一 out_trade_no 若先下 Native 单，微信侧会注册为 Native 交易，之后 pay 页授权拿到
+        // openid 再用 JSAPI 下单会因「请求重入时，参数与首次请求时不一致」被拒绝。
+        // 因此此处不下单，等待 pay 页静默授权拿到 openid 后 repay 走 JSAPI 首次下单；
+        // 若授权失败，JSAPI 下单失败会回退 Native（此时订单号从未注册过，Native 下单不会冲突）。
+        if ("wechat".equals(device)) {
+            log.info("Wxpay deferred: waiting for openid (JSAPI) for order {}", order.getId());
+            orderRepository.save(order);
+            return jsapiError;
+        }
+
         // H5 支付需在后台开启且非 PC/微信浏览器内
         boolean h5Enabled = "true".equals(cfg.get("h5_enabled"));
         boolean pc = device == null || "pc".equals(device) || "wechat".equals(device) || !h5Enabled;
