@@ -1105,7 +1105,8 @@ public class DistributionServiceImpl implements DistributionService {
     @Transactional(readOnly = true)
     public Map<String, Object> listPromotionProducts(int page, int pageSize) {
         DistributionRule rule = getOrCreateRule();
-        List<Product> all = productRepository.findPublicProducts(null, Pageable.unpaged()).getContent();
+        // 分销员可推广商品：仅展示已开启分销（存在 product_commission 且未排除）的商品，与首页显示相互独立
+        List<Product> all = productRepository.findEnabledProducts(Pageable.unpaged()).getContent();
         // 仅展示已开启分销（存在 product_commission 且未排除）的商品，最新添加的排在前面
         List<Product> distributable = all.stream()
                 .filter(p -> isProductDistributable(p.getId()))
@@ -1492,8 +1493,8 @@ public class DistributionServiceImpl implements DistributionService {
         String linkUrl = buildPromotionUrl(link.getLinkCode());
         DistributionRule rule = getOrCreateRule();
 
-        // 全店海报热销商品：已开启分销的商品取前 3 个（最新添加优先）
-        List<Map<String, Object>> hotProducts = productRepository.findPublicProducts(null, Pageable.unpaged()).getContent().stream()
+        // 全店海报热销商品：已开启分销的商品取前 3 个（最新添加优先；分销侧不受首页显示限制）
+        List<Map<String, Object>> hotProducts = productRepository.findEnabledProducts(Pageable.unpaged()).getContent().stream()
                 .filter(p -> isProductDistributable(p.getId()))
                 .sorted(Comparator.comparing(Product::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(3)

@@ -12,19 +12,23 @@ import java.util.UUID;
 
 public interface ProductRepository extends JpaRepository<Product, UUID> {
 
-    // 首页商品列表 — 无搜索词
-    @Query("SELECT p FROM Product p WHERE p.isDeleted = 0 AND p.enabled = true " +
+    // 首页商品列表 — 无搜索词（仅展示首页可见商品；私域商品通过链接直达详情）
+    @Query("SELECT p FROM Product p WHERE p.isDeleted = 0 AND p.enabled = true AND p.homepageVisible = true " +
             "AND (:categoryId IS NULL OR p.categoryId = :categoryId)")
     Page<Product> findPublicProducts(@Param("categoryId") UUID categoryId,
                                      Pageable pageable);
 
     // 首页商品列表 — 带搜索词（keyword 保证非 null）
-    @Query("SELECT p FROM Product p WHERE p.isDeleted = 0 AND p.enabled = true " +
+    @Query("SELECT p FROM Product p WHERE p.isDeleted = 0 AND p.enabled = true AND p.homepageVisible = true " +
             "AND (:categoryId IS NULL OR p.categoryId = :categoryId) " +
             "AND LOWER(p.title) LIKE :keywordPattern")
     Page<Product> findPublicProductsByKeyword(@Param("categoryId") UUID categoryId,
                                               @Param("keywordPattern") String keywordPattern,
                                               Pageable pageable);
+
+    // 分销/统计侧商品列表 — 不过滤首页可见性（可推广性由商品佣金配置决定，与首页显示相互独立）
+    @Query("SELECT p FROM Product p WHERE p.isDeleted = 0 AND p.enabled = true")
+    Page<Product> findEnabledProducts(Pageable pageable);
 
     // 管理后台商品列表 — 无搜索词
     @Query("SELECT p FROM Product p WHERE p.isDeleted = 0 " +

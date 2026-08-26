@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef, type RefObject } from "react"
-import { Plus, Search, Edit, Trash2, Upload, X, AlertCircle, ChevronDown, EyeOff, Eye, KeyRound, Loader2, ImagePlus } from "lucide-react"
+import { Plus, Search, Edit, Trash2, Upload, X, AlertCircle, ChevronDown, EyeOff, Eye, KeyRound, Loader2, ImagePlus, Link2 } from "lucide-react"
 import { toast } from "sonner"
 import Link from "next/link"
 import { cn, getCurrencySymbol } from "@/lib/utils"
@@ -67,6 +67,7 @@ export default function AdminProductsPage() {
     low_stock_threshold: "10",
     wholesale_enabled: false,
     is_enabled: true,
+    homepage_visible: true,
     initial_sales: "",
     sort_order: "",
     delivery_type: "AUTO",
@@ -161,6 +162,7 @@ export default function AdminProductsPage() {
       low_stock_threshold: String(product.low_stock_threshold ?? 10),
       wholesale_enabled: false,
       is_enabled: product.is_enabled !== false,
+      homepage_visible: product.homepage_visible !== false,
       initial_sales: String(product.initial_sales ?? ""),
       sort_order: String(product.sort_order ?? ""),
       delivery_type: product.delivery_type || "AUTO",
@@ -200,6 +202,30 @@ export default function AdminProductsPage() {
       await fetchProducts()
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "操作失败")
+    }
+  }
+
+  const handleToggleHomepage = async (product: ProductDetail) => {
+    try {
+      const next = product.homepage_visible !== false
+      await withMockFallback(
+        () => adminProductApi.update(product.id, { homepage_visible: !next }),
+        () => null
+      )
+      toast.success(next ? "已关闭首页显示，商品链接仍可访问" : "已开启首页显示")
+      await fetchProducts()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    }
+  }
+
+  const handleCopyLink = async (product: ProductDetail) => {
+    const url = `${window.location.origin}/product/${product.id}`
+    try {
+      await navigator.clipboard.writeText(url)
+      toast.success("商品链接已复制")
+    } catch {
+      toast.error("复制失败，请手动复制链接")
     }
   }
 
@@ -266,6 +292,7 @@ export default function AdminProductsPage() {
         wholesale_enabled: false,
         spec_enabled: specsEnabled,
         is_enabled: formData.is_enabled,
+        homepage_visible: formData.homepage_visible,
         initial_sales: parseInt(formData.initial_sales) || 0,
         sort_order: parseInt(formData.sort_order) || undefined,
         delivery_type: formData.delivery_type,
@@ -438,6 +465,8 @@ export default function AdminProductsPage() {
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.stockLabel")}</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.sold")}</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.statusLabel")}</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">首页显示</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">商品链接</th>
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">{t("admin.actions")}</th>
                 </tr>
               </thead>
@@ -484,6 +513,18 @@ export default function AdminProductsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
+                      <button type="button" title={product.homepage_visible !== false ? "首页显示：开（点击关闭，商品链接仍可访问）" : "首页显示：关（点击开启）"} onClick={() => handleToggleHomepage(product)}>
+                        <span className={cn("relative inline-flex h-5 w-9 items-center rounded-full transition-colors", product.homepage_visible !== false ? "bg-primary" : "bg-muted")}>
+                          <span className={cn("inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform", product.homepage_visible !== false ? "translate-x-4" : "translate-x-0.5")} />
+                        </span>
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button type="button" className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors" title="复制商品链接" onClick={() => handleCopyLink(product)}>
+                        <Link2 className="h-4 w-4" />
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
                         <button type="button" className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors" title="编辑" onClick={() => handleEdit(product)}>
                           <Edit className="h-4 w-4" />
@@ -503,7 +544,7 @@ export default function AdminProductsPage() {
                 ))}
                 {products.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-sm text-muted-foreground">{t("admin.noProductData")}</td>
+                    <td colSpan={9} className="py-12 text-center text-sm text-muted-foreground">{t("admin.noProductData")}</td>
                   </tr>
                 )}
               </tbody>
@@ -659,8 +700,8 @@ export default function AdminProductsPage() {
                   <input type="number" className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" placeholder="10" value={formData.low_stock_threshold} onChange={(e) => setFormData({ ...formData, low_stock_threshold: e.target.value })} />
                 </div>
               </div>
-              {/* 上架状态 + 初始销量 */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* 上架状态 + 首页显示 + 初始销量 */}
+              <div className="grid grid-cols-3 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-medium text-foreground">{t("admin.listingStatus")}</label>
                   <div className="flex h-10 items-center gap-2">
@@ -669,6 +710,16 @@ export default function AdminProductsPage() {
                     </button>
                     <span className="text-sm text-muted-foreground">{formData.is_enabled ? "已上架" : "已下架"}</span>
                   </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-foreground">首页显示</label>
+                  <div className="flex h-10 items-center gap-2">
+                    <button type="button" className={cn("relative h-6 w-11 shrink-0 rounded-full transition-colors", formData.homepage_visible ? "bg-primary" : "bg-muted")} onClick={() => setFormData({ ...formData, homepage_visible: !formData.homepage_visible })}>
+                      <span className={cn("absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", formData.homepage_visible && "translate-x-5")} />
+                    </button>
+                    <span className="text-sm text-muted-foreground">{formData.homepage_visible ? "显示" : "隐藏"}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">隐藏后不出现在商城列表，商品链接仍可访问</p>
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-medium text-foreground">初始销量</label>

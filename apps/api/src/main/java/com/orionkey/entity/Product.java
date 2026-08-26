@@ -58,6 +58,10 @@ public class Product extends BaseEntity {
     @Column(name = "is_enabled")
     private boolean enabled = true;
 
+    /** 是否在商城首页/分类/搜索列表展示（与上架状态、分销可推广相互独立；关闭后仍可通过商品链接直接访问） */
+    @Column(name = "homepage_visible", columnDefinition = "boolean not null default true")
+    private boolean homepageVisible = true;
+
     @Column(columnDefinition = "INTEGER DEFAULT 0")
     private int initialSales = 0;
 

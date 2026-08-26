@@ -99,6 +99,8 @@ export interface ProductCard {
   sales_count?: number
   initial_sales?: number
   is_enabled?: boolean
+  /** 是否在商城首页/分类/搜索列表展示（关闭后仍可通过商品链接直接访问） */
+  homepage_visible?: boolean
   sort_order?: number
   created_at?: string
 }

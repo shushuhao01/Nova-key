@@ -70,6 +70,7 @@ public class ProductServiceImpl implements ProductService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.PRODUCT_NOT_FOUND, "商品不存在"));
         Map<String, Object> detail = toProductDetail(product);
         detail.put("is_enabled", product.isEnabled());
+        detail.put("homepage_visible", product.isHomepageVisible());
         detail.put("sort_order", product.getSortOrder());
         detail.put("low_stock_threshold", product.getLowStockThreshold());
         detail.put("created_at", product.getCreatedAt());
@@ -89,6 +90,7 @@ public class ProductServiceImpl implements ProductService {
         var list = productPage.getContent().stream().map(p -> {
             Map<String, Object> detail = toProductDetail(p);
             detail.put("is_enabled", p.isEnabled());
+            detail.put("homepage_visible", p.isHomepageVisible());
             detail.put("sort_order", p.getSortOrder());
             detail.put("low_stock_threshold", p.getLowStockThreshold());
             detail.put("sales_count", orderItemRepository.sumQuantityByProductId(p.getId()));
@@ -117,6 +119,7 @@ public class ProductServiceImpl implements ProductService {
         if (req.containsKey("wholesale_enabled")) product.setWholesaleEnabled((boolean) req.get("wholesale_enabled"));
         if (req.containsKey("spec_enabled")) product.setSpecEnabled((boolean) req.get("spec_enabled"));
         if (req.containsKey("is_enabled")) product.setEnabled((boolean) req.get("is_enabled"));
+        if (req.containsKey("homepage_visible")) product.setHomepageVisible((boolean) req.get("homepage_visible"));
         if (req.containsKey("initial_sales")) product.setInitialSales(((Number) req.get("initial_sales")).intValue());
         if (req.containsKey("sort_order")) product.setSortOrder(((Number) req.get("sort_order")).intValue());
         productRepository.save(product);
@@ -143,6 +146,7 @@ public class ProductServiceImpl implements ProductService {
         if (req.containsKey("wholesale_enabled")) product.setWholesaleEnabled((boolean) req.get("wholesale_enabled"));
         if (req.containsKey("spec_enabled")) product.setSpecEnabled((boolean) req.get("spec_enabled"));
         if (req.containsKey("is_enabled")) product.setEnabled((boolean) req.get("is_enabled"));
+        if (req.containsKey("homepage_visible")) product.setHomepageVisible((boolean) req.get("homepage_visible"));
         if (req.containsKey("initial_sales")) product.setInitialSales(((Number) req.get("initial_sales")).intValue());
         if (req.containsKey("sort_order")) product.setSortOrder(((Number) req.get("sort_order")).intValue());
         productRepository.save(product);
