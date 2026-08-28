@@ -592,7 +592,6 @@ function DistributorsTab({ dateVersion }: { dateVersion: number }) {
   const [rateModal, setRateModal] = useState<Distributor | null>(null)
   const [detailModal, setDetailModal] = useState<Distributor | null>(null)
   const [teamModal, setTeamModal] = useState<{ d: Distributor; mode: TeamMode } | null>(null)
-  const [subDetail, setSubDetail] = useState<Distributor | null>(null)
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -828,20 +827,12 @@ function DistributorsTab({ dateVersion }: { dateVersion: number }) {
         />
       )}
 
-      {subDetail && (
-        <DistributorDetailModal
-          distributor={subDetail}
-          onClose={() => setSubDetail(null)}
-        />
-      )}
-
       {teamModal && (
         <TeamModal
           distributorId={teamModal.d.id}
           distributorName={teamModal.d.username || "推广员"}
           initialMode={teamModal.mode}
           onClose={() => setTeamModal(null)}
-          onOpenDistributor={(s) => setSubDetail({ id: s.id, username: s.username ?? "—", user_id: "" } as Distributor)}
         />
       )}
     </div>
@@ -1026,13 +1017,12 @@ interface TeamCustomer {
   card_keys: string[]
 }
 
-/** 团队弹窗：下级成员 / 绑定客户，默认 10 条/页，支持搜索与翻页。点击"下级-查看详情"可进入推广员详情 */
-function TeamModal({ distributorId, distributorName, initialMode, onClose, onOpenDistributor }: {
+/** 团队弹窗：下级成员 / 绑定客户，默认 10 条/页，支持搜索与翻页 */
+function TeamModal({ distributorId, distributorName, initialMode, onClose }: {
   distributorId: string
   distributorName: string
   initialMode: TeamMode
   onClose: () => void
-  onOpenDistributor: (d: TeamSubordinate) => void
 }) {
   const [mode, setMode] = useState<TeamMode>(initialMode)
   const [keyword, setKeyword] = useState("")
@@ -1080,7 +1070,7 @@ function TeamModal({ distributorId, distributorName, initialMode, onClose, onOpe
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-border bg-card shadow-2xl">
+      <div className="relative max-h-[90vh] w-full max-w-6xl overflow-y-auto rounded-xl border border-border bg-card shadow-2xl">
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-6 py-4">
           <div className="flex items-center gap-2">
@@ -1129,63 +1119,54 @@ function TeamModal({ distributorId, distributorName, initialMode, onClose, onOpe
           {/* Table */}
           <div className="overflow-hidden rounded-xl border border-border">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-fixed">
                 <thead>
                   {mode === "subordinates" ? (
                     <tr className="border-b border-border bg-muted/30">
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">下级成员</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">推广总额</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">付款单数</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金（抽成后）</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">抽成比例</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">已抽佣金</th>
-                      <th className="px-4 py-3 text-right font-medium text-muted-foreground">操作</th>
+                      <th className="w-[32%] px-4 py-3 text-left font-medium text-muted-foreground">下级成员</th>
+                      <th className="w-[14%] px-4 py-3 text-left font-medium text-muted-foreground">推广总额</th>
+                      <th className="w-[13%] px-4 py-3 text-left font-medium text-muted-foreground">付款单数</th>
+                      <th className="w-[14%] px-4 py-3 text-left font-medium text-muted-foreground">佣金（抽成后）</th>
+                      <th className="w-[13%] px-4 py-3 text-left font-medium text-muted-foreground">抽成比例</th>
+                      <th className="w-[14%] px-4 py-3 text-left font-medium text-muted-foreground">已抽佣金</th>
                     </tr>
                   ) : (
                     <tr className="border-b border-border bg-muted/30">
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">客户</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">购买商品</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">数量</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">付款金额</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">抽成比例</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">卡密</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">最近购买</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">首次绑定</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">已购次数</th>
-                      <th className="px-4 py-3 text-right font-medium text-muted-foreground">操作</th>
+                      <th className="w-[14%] px-4 py-3 text-left font-medium text-muted-foreground">客户</th>
+                      <th className="w-[15%] px-4 py-3 text-left font-medium text-muted-foreground">购买商品</th>
+                      <th className="w-[6%] px-4 py-3 text-left font-medium text-muted-foreground">数量</th>
+                      <th className="w-[10%] px-4 py-3 text-left font-medium text-muted-foreground">付款金额</th>
+                      <th className="w-[10%] px-4 py-3 text-left font-medium text-muted-foreground">抽成比例</th>
+                      <th className="w-[8%] px-4 py-3 text-left font-medium text-muted-foreground">佣金</th>
+                      <th className="w-[9%] px-4 py-3 text-left font-medium text-muted-foreground">卡密</th>
+                      <th className="w-[11%] px-4 py-3 text-left font-medium text-muted-foreground">最近购买</th>
+                      <th className="w-[11%] px-4 py-3 text-left font-medium text-muted-foreground">首次绑定</th>
+                      <th className="w-[6%] px-4 py-3 text-left font-medium text-muted-foreground">已购次数</th>
                     </tr>
                   )}
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan={11} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+                    <tr><td colSpan={mode === "subordinates" ? 6 : 10} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
                   ) : list.length === 0 ? (
-                    <tr><td colSpan={11} className="py-8 text-center text-sm text-muted-foreground">暂无数据</td></tr>
+                    <tr><td colSpan={mode === "subordinates" ? 6 : 10} className="py-8 text-center text-sm text-muted-foreground">暂无数据</td></tr>
                   ) : mode === "subordinates" ? (
                     (list as TeamSubordinate[]).map((s) => (
                       <tr key={s.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary"><User className="h-4 w-4" /></span>
-                            <div className="flex flex-col">
-                              <span className="font-medium text-foreground">{s.username || "—"}</span>
-                              <span className="text-xs text-muted-foreground">{s.email || s.distributor_code || "—"}</span>
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><User className="h-4 w-4" /></span>
+                            <div className="min-w-0">
+                              <div className="line-clamp-2 break-words font-medium text-foreground">{s.username || "—"}</div>
+                              <div className="line-clamp-2 break-words text-xs text-muted-foreground">{s.email || s.distributor_code || "—"}</div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 font-medium text-primary">{fmtMoney(s.total_sales)}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{s.paid_count} 单</td>
-                        <td className="px-4 py-3 font-medium text-foreground">{fmtMoney(s.commission)}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{Number(s.sub_rate ?? 0).toFixed(2)}%</td>
-                        <td className="px-4 py-3 font-medium text-amber-600">{fmtMoney(s.parent_commission)}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-end">
-                            <button type="button" onClick={() => onOpenDistributor(s)} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="查看详情">
-                              <Eye className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap font-medium text-primary">{fmtMoney(s.total_sales)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{s.paid_count} 单</td>
+                        <td className="px-4 py-3 whitespace-nowrap font-medium text-foreground">{fmtMoney(s.commission)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{Number(s.sub_rate ?? 0).toFixed(2)}%</td>
+                        <td className="px-4 py-3 whitespace-nowrap font-medium text-amber-600">{fmtMoney(s.parent_commission)}</td>
                       </tr>
                     ))
                   ) : (
@@ -1193,21 +1174,21 @@ function TeamModal({ distributorId, distributorName, initialMode, onClose, onOpe
                       <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground"><Users className="h-4 w-4" /></span>
-                            <span className="font-medium text-foreground">{customerLabel(c)}</span>
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"><Users className="h-4 w-4" /></span>
+                            <span className="line-clamp-2 break-words min-w-0 font-medium text-foreground" title={customerLabel(c)}>{customerLabel(c)}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 max-w-[200px] truncate text-muted-foreground" title={c.product_titles}>{c.product_titles || "—"}</td>
-                        <td className="px-4 py-3 text-foreground">{c.quantity}</td>
-                        <td className="px-4 py-3 font-medium text-primary">{fmtMoney(c.paid_amount)}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{Number(c.commission_rate ?? 0).toFixed(2)}%</td>
-                        <td className="px-4 py-3 font-medium text-foreground">{fmtMoney(c.commission)}</td>
+                        <td className="px-4 py-3"><div className="line-clamp-2 break-words text-muted-foreground" title={c.product_titles}>{c.product_titles || "—"}</div></td>
+                        <td className="px-4 py-3 whitespace-nowrap text-foreground">{c.quantity}</td>
+                        <td className="px-4 py-3 whitespace-nowrap font-medium text-primary">{fmtMoney(c.paid_amount)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{Number(c.commission_rate ?? 0).toFixed(2)}%</td>
+                        <td className="px-4 py-3 whitespace-nowrap font-medium text-foreground">{fmtMoney(c.commission)}</td>
                         <td className="px-4 py-3">
                           {c.card_keys.length === 0 ? (
                             <span className="text-muted-foreground">—</span>
                           ) : (
                             <span
-                              className="inline-flex max-w-[160px] cursor-pointer items-center rounded bg-muted/50 px-1.5 py-0.5 font-mono text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                              className="inline-flex max-w-full cursor-pointer items-center rounded bg-muted/50 px-1.5 py-0.5 font-mono text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
                               title={c.card_keys.join("\n")}
                               onClick={() => copyText(c.card_keys.join("\n"))}
                             >
@@ -1215,16 +1196,9 @@ function TeamModal({ distributorId, distributorName, initialMode, onClose, onOpe
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(c.last_purchase_at)}</td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(c.first_bind_at)}</td>
-                        <td className="px-4 py-3 text-foreground">{c.purchase_count}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-end">
-                            <button type="button" onClick={() => toast.info(`客户详情：${customerLabel(c)}`)} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="查看详情">
-                              <Eye className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-xs text-muted-foreground">{fmtDate(c.last_purchase_at)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-xs text-muted-foreground">{fmtDate(c.first_bind_at)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-foreground">{c.purchase_count}</td>
                       </tr>
                     ))
                   )}

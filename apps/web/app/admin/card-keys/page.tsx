@@ -29,8 +29,8 @@ import {
 import { Modal } from "@/components/ui/modal"
 import type { CardKeyStockSummary, CardKeyListItem, CardImportBatch, ProductCard, ProductSpec, SoldCardKeyRecord } from "@/types"
 
-/** 卡密内容单元格：默认两行缩略，超出悬浮提示，附一键复制 */
-function CardContentCell({ content }: { content: string }) {
+/** 卡密内容单元格：默认两行缩略，超出悬浮提示，附一键复制（lines=1 时单行） */
+function CardContentCell({ content, lines = 2 }: { content: string; lines?: 1 | 2 }) {
   const copy = () => {
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(content).then(() => toast.success("卡密已复制"))
@@ -38,7 +38,7 @@ function CardContentCell({ content }: { content: string }) {
   }
   return (
     <div className="flex items-center gap-1">
-      <span className="line-clamp-2 min-w-0 flex-1 font-mono text-xs text-foreground break-all" title={content}>
+      <span className={cn("min-w-0 flex-1 font-mono text-xs text-foreground break-all", lines === 1 ? "line-clamp-1" : "line-clamp-2")} title={content}>
         {content}
       </span>
       <button
@@ -776,19 +776,18 @@ export default function AdminCardKeysPage() {
               <table className="w-full text-sm table-fixed" onCopy={(e) => { const t = window.getSelection()?.toString(); if (t) { e.clipboardData.setData("text/plain", stripInvisible(t)); e.preventDefault() } }}>
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="w-[32%] px-3 py-2 text-left font-medium text-muted-foreground">卡密内容</th>
-                    <th className="w-[8%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">状态</th>
-                    <th className="w-[12%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">购买用户</th>
-                    <th className="w-[13%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">创建时间</th>
-                    <th className="w-[13%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">订单号</th>
+                    <th className="w-[30%] px-3 py-2 text-left font-medium text-muted-foreground">卡密内容</th>
+                    <th className="w-[7%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">状态</th>
+                    <th className="w-[17%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">购买用户</th>
+                    <th className="w-[18%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">创建时间</th>
+                    <th className="w-[14%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">订单号</th>
                     <th className="w-[14%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">售出时间</th>
-                    <th className="w-[8%] px-3 py-2 text-right font-medium text-muted-foreground whitespace-nowrap">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {detailKeys.map((key) => (
                     <tr key={key.id} className="border-b border-border/50 last:border-0">
-                      <td className="px-3 py-2 max-w-[300px]"><CardContentCell content={key.content} /></td>
+                      <td className="px-3 py-2 max-w-[300px]"><CardContentCell content={key.content} lines={1} /></td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <span className={cn(
                           "rounded-full px-2 py-0.5 text-xs font-medium",
@@ -800,27 +799,15 @@ export default function AdminCardKeysPage() {
                           {key.status === "AVAILABLE" ? "可用" : key.status === "SOLD" ? "已售" : key.status === "LOCKED" ? "锁定" : "已作废"}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-xs text-foreground whitespace-nowrap">{key.buyer || "-"}</td>
+                      <td className="max-w-[150px] px-3 py-2 text-xs text-foreground whitespace-nowrap" title={key.buyer || "-"}>{key.buyer || "-"}</td>
                       <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
                         {new Date(key.created_at).toLocaleString()}
                       </td>
-                      <td className="px-3 py-2 font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      <td className="px-3 py-2 font-mono text-xs text-muted-foreground whitespace-nowrap" title={key.order_id || "-"}>
                         {key.order_id ? key.order_id.slice(0, 8) + "..." : "-"}
                       </td>
                       <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
                         {key.sold_at ? new Date(key.sold_at).toLocaleString() : "-"}
-                      </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
-                        {(key.status === "AVAILABLE" || key.status === "LOCKED") && (
-                          <button
-                            type="button"
-                            className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-                            title="作废此卡密"
-                            onClick={() => setSingleInvalidateTarget(key)}
-                          >
-                            <Ban className="h-3.5 w-3.5" />
-                          </button>
-                        )}
                       </td>
                     </tr>
                   ))}
