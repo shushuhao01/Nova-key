@@ -86,6 +86,9 @@ public class Order extends BaseEntity {
 
     private String clientIp;
 
+    /** 下单设备/来源：PC浏览器(含具体浏览器)、手机浏览器、微信等，由 User-Agent 解析 */
+    private String device;
+
     private String sessionToken;
 
     @Column(columnDefinition = "TEXT")

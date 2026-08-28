@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -52,12 +53,42 @@ public interface CardKeyRepository extends JpaRepository<CardKey, UUID> {
                                                    @Param("specId") UUID specId,
                                                    @Param("excludeStatus") CardKeyStatus excludeStatus);
 
+    /** 管理后台卡密列表：支持状态集合（空=全部）与内容关键词，默认按创建时间倒序 */
     @Query("SELECT ck FROM CardKey ck WHERE ck.productId = :productId " +
             "AND ((:specId IS NULL AND ck.specId IS NULL) OR ck.specId = :specId) " +
+            "AND (:statuses IS EMPTY OR ck.status IN :statuses) " +
+            "AND (:keyword IS NULL OR :keyword = '' OR LOWER(ck.content) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
             "ORDER BY ck.createdAt DESC")
-    Page<CardKey> findByProductIdAndOptionalSpecId(@Param("productId") UUID productId,
-                                                    @Param("specId") UUID specId,
-                                                    Pageable pageable);
+    Page<CardKey> findAdminList(@Param("productId") UUID productId,
+                                @Param("specId") UUID specId,
+                                @Param("statuses") Collection<CardKeyStatus> statuses,
+                                @Param("keyword") String keyword,
+                                Pageable pageable);
+
+    /** 管理后台卡密列表（已售出，按售出时间倒序） */
+    @Query("SELECT ck FROM CardKey ck WHERE ck.productId = :productId " +
+            "AND ((:specId IS NULL AND ck.specId IS NULL) OR ck.specId = :specId) " +
+            "AND ck.status = com.orionkey.constant.CardKeyStatus.SOLD " +
+            "AND (:keyword IS NULL OR :keyword = '' OR LOWER(ck.content) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            "ORDER BY ck.soldAt DESC")
+    Page<CardKey> findAdminSoldList(@Param("productId") UUID productId,
+                                    @Param("specId") UUID specId,
+                                    @Param("keyword") String keyword,
+                                    Pageable pageable);
+
+    /** 全局已售出记录（按售出时间倒序），支持商品名/卡密/用户邮箱/推广员综合搜索 */
+    @Query("SELECT ck FROM CardKey ck LEFT JOIN Order o ON o.id = ck.orderId " +
+            "WHERE ck.status = com.orionkey.constant.CardKeyStatus.SOLD " +
+            "AND (:keyword IS NULL OR :keyword = '' " +
+            "  OR LOWER(ck.content) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+            "  OR (o.email IS NOT NULL AND LOWER(o.email) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            "  OR ck.productId IN (SELECT p.id FROM Product p WHERE LOWER(p.title) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            "  OR o.referralDistributorId IN (SELECT d.id FROM Distributor d " +
+            "       WHERE LOWER(d.distributorCode) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+            "       OR d.userId IN (SELECT u.id FROM User u WHERE LOWER(u.username) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+            "                        OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%'))))) " +
+            "ORDER BY ck.soldAt DESC")
+    Page<CardKey> findSoldRecords(@Param("keyword") String keyword, Pageable pageable);
 
     @Query("SELECT ck.status, COUNT(ck) FROM CardKey ck " +
             "WHERE ck.productId = :productId AND ((:specId IS NULL AND ck.specId IS NULL) OR ck.specId = :specId) " +

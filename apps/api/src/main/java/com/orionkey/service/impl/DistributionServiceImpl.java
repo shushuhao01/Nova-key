@@ -61,6 +61,7 @@ public class DistributionServiceImpl implements DistributionService {
     private final NotificationService notificationService;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+    private final CardKeyRepository cardKeyRepository;
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final PaymentChannelRepository paymentChannelRepository;
@@ -304,6 +305,124 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("settlable_commission", settlable.setScale(2, RoundingMode.HALF_UP));
         m.put("settled_commission", nullSafe(commissionRecordRepository.sumByDistributorAndStatusAll(d.getId(), CommissionStatus.SETTLED)).setScale(2, RoundingMode.HALF_UP));
         return m;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> adminListSubordinates(UUID distributorId, String keyword, int page, int pageSize) {
+        Distributor parent = distributorRepository.findById(distributorId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "分销员不存在"));
+        Pageable pageable = toPageable(page, pageSize);
+        Page<Distributor> subPage = distributorRepository.findSubordinatesPage(parent.getId(),
+                keyword != null ? keyword.trim() : "", pageable);
+
+        Set<UUID> userIds = subPage.getContent().stream().map(Distributor::getUserId).collect(Collectors.toSet());
+        Map<UUID, User> userMap = userIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(userIds).stream().collect(Collectors.toMap(User::getId, u -> u));
+
+        // 上级对该下级生效的抽成比例（优先自定义，回退规则默认）
+        DistributionRule rule = getOrCreateRule();
+        BigDecimal subRateVal = parent.getSubRate() != null ? parent.getSubRate() : rule.getDefaultSubRate();
+        BigDecimal subRatePercent = rateToPercent(subRateVal);
+
+        List<Map<String, Object>> items = subPage.getContent().stream().map(sub -> {
+            User u = userMap.get(sub.getUserId());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", sub.getId());
+            m.put("distributor_code", sub.getDistributorCode());
+            m.put("username", u != null ? u.getUsername() : null);
+            m.put("email", u != null ? u.getEmail() : null);
+            m.put("status", sub.getStatus().name());
+            // 推广总额 / 付款单数（已付款/已发货/已完成）
+            m.put("total_sales", nullSafe(orderRepository.sumSalesByDistributorAll(sub.getId())).setScale(2, RoundingMode.HALF_UP));
+            m.put("paid_count", orderRepository.countPaidOrdersByDistributorAll(sub.getId()));
+            // 佣金（下级被抽成后的实得）+ 已抽佣金（上级从该下级抽取的金额）+ 抽成比例
+            m.put("commission", nullSafe(commissionRecordRepository.sumTotalByDistributorAll(sub.getId())).setScale(2, RoundingMode.HALF_UP));
+            m.put("sub_rate", subRatePercent == null ? BigDecimal.ZERO : subRatePercent);
+            m.put("parent_commission", nullSafe(commissionRecordRepository.sumParentCommissionBySub(parent.getId(), sub.getId()))
+                    .setScale(2, RoundingMode.HALF_UP));
+            m.put("created_at", sub.getCreatedAt());
+            return m;
+        }).toList();
+        return pageResult(items, subPage.getTotalElements(), page, pageSize);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> adminListCustomers(UUID distributorId, String keyword, int page, int pageSize) {
+        Distributor d = distributorRepository.findById(distributorId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "分销员不存在"));
+        Pageable pageable = toPageable(page, pageSize);
+        Page<CustomerBinding> bindings = customerBindingRepository.findAdminPage(d.getId(),
+                keyword != null ? keyword.trim().toLowerCase() : "", pageable);
+
+        // 该推广员有效的佣金比例（用于客户行"抽成比例"展示，具体订单可能按阶梯有差异）
+        BigDecimal effRate = d.getCustomRate() != null ? d.getCustomRate() : getOrCreateRule().getDefaultRate();
+        BigDecimal displayRate = rateToPercent(effRate);
+
+        List<Map<String, Object>> items = bindings.getContent().stream().map(cb -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", cb.getId());
+            m.put("customer_email", cb.getCustomerEmail());
+            String username = null;
+            if (cb.getCustomerUserId() != null) {
+                username = userRepository.findById(cb.getCustomerUserId()).map(User::getUsername).orElse(null);
+            }
+            m.put("username", username);
+            m.put("purchase_count", cb.getPurchaseCount());
+            m.put("first_bind_at", cb.getCreatedAt());
+            m.put("last_purchase_at", cb.getLastPurchaseAt());
+
+            // 聚合该客户在该推广员名下的购买明细（订单按推广员+客户邮箱匹配）
+            List<Order> orders = orderRepository.findDistributorOrdersByEmail(d.getId(), cb.getCustomerEmail().trim().toLowerCase());
+            BigDecimal paidAmount = BigDecimal.ZERO;
+            BigDecimal commission = BigDecimal.ZERO;
+            int quantity = 0;
+            boolean hasRate = false;
+            BigDecimal lastRate = displayRate;
+            LinkedHashSet<String> productTitles = new LinkedHashSet<>();
+            List<String> cardContents = new ArrayList<>();
+            for (Order o : orders) {
+                if (isPaidOrder(o)) {
+                    paidAmount = paidAmount.add(nullSafe(o.getActualAmount()));
+                }
+                List<OrderItem> ois = orderItemRepository.findByOrderId(o.getId());
+                for (OrderItem oi : ois) {
+                    quantity += oi.getQuantity();
+                    if (oi.getProductTitle() != null && !oi.getProductTitle().isBlank()) {
+                        productTitles.add(oi.getProductTitle());
+                    }
+                }
+                cardKeyRepository.findByOrderId(o.getId()).forEach(ck -> {
+                    if (ck.getContent() != null) cardContents.add(ck.getContent());
+                });
+                // 佣金：取该推广员在此订单下的佣金记录（可能为空，如订单取消）
+                List<CommissionRecord> crs = commissionRecordRepository.findByDistributorIdAndOrderId(d.getId(), o.getId());
+                for (CommissionRecord cr : crs) {
+                    commission = commission.add(nullSafe(cr.getCommissionAmount()));
+                    if (!hasRate && cr.getCommissionRate() != null) {
+                        lastRate = cr.getCommissionRate();
+                        hasRate = true;
+                    }
+                }
+            }
+            m.put("product_titles", productTitles.stream().collect(Collectors.joining("、")));
+            m.put("quantity", quantity);
+            m.put("paid_amount", paidAmount.setScale(2, RoundingMode.HALF_UP));
+            m.put("commission", commission.setScale(2, RoundingMode.HALF_UP));
+            m.put("commission_rate", rateToPercent(lastRate));
+            m.put("card_keys", cardContents);
+            return m;
+        }).toList();
+        return pageResult(items, bindings.getTotalElements(), page, pageSize);
+    }
+
+    /** 是否为有效成交订单（已付款/已发货/已完成） */
+    private boolean isPaidOrder(Order o) {
+        return o.getStatus() != null && switch (o.getStatus()) {
+            case PAID, DELIVERED, COMPLETED -> true;
+            default -> false;
+        };
     }
 
     @Override

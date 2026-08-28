@@ -22,6 +22,7 @@ import type {
   SalesTrend,
   CardKeyStockSummary,
   CardKeyListItem,
+  SoldCardKeyRecord,
   CardImportBatch,
   OrderCardKey,
   AdminOrderItem,
@@ -584,9 +585,13 @@ export const adminCategoryApi = {
 // ============================================================
 
 export const adminCardKeyApi = {
-  getList: (params: { product_id: string; spec_id?: string | null; page?: number; page_size?: number }) => {
+  getList: (params: { product_id: string; spec_id?: string | null; status?: string; keyword?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<CardKeyListItem>>(`/admin/card-keys/list?${qs}`)
+  },
+  getSold: (params?: { keyword?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params ?? {})
+    return request<PaginatedData<SoldCardKeyRecord>>(`/admin/card-keys/sold?${qs}`)
   },
   getStock: (params?: { product_id?: string; spec_id?: string }) => {
     const qs = buildQuery(params ?? {})
@@ -914,6 +919,14 @@ export const adminDistributionApi = {
     return request<PaginatedData<any>>(`/admin/distribution/distributors?${qs}`)
   },
   getDistributor: (id: string) => request<any>(`/admin/distribution/distributors/${id}`),
+  listSubordinates: (id: string, params: { keyword?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/admin/distribution/distributors/${id}/subordinates?${qs}`)
+  },
+  listCustomers: (id: string, params: { keyword?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/admin/distribution/distributors/${id}/customers?${qs}`)
+  },
   updateDistributorStatus: (id: string, status: string, reason?: string) =>
     request<void>(`/admin/distribution/distributors/${id}/status`, { method: "PUT", body: JSON.stringify({ status, reason: reason || "" }) }),
   updateDistributorRate: (id: string, custom_rate?: number, sub_rate?: number) =>

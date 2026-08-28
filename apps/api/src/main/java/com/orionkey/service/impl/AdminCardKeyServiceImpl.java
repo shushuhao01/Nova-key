@@ -5,8 +5,11 @@ import com.orionkey.constant.CardKeyStatus;
 import com.orionkey.constant.ErrorCode;
 import com.orionkey.entity.CardImportBatch;
 import com.orionkey.entity.CardKey;
+import com.orionkey.entity.Distributor;
+import com.orionkey.entity.Order;
 import com.orionkey.entity.OrderItem;
 import com.orionkey.entity.Product;
+import com.orionkey.entity.User;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.*;
 import com.orionkey.service.AdminCardKeyService;
@@ -17,7 +20,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -29,6 +34,9 @@ public class AdminCardKeyServiceImpl implements AdminCardKeyService {
     private final ProductRepository productRepository;
     private final ProductSpecRepository productSpecRepository;
     private final OrderItemRepository orderItemRepository;
+    private final OrderRepository orderRepository;
+    private final UserRepository userRepository;
+    private final DistributorRepository distributorRepository;
 
     @Override
     public List<?> getStockSummary(UUID productId, UUID specId) {
@@ -203,9 +211,16 @@ public class AdminCardKeyServiceImpl implements AdminCardKeyService {
     }
 
     @Override
-    public PageResult<?> listCardKeys(UUID productId, UUID specId, int page, int pageSize) {
+    public PageResult<?> listCardKeys(UUID productId, UUID specId, String status, String keyword, int page, int pageSize) {
         var pageable = PageRequest.of(page - 1, pageSize);
-        var keyPage = cardKeyRepository.findByProductIdAndOptionalSpecId(productId, specId, pageable);
+        String kw = keyword == null ? "" : keyword.trim().toLowerCase();
+        Collection<CardKeyStatus> statuses = parseStatuses(status);
+        Page<CardKey> keyPage;
+        if (statuses != null && statuses.size() == 1 && statuses.contains(CardKeyStatus.SOLD)) {
+            keyPage = cardKeyRepository.findAdminSoldList(productId, specId, kw, pageable);
+        } else {
+            keyPage = cardKeyRepository.findAdminList(productId, specId, statuses, kw, pageable);
+        }
         var list = keyPage.getContent().stream().map(k -> {
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("id", k.getId());
@@ -214,9 +229,93 @@ public class AdminCardKeyServiceImpl implements AdminCardKeyService {
             map.put("order_id", k.getOrderId());
             map.put("created_at", k.getCreatedAt());
             map.put("sold_at", k.getSoldAt());
+            map.put("buyer", resolveBuyer(k.getOrderId()));
             return map;
         }).toList();
         return PageResult.of(keyPage, list);
+    }
+
+    @Override
+    public PageResult<?> listSoldRecords(String keyword, int page, int pageSize) {
+        var pageable = PageRequest.of(page - 1, pageSize);
+        String kw = keyword == null ? "" : keyword.trim().toLowerCase();
+        Page<CardKey> keyPage = cardKeyRepository.findSoldRecords(kw, pageable);
+
+        // 批量取订单 + 规格/商品标题 + 推广员
+        List<CardKey> keys = keyPage.getContent();
+        Set<UUID> orderIds = keys.stream().map(CardKey::getOrderId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<UUID, Order> orderMap = orderIds.isEmpty() ? Map.of()
+                : orderRepository.findByIdIn(orderIds.stream().toList()).stream().collect(Collectors.toMap(Order::getId, o -> o));
+
+        Set<UUID> productIds = keys.stream().map(CardKey::getProductId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<UUID, Product> productMap = productIds.isEmpty() ? Map.of()
+                : productRepository.findAllById(productIds).stream().collect(Collectors.toMap(Product::getId, p -> p));
+
+        Set<UUID> distIds = orderMap.values().stream().map(Order::getReferralDistributorId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<UUID, Distributor> distMap = distIds.isEmpty() ? Map.of()
+                : distributorRepository.findAllById(distIds).stream().collect(Collectors.toMap(Distributor::getId, d -> d));
+        Set<UUID> distUserIds = distMap.values().stream().map(Distributor::getUserId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<UUID, User> distUserMap = distUserIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(distUserIds).stream().collect(Collectors.toMap(User::getId, u -> u));
+
+        var list = keys.stream().map(k -> {
+            Order o = k.getOrderId() != null ? orderMap.get(k.getOrderId()) : null;
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("id", k.getId());
+            map.put("content", k.getContent());
+            Product p = productMap.get(k.getProductId());
+            map.put("product_title", p != null ? p.getTitle() : resolveOrderProductTitle(k, o));
+            map.put("amount", o != null && o.getActualAmount() != null ? o.getActualAmount() : BigDecimal.ZERO);
+            map.put("sold_at", k.getSoldAt());
+            map.put("buyer", resolveBuyerFromOrder(o));
+            map.put("promoter", resolvePromoter(o, distMap, distUserMap));
+            return map;
+        }).toList();
+        return PageResult.of(keyPage, list);
+    }
+
+    /** 解析状态参数：all/空=全部(空集合)，unsold=未售出(AVAILABLE+LOCKED)，sold=已售出(SOLD) */
+    private Collection<CardKeyStatus> parseStatuses(String status) {
+        if (status == null || status.isBlank()) return Collections.emptyList();
+        return switch (status.trim().toLowerCase()) {
+            case "unsold" -> List.of(CardKeyStatus.AVAILABLE, CardKeyStatus.LOCKED);
+            case "sold" -> List.of(CardKeyStatus.SOLD);
+            default -> Collections.emptyList();
+        };
+    }
+
+    /** 依据订单解析购买用户（注册用户显示用户名，匿名显示邮箱） */
+    private String resolveBuyer(UUID orderId) {
+        if (orderId == null) return null;
+        return orderRepository.findById(orderId).map(this::resolveBuyerFromOrder).orElse(null);
+    }
+
+    private String resolveBuyerFromOrder(Order o) {
+        if (o == null) return null;
+        if (o.getUserId() != null) {
+            return userRepository.findById(o.getUserId()).map(User::getUsername).orElse(o.getEmail());
+        }
+        return o.getEmail();
+    }
+
+    private String resolveOrderProductTitle(CardKey k, Order o) {
+        if (k.getOrderItemId() != null) {
+            return orderItemRepository.findById(k.getOrderItemId()).map(OrderItem::getProductTitle).orElse(null);
+        }
+        if (o != null) {
+            return orderItemRepository.findByOrderId(o.getId()).stream().findFirst()
+                    .map(OrderItem::getProductTitle).orElse(null);
+        }
+        return null;
+    }
+
+    private String resolvePromoter(Order o, Map<UUID, Distributor> distMap, Map<UUID, User> distUserMap) {
+        if (o == null || o.getReferralDistributorId() == null) return null;
+        Distributor d = distMap.get(o.getReferralDistributorId());
+        if (d == null) return null;
+        User u = d.getUserId() != null ? distUserMap.get(d.getUserId()) : null;
+        if (u != null) return (u.getUsername() != null ? u.getUsername() : u.getEmail());
+        return d.getDistributorCode();
     }
 
     private Map<String, Object> buildStockEntry(UUID productId, String productTitle, UUID specId, String specName) {

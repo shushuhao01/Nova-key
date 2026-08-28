@@ -591,6 +591,8 @@ function DistributorsTab({ dateVersion }: { dateVersion: number }) {
   const [currentPage, setCurrentPage] = useState(1)
   const [rateModal, setRateModal] = useState<Distributor | null>(null)
   const [detailModal, setDetailModal] = useState<Distributor | null>(null)
+  const [teamModal, setTeamModal] = useState<{ d: Distributor; mode: TeamMode } | null>(null)
+  const [subDetail, setSubDetail] = useState<Distributor | null>(null)
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -742,9 +744,27 @@ function DistributorsTab({ dateVersion }: { dateVersion: number }) {
                       <td className="px-4 py-3 text-muted-foreground">{d.paid_order_count ?? 0} 单</td>
                       <td className="px-4 py-3 font-medium text-foreground">{fmtMoney(d.total_commission)}</td>
                       <td className="px-4 py-3 text-emerald-600">{fmtMoney(d.available_balance)}</td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">
-                        <div>下级 {d.subordinate_count || 0}</div>
-                        <div>客户 {d.customer_count || 0}</div>
+                      <td className="px-4 py-3 text-xs">
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => setTeamModal({ d, mode: "subordinates" })}
+                            className="text-primary hover:underline"
+                            title="查看下级成员"
+                          >
+                            下级 {d.subordinate_count || 0}
+                          </button>
+                        </div>
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => setTeamModal({ d, mode: "customers" })}
+                            className="text-primary hover:underline"
+                            title="查看绑定客户"
+                          >
+                            客户 {d.customer_count || 0}
+                          </button>
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(d.applied_at)}</td>
                       <td className="px-4 py-3">
@@ -804,6 +824,24 @@ function DistributorsTab({ dateVersion }: { dateVersion: number }) {
         <DistributorDetailModal
           distributor={detailModal}
           onClose={() => setDetailModal(null)}
+          onOpenTeam={(mode) => setTeamModal({ d: detailModal, mode })}
+        />
+      )}
+
+      {subDetail && (
+        <DistributorDetailModal
+          distributor={subDetail}
+          onClose={() => setSubDetail(null)}
+        />
+      )}
+
+      {teamModal && (
+        <TeamModal
+          distributorId={teamModal.d.id}
+          distributorName={teamModal.d.username || "推广员"}
+          initialMode={teamModal.mode}
+          onClose={() => setTeamModal(null)}
+          onOpenDistributor={(s) => setSubDetail({ id: s.id, username: s.username ?? "—", user_id: "" } as Distributor)}
         />
       )}
     </div>
@@ -811,9 +849,10 @@ function DistributorsTab({ dateVersion }: { dateVersion: number }) {
 }
 
 /** 推广员详情弹窗：基础信息 + 佣金/余额数据 + 团队数据 */
-function DistributorDetailModal({ distributor, onClose }: {
+function DistributorDetailModal({ distributor, onClose, onOpenTeam }: {
   distributor: Distributor
   onClose: () => void
+  onOpenTeam?: (mode: TeamMode) => void
 }) {
   const [detail, setDetail] = useState<Record<string, any> | null>(null)
   const [loading, setLoading] = useState(true)
@@ -915,9 +954,17 @@ function DistributorDetailModal({ distributor, onClose }: {
                 </div>
                 <div className="rounded-lg border border-border p-3">
                   <p className="text-xs text-muted-foreground">团队数据</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">
-                    下级 {v("subordinate_count") ?? 0} · 客户 {v("customer_count") ?? 0}
-                  </p>
+                  {onOpenTeam ? (
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      <button type="button" onClick={() => onOpenTeam("subordinates")} className="text-primary hover:underline">下级 {v("subordinate_count") ?? 0}</button>
+                      <span className="mx-1">·</span>
+                      <button type="button" onClick={() => onOpenTeam("customers")} className="text-primary hover:underline">客户 {v("customer_count") ?? 0}</button>
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      下级 {v("subordinate_count") ?? 0} · 客户 {v("customer_count") ?? 0}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -942,6 +989,255 @@ function DistributorDetailModal({ distributor, onClose }: {
 
         <div className="mt-6 flex justify-end">
           <button type="button" onClick={onClose} className="h-10 rounded-lg border border-input px-5 text-sm font-medium text-foreground hover:bg-accent">关闭</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+type TeamMode = "subordinates" | "customers"
+
+interface TeamSubordinate {
+  id: string
+  distributor_code: string | null
+  username: string | null
+  email: string | null
+  status: DistributorStatus
+  total_sales: number
+  paid_count: number
+  commission: number
+  sub_rate: number | null
+  parent_commission: number
+  created_at: string
+}
+
+interface TeamCustomer {
+  id: string
+  customer_email: string
+  username: string | null
+  purchase_count: number
+  first_bind_at: string
+  last_purchase_at: string | null
+  product_titles: string
+  quantity: number
+  paid_amount: number
+  commission: number
+  commission_rate: number | null
+  card_keys: string[]
+}
+
+/** 团队弹窗：下级成员 / 绑定客户，默认 10 条/页，支持搜索与翻页。点击"下级-查看详情"可进入推广员详情 */
+function TeamModal({ distributorId, distributorName, initialMode, onClose, onOpenDistributor }: {
+  distributorId: string
+  distributorName: string
+  initialMode: TeamMode
+  onClose: () => void
+  onOpenDistributor: (d: TeamSubordinate) => void
+}) {
+  const [mode, setMode] = useState<TeamMode>(initialMode)
+  const [keyword, setKeyword] = useState("")
+  const [page, setPage] = useState(1)
+  const [list, setList] = useState<TeamSubordinate[] | TeamCustomer[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+
+  const fetchList = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = mode === "subordinates"
+        ? await adminDistributionApi.listSubordinates(distributorId, { page, page_size: ITEMS_PER_PAGE, keyword: keyword || undefined })
+        : await adminDistributionApi.listCustomers(distributorId, { page, page_size: ITEMS_PER_PAGE, keyword: keyword || undefined })
+      setList((data.list || []) as TeamSubordinate[] | TeamCustomer[])
+      setTotal(data.pagination?.total ?? 0)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "加载失败")
+      setList([])
+      setTotal(0)
+    } finally {
+      setLoading(false)
+    }
+  }, [mode, page, keyword, distributorId])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setPage(1), 300)
+    return () => clearTimeout(timer)
+  }, [keyword, mode])
+
+  useEffect(() => { fetchList() }, [fetchList])
+
+  const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
+
+  const switchMode = (m: TeamMode) => { setMode(m); setPage(1) }
+
+  const copyText = (text: string) => {
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() => toast.success("卡密已复制"))
+    }
+  }
+
+  const customerLabel = (c: TeamCustomer) => c.username || c.customer_email
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-border bg-card shadow-2xl">
+        {/* Header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-6 py-4">
+          <div className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-bold text-foreground">{distributorName} · 团队</h2>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4 p-6">
+          {/* 搜索 + 标签切换 */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex rounded-lg border border-border bg-card p-1">
+              {([
+                { v: "subordinates" as TeamMode, label: "下级成员" },
+                { v: "customers" as TeamMode, label: "绑定客户" },
+              ]).map(t => (
+                <button
+                  key={t.v}
+                  type="button"
+                  onClick={() => switchMode(t.v)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium transition-colors",
+                    mode === t.v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {t.v === "subordinates" ? <Users2 className="h-4 w-4" /> : <Users className="h-4 w-4" />}
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div className="relative max-w-xs flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                placeholder={mode === "subordinates" ? "搜索用户名 / 邮箱 / 编号" : "搜索客户邮箱 / 用户名"}
+                className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-hidden rounded-xl border border-border">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  {mode === "subordinates" ? (
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">下级成员</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">推广总额</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">付款单数</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金（抽成后）</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">抽成比例</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">已抽佣金</th>
+                      <th className="px-4 py-3 text-right font-medium text-muted-foreground">操作</th>
+                    </tr>
+                  ) : (
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">客户</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">购买商品</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">数量</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">付款金额</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">抽成比例</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">佣金</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">卡密</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">最近购买</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">首次绑定</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">已购次数</th>
+                      <th className="px-4 py-3 text-right font-medium text-muted-foreground">操作</th>
+                    </tr>
+                  )}
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr><td colSpan={11} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+                  ) : list.length === 0 ? (
+                    <tr><td colSpan={11} className="py-8 text-center text-sm text-muted-foreground">暂无数据</td></tr>
+                  ) : mode === "subordinates" ? (
+                    (list as TeamSubordinate[]).map((s) => (
+                      <tr key={s.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary"><User className="h-4 w-4" /></span>
+                            <div className="flex flex-col">
+                              <span className="font-medium text-foreground">{s.username || "—"}</span>
+                              <span className="text-xs text-muted-foreground">{s.email || s.distributor_code || "—"}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 font-medium text-primary">{fmtMoney(s.total_sales)}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{s.paid_count} 单</td>
+                        <td className="px-4 py-3 font-medium text-foreground">{fmtMoney(s.commission)}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{Number(s.sub_rate ?? 0).toFixed(2)}%</td>
+                        <td className="px-4 py-3 font-medium text-amber-600">{fmtMoney(s.parent_commission)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end">
+                            <button type="button" onClick={() => onOpenDistributor(s)} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="查看详情">
+                              <Eye className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    (list as TeamCustomer[]).map((c) => (
+                      <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground"><Users className="h-4 w-4" /></span>
+                            <span className="font-medium text-foreground">{customerLabel(c)}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 max-w-[200px] truncate text-muted-foreground" title={c.product_titles}>{c.product_titles || "—"}</td>
+                        <td className="px-4 py-3 text-foreground">{c.quantity}</td>
+                        <td className="px-4 py-3 font-medium text-primary">{fmtMoney(c.paid_amount)}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{Number(c.commission_rate ?? 0).toFixed(2)}%</td>
+                        <td className="px-4 py-3 font-medium text-foreground">{fmtMoney(c.commission)}</td>
+                        <td className="px-4 py-3">
+                          {c.card_keys.length === 0 ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            <span
+                              className="inline-flex max-w-[160px] cursor-pointer items-center rounded bg-muted/50 px-1.5 py-0.5 font-mono text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                              title={c.card_keys.join("\n")}
+                              onClick={() => copyText(c.card_keys.join("\n"))}
+                            >
+                              {c.card_keys[0].slice(0, 8)}… 等 {c.card_keys.length} 张
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(c.last_purchase_at)}</td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(c.first_bind_at)}</td>
+                        <td className="px-4 py-3 text-foreground">{c.purchase_count}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end">
+                            <button type="button" onClick={() => toast.info(`客户详情：${customerLabel(c)}`)} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="查看详情">
+                              <Eye className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border px-4 py-3">
+                <span className="text-sm text-muted-foreground">共 {total} 条，第 {page}/{totalPages} 页</span>
+                <Pager page={page} totalPages={totalPages} onChange={setPage} />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

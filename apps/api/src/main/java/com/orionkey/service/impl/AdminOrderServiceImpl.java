@@ -7,8 +7,10 @@ import com.orionkey.constant.OrderType;
 import com.orionkey.entity.Order;
 import com.orionkey.entity.OrderItem;
 import com.orionkey.entity.PaymentChannel;
+import com.orionkey.entity.Distributor;
 import com.orionkey.entity.User;
 import com.orionkey.exception.BusinessException;
+import com.orionkey.repository.DistributorRepository;
 import com.orionkey.repository.OrderItemRepository;
 import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.PaymentChannelRepository;
@@ -38,6 +40,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final UserRepository userRepository;
+    private final DistributorRepository distributorRepository;
     private final NotificationService notificationService;
     private final DistributionService distributionService;
     private final WxpayService wxpayService;
@@ -81,7 +84,10 @@ public class AdminOrderServiceImpl implements AdminOrderService {
             orderPage = orderRepository.findAdminOrders(statusParam, containsRefunded, ot, pm, isRiskFlagged, pageable);
         }
 
-        var list = orderPage.getContent().stream().map(this::toAdminOrder).toList();
+        // 批量解析推广员（订单 referral_distributor_id → 分销员账号/用户名），避免 N+1
+        Map<UUID, String> promoterMap = resolvePromoters(orderPage.getContent().stream()
+                .map(Order::getReferralDistributorId).filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet()));
+        var list = orderPage.getContent().stream().map(o -> toAdminOrder(o, promoterMap)).toList();
         return PageResult.of(orderPage, list);
     }
 
@@ -89,7 +95,28 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     public Object getOrderDetail(UUID id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
-        return toAdminOrder(order);
+        Map<UUID, String> promoterMap = order.getReferralDistributorId() != null
+                ? resolvePromoters(Set.of(order.getReferralDistributorId()))
+                : Map.of();
+        return toAdminOrder(order, promoterMap);
+    }
+
+    /** 批量解析分销员 id → 展示名（优先用户名，其次邮箱，其次分销编号） */
+    private Map<UUID, String> resolvePromoters(Set<UUID> distIds) {
+        if (distIds.isEmpty()) return Map.of();
+        List<Distributor> distributors = distributorRepository.findAllById(distIds);
+        if (distributors.isEmpty()) return Map.of();
+        Set<UUID> userIds = distributors.stream().map(Distributor::getUserId).filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+        Map<UUID, String> userNames = userIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(userIds).stream().collect(java.util.stream.Collectors.toMap(User::getId,
+                        u -> u.getUsername() != null ? u.getUsername() : u.getEmail()));
+        Map<UUID, String> result = new HashMap<>();
+        for (Distributor d : distributors) {
+            String name = d.getUserId() != null ? userNames.get(d.getUserId()) : null;
+            if (name == null || name.isBlank()) name = d.getDistributorCode();
+            result.put(d.getId(), name);
+        }
+        return result;
     }
 
     @Override
@@ -229,7 +256,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         };
     }
 
-    private Map<String, Object> toAdminOrder(Order o) {
+    private Map<String, Object> toAdminOrder(Order o, Map<UUID, String> promoterMap) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", o.getId());
         map.put("total_amount", o.getTotalAmount());
@@ -237,6 +264,9 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         map.put("status", o.getStatus().name());
         map.put("order_type", o.getOrderType().name());
         map.put("payment_method", o.getPaymentMethod());
+        map.put("device", o.getDevice());
+        // 推广员：该订单由哪个分销员推荐成交（无则 null，前端显示 -）
+        map.put("promoter", o.getReferralDistributorId() != null ? promoterMap.get(o.getReferralDistributorId()) : null);
         // 支付渠道 provider_type（native_wxpay/native_alipay/epay/usdt），供前端判断是否可发起退款
         if (o.getPaymentMethod() != null) {
             map.put("provider_type", paymentChannelRepository

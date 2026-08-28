@@ -5,9 +5,9 @@ import java.util.UUID;
 
 public interface OrderService {
 
-    Map<String, Object> createDirectOrder(Map<String, Object> request, UUID userId, String clientIp, String sessionToken, UUID referralDistributorId, UUID promotionLinkId);
+    Map<String, Object> createDirectOrder(Map<String, Object> request, UUID userId, String clientIp, String device, String sessionToken, UUID referralDistributorId, UUID promotionLinkId);
 
-    Map<String, Object> createCartOrder(Map<String, Object> request, UUID userId, String clientIp, String sessionToken, UUID referralDistributorId, UUID promotionLinkId);
+    Map<String, Object> createCartOrder(Map<String, Object> request, UUID userId, String clientIp, String device, String sessionToken, UUID referralDistributorId, UUID promotionLinkId);
 
     Map<String, Object> getOrderStatus(UUID orderId);
 

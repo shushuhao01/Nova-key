@@ -49,8 +49,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
-    public Map<String, Object> createDirectOrder(Map<String, Object> req, UUID userId, String clientIp, String sessionToken, UUID referralDistributorId, UUID promotionLinkId) {
-        String device = (String) req.get("device");
+    public Map<String, Object> createDirectOrder(Map<String, Object> req, UUID userId, String clientIp, String device, String sessionToken, UUID referralDistributorId, UUID promotionLinkId) {
         String idempotencyKey = (String) req.get("idempotency_key");
         if (idempotencyKey != null) {
             Optional<Order> existing = orderRepository.findByIdempotencyKey(idempotencyKey);
@@ -119,6 +118,7 @@ public class OrderServiceImpl implements OrderService {
         order.setExpiresAt(LocalDateTime.now().plusMinutes(expireMinutes));
         order.setIdempotencyKey(idempotencyKey);
         order.setClientIp(clientIp);
+        order.setDevice(device);
         order.setSessionToken(sessionToken);
         applyReferralDistributor(order, referralDistributorId, promotionLinkId, userId);
         orderRepository.save(order);
@@ -170,8 +170,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
-    public Map<String, Object> createCartOrder(Map<String, Object> req, UUID userId, String clientIp, String sessionToken, UUID referralDistributorId, UUID promotionLinkId) {
-        String device = (String) req.get("device");
+    public Map<String, Object> createCartOrder(Map<String, Object> req, UUID userId, String clientIp, String device, String sessionToken, UUID referralDistributorId, UUID promotionLinkId) {
         String idempotencyKey = (String) req.get("idempotency_key");
         if (idempotencyKey != null) {
             Optional<Order> existing = orderRepository.findByIdempotencyKey(idempotencyKey);
@@ -227,6 +226,7 @@ public class OrderServiceImpl implements OrderService {
         order.setExpiresAt(LocalDateTime.now().plusMinutes(expireMinutes));
         order.setIdempotencyKey(idempotencyKey);
         order.setClientIp(clientIp);
+        order.setDevice(device);
         order.setSessionToken(sessionToken);
         applyReferralDistributor(order, referralDistributorId, promotionLinkId, userId);
         orderRepository.save(order);

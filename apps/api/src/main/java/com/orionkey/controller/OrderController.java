@@ -11,6 +11,7 @@ import com.orionkey.repository.UnmatchedTransactionRepository;
 import com.orionkey.service.DeliverService;
 import com.orionkey.service.OrderService;
 import com.orionkey.service.TxidVerifyService;
+import com.orionkey.util.UserAgentUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +38,8 @@ public class OrderController {
                                       @RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
                                       HttpServletRequest httpRequest) {
         return ApiResponse.success(orderService.createDirectOrder(
-                request, RequestContext.getUserId(), httpRequest.getRemoteAddr(), sessionToken,
+                request, RequestContext.getUserId(), httpRequest.getRemoteAddr(),
+                UserAgentUtil.parseDevice(httpRequest.getHeader("User-Agent")), sessionToken,
                 resolveReferralDistributorId(request, httpRequest), resolvePromotionLinkId(request, httpRequest)));
     }
 
@@ -46,7 +48,8 @@ public class OrderController {
                                           @RequestHeader(value = "X-Session-Token", required = false) String sessionToken,
                                           HttpServletRequest httpRequest) {
         return ApiResponse.success(orderService.createCartOrder(
-                request, RequestContext.getUserId(), httpRequest.getRemoteAddr(), sessionToken,
+                request, RequestContext.getUserId(), httpRequest.getRemoteAddr(),
+                UserAgentUtil.parseDevice(httpRequest.getHeader("User-Agent")), sessionToken,
                 resolveReferralDistributorId(request, httpRequest), resolvePromotionLinkId(request, httpRequest)));
     }
 

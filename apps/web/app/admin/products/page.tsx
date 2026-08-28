@@ -469,6 +469,7 @@ export default function AdminProductsPage() {
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.statusLabel")}</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">首页显示</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">商品链接</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">创建时间</th>
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">{t("admin.actions")}</th>
                 </tr>
               </thead>
@@ -522,9 +523,23 @@ export default function AdminProductsPage() {
                       </button>
                     </td>
                     <td className="px-4 py-3">
-                      <button type="button" className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors" title="复制商品链接" onClick={() => handleCopyLink(product)}>
-                        <Link2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button type="button" className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors" title="复制商品链接" onClick={() => handleCopyLink(product)}>
+                          <Link2 className="h-4 w-4" />
+                        </button>
+                        <a
+                          href={product.short_code ? `/s/${product.short_code}` : `/product/${product.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="max-w-[170px] truncate font-mono text-xs text-primary hover:underline"
+                          title={product.short_code ? `/s/${product.short_code}` : `/product/${product.id}`}
+                        >
+                          {product.short_code ? `/s/${product.short_code}` : `/product/${product.id}`}
+                        </a>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                      {product.created_at ? new Date(product.created_at).toLocaleString() : "-"}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
@@ -546,7 +561,7 @@ export default function AdminProductsPage() {
                 ))}
                 {products.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-sm text-muted-foreground">{t("admin.noProductData")}</td>
+                    <td colSpan={10} className="py-12 text-center text-sm text-muted-foreground">{t("admin.noProductData")}</td>
                   </tr>
                 )}
               </tbody>

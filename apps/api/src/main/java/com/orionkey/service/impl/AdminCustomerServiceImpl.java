@@ -238,7 +238,7 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
         m.put("total_spent", totalSpent);
         m.put("first_order_at", all.get(all.size() - 1).getCreatedAt());
         m.put("last_order_at", all.get(0).getCreatedAt());
-        m.put("orders", PageResult.of(slice, page, pageable.getPageSize(), all.size()));
+        m.put("orders", PageResult.of(slice.stream().map(this::toOrderMap).toList(), page, pageable.getPageSize(), all.size()));
         return m;
     }
 

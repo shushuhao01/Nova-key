@@ -550,7 +550,7 @@ export default function AdminCustomersPage() {
                             <tr key={o.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20">
                               <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{o.id.slice(0, 8)}</td>
                               <td className="px-3 py-2.5 text-foreground">
-                                {o.items.map((it, i) => (
+                                {(o.items ?? []).map((it, i) => (
                                   <span key={i} className="block">
                                     {it.product_title}{it.spec_name ? ` [${it.spec_name}]` : ""} × {it.quantity}
                                   </span>

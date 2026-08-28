@@ -19,6 +19,10 @@ public interface DistributionService {
     Map<String, Object> adminGetDistributor(UUID id);
     void adminUpdateDistributorStatus(UUID id, String status, String reason);
     void adminUpdateDistributorRate(UUID id, BigDecimal customRate, BigDecimal subRate);
+    /** 管理后台：某推广员的下级成员分页（推广总额/付款单数/抽成后佣金/抽成比例/已抽佣金） */
+    Map<String, Object> adminListSubordinates(UUID distributorId, String keyword, int page, int pageSize);
+    /** 管理后台：某推广员绑定的客户分页（商品/数量/付款金额/佣金/卡密/购买次数等） */
+    Map<String, Object> adminListCustomers(UUID distributorId, String keyword, int page, int pageSize);
 
     // ── 管理后台：规则配置 ──
     Map<String, Object> getRules();

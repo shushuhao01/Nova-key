@@ -13,6 +13,9 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Search,
+  RefreshCw,
+  Copy,
 } from "lucide-react"
 import { cn, stripInvisible } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
@@ -24,11 +27,35 @@ import {
   mockProducts,
 } from "@/lib/mock-data"
 import { Modal } from "@/components/ui/modal"
-import type { CardKeyStockSummary, CardKeyListItem, CardImportBatch, ProductCard, ProductSpec } from "@/types"
+import type { CardKeyStockSummary, CardKeyListItem, CardImportBatch, ProductCard, ProductSpec, SoldCardKeyRecord } from "@/types"
+
+/** 卡密内容单元格：默认两行缩略，超出悬浮提示，附一键复制 */
+function CardContentCell({ content }: { content: string }) {
+  const copy = () => {
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(content).then(() => toast.success("卡密已复制"))
+    }
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <span className="line-clamp-2 min-w-0 flex-1 font-mono text-xs text-foreground break-all" title={content}>
+        {content}
+      </span>
+      <button
+        type="button"
+        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        title="复制完整卡密"
+        onClick={copy}
+      >
+        <Copy className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
 
 export default function AdminCardKeysPage() {
   const { t } = useLocale()
-  const [tab, setTab] = useState<"stock" | "import">("stock")
+  const [tab, setTab] = useState<"stock" | "import" | "sold">("stock")
   const [showImportModal, setShowImportModal] = useState(false)
   const [stockList, setStockList] = useState<CardKeyStockSummary[]>([])
   const [importBatches, setImportBatches] = useState<CardImportBatch[]>([])
@@ -38,6 +65,13 @@ export default function AdminCardKeysPage() {
   const [products, setProducts] = useState<ProductCard[]>([])
   const [filterProductId, setFilterProductId] = useState("")
 
+  // Sold records tab state
+  const [soldList, setSoldList] = useState<SoldCardKeyRecord[]>([])
+  const [soldTotal, setSoldTotal] = useState(0)
+  const [soldPage, setSoldPage] = useState(1)
+  const [soldKeyword, setSoldKeyword] = useState("")
+  const [soldLoading, setSoldLoading] = useState(false)
+
   // Detail modal state
   const [showDetailModal, setShowDetailModal] = useState(false)
   const [detailItem, setDetailItem] = useState<CardKeyStockSummary | null>(null)
@@ -45,6 +79,8 @@ export default function AdminCardKeysPage() {
   const [detailTotal, setDetailTotal] = useState(0)
   const [detailPage, setDetailPage] = useState(1)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [detailStatus, setDetailStatus] = useState<"all" | "unsold" | "sold">("all")
+  const [detailKeyword, setDetailKeyword] = useState("")
 
   // Import form state
   const [importProductId, setImportProductId] = useState("")
@@ -103,6 +139,21 @@ export default function AdminCardKeysPage() {
 
   useEffect(() => { fetchStock() }, [filterProductId])
   useEffect(() => { fetchImportBatches() }, [importPage])
+  useEffect(() => {
+    const timer = setTimeout(() => setSoldPage(1), 300)
+    return () => clearTimeout(timer)
+  }, [soldKeyword])
+  useEffect(() => { if (tab === "sold") fetchSold() }, [soldPage, soldKeyword, tab])
+  useEffect(() => {
+    if (!showDetailModal || !detailItem) return
+    const timer = setTimeout(() => setDetailPage(1), 300)
+    return () => clearTimeout(timer)
+  }, [detailStatus, detailKeyword, showDetailModal])
+  useEffect(() => {
+    if (!showDetailModal || !detailItem) return
+    fetchDetailKeys(detailItem, detailPage, detailStatus, detailKeyword)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailPage, detailStatus, detailKeyword, showDetailModal])
 
   // Computed stats from stockList
   const totalKeys = stockList.reduce((s, r) => s + r.total, 0)
@@ -187,13 +238,15 @@ export default function AdminCardKeysPage() {
     }
   }
 
-  const fetchDetailKeys = async (item: CardKeyStockSummary, page: number) => {
+  const fetchDetailKeys = async (item: CardKeyStockSummary, page: number, status: "all" | "unsold" | "sold" = detailStatus, keyword: string = detailKeyword) => {
     setDetailLoading(true)
     try {
       const data = await withMockFallback(
         () => adminCardKeyApi.getList({
           product_id: item.product_id,
           spec_id: item.spec_id,
+          status: status === "all" ? undefined : status,
+          keyword: keyword || undefined,
           page,
           page_size: 20,
         }),
@@ -209,11 +262,30 @@ export default function AdminCardKeysPage() {
     }
   }
 
+  const fetchSold = async () => {
+    setSoldLoading(true)
+    try {
+      const data = await withMockFallback(
+        () => adminCardKeyApi.getSold({ page: soldPage, page_size: 10, keyword: soldKeyword || undefined }),
+        () => ({ list: [], pagination: { page: soldPage, page_size: 10, total: 0 } })
+      )
+      setSoldList(data.list)
+      setSoldTotal(data.pagination.total)
+    } catch {
+      setSoldList([])
+      setSoldTotal(0)
+    } finally {
+      setSoldLoading(false)
+    }
+  }
+
   const handleViewDetail = (item: CardKeyStockSummary) => {
     setDetailItem(item)
     setDetailPage(1)
+    setDetailStatus("all")
+    setDetailKeyword("")
     setShowDetailModal(true)
-    fetchDetailKeys(item, 1)
+    fetchDetailKeys(item, 1, "all", "")
   }
 
   const handleDetailPageChange = (page: number) => {
@@ -324,6 +396,7 @@ export default function AdminCardKeysPage() {
         {[
           { key: "stock" as const, label: t("admin.stockOverview") },
           { key: "import" as const, label: t("admin.importRecords") },
+          { key: "sold" as const, label: "已售出" },
         ].map((tabItem) => (
           <button
             key={tabItem.key}
@@ -475,6 +548,78 @@ export default function AdminCardKeysPage() {
         </div>
       )}
 
+      {/* Sold Records Tab */}
+      {tab === "sold" && (
+        <div className="flex flex-col gap-4">
+          <div className="relative max-w-xs">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={soldKeyword}
+              onChange={(e) => setSoldKeyword(e.target.value)}
+              onBlur={() => { if (soldPage !== 1) setSoldPage(1); else fetchSold() }}
+              placeholder="搜索商品 / 卡密 / 用户 / 推广员"
+              className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">商品名称</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">金额</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">卡密</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">售出时间</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">用户</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">推广员</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {soldLoading ? (
+                    <tr><td colSpan={6} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+                  ) : soldList.length === 0 ? (
+                    <tr><td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">暂无已售出卡密数据</td></tr>
+                  ) : soldList.map((rec) => (
+                    <tr key={rec.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3 font-medium text-foreground">{rec.product_title || "-"}</td>
+                      <td className="px-4 py-3 font-medium text-primary">{Number(rec.amount ?? 0).toFixed(2)}</td>
+                      <td className="px-4 py-3 max-w-[260px]"><CardContentCell content={rec.content} /></td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{rec.sold_at ? new Date(rec.sold_at).toLocaleString() : "-"}</td>
+                      <td className="px-4 py-3 text-foreground">{rec.buyer || "-"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{rec.promoter || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center justify-between border-t border-border px-4 py-3">
+              <span className="text-sm text-muted-foreground">共 {soldTotal} 条记录</span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent disabled:opacity-50"
+                  disabled={soldPage <= 1}
+                  onClick={() => setSoldPage(soldPage - 1)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="px-2 text-sm text-foreground">{soldPage} / {Math.max(1, Math.ceil(soldTotal / 10))}</span>
+                <button
+                  type="button"
+                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent disabled:opacity-50"
+                  disabled={soldPage >= Math.max(1, Math.ceil(soldTotal / 10))}
+                  onClick={() => setSoldPage(soldPage + 1)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Import Modal */}
       <Modal open={showImportModal} onClose={() => { setShowImportModal(false); setImportErrors({}) }} className="max-w-lg">
             <div className="border-b border-border px-6 py-4 flex items-center justify-between">
@@ -557,23 +702,67 @@ export default function AdminCardKeysPage() {
 
       {/* Detail Modal */}
       <Modal open={showDetailModal} onClose={() => setShowDetailModal(false)} className="max-w-[90vw] w-[1100px]">
-        <div className="border-b border-border px-6 py-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">卡密详情</h2>
-            {detailItem && (
-              <p className="text-sm text-muted-foreground">
-                {detailItem.product_title}
-                {detailItem.spec_name ? <>{` — ${detailItem.spec_name}`}{detailItem.spec_enabled === false && <span className="ml-1 text-amber-500">(已停用)</span>}</> : ""}
-              </p>
-            )}
+        <div className="border-b border-border px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">卡密详情</h2>
+              {detailItem && (
+                <p className="text-sm text-muted-foreground">
+                  {detailItem.product_title}
+                  {detailItem.spec_name ? <>{` — ${detailItem.spec_name}`}{detailItem.spec_enabled === false && <span className="ml-1 text-amber-500">(已停用)</span>}</> : ""}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowDetailModal(false)}
+              className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowDetailModal(false)}
-            className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex rounded-lg border border-border bg-card p-1">
+              {([
+                { key: "all" as const, label: "全部" },
+                { key: "unsold" as const, label: "未售出" },
+                { key: "sold" as const, label: "已售出" },
+              ]).map((st) => (
+                <button
+                  key={st.key}
+                  type="button"
+                  onClick={() => setDetailStatus(st.key)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                    detailStatus === st.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={detailKeyword}
+                  onChange={(e) => setDetailKeyword(e.target.value)}
+                  onBlur={() => { if (detailPage !== 1) setDetailPage(1); else if (detailItem) fetchDetailKeys(detailItem, detailPage, detailStatus, detailKeyword) }}
+                  placeholder="搜索卡密内容"
+                  className="h-9 w-56 rounded-lg border border-input bg-background pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <button
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-input text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                title="刷新"
+                onClick={() => detailItem && fetchDetailKeys(detailItem, detailPage, detailStatus, detailKeyword)}
+              >
+                <RefreshCw className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </div>
         <div className="p-6">
           {detailLoading ? (
@@ -587,18 +776,19 @@ export default function AdminCardKeysPage() {
               <table className="w-full text-sm table-fixed" onCopy={(e) => { const t = window.getSelection()?.toString(); if (t) { e.clipboardData.setData("text/plain", stripInvisible(t)); e.preventDefault() } }}>
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="w-[36%] px-3 py-2 text-left font-medium text-muted-foreground">卡密内容</th>
+                    <th className="w-[32%] px-3 py-2 text-left font-medium text-muted-foreground">卡密内容</th>
                     <th className="w-[8%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">状态</th>
-                    <th className="w-[16%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">创建时间</th>
-                    <th className="w-[16%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">订单号</th>
-                    <th className="w-[16%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">售出时间</th>
+                    <th className="w-[12%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">购买用户</th>
+                    <th className="w-[13%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">创建时间</th>
+                    <th className="w-[13%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">订单号</th>
+                    <th className="w-[14%] px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">售出时间</th>
                     <th className="w-[8%] px-3 py-2 text-right font-medium text-muted-foreground whitespace-nowrap">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {detailKeys.map((key) => (
                     <tr key={key.id} className="border-b border-border/50 last:border-0">
-                      <td className="px-3 py-2 font-mono text-xs text-foreground break-all">{key.content}</td>
+                      <td className="px-3 py-2 max-w-[300px]"><CardContentCell content={key.content} /></td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <span className={cn(
                           "rounded-full px-2 py-0.5 text-xs font-medium",
@@ -610,6 +800,7 @@ export default function AdminCardKeysPage() {
                           {key.status === "AVAILABLE" ? "可用" : key.status === "SOLD" ? "已售" : key.status === "LOCKED" ? "锁定" : "已作废"}
                         </span>
                       </td>
+                      <td className="px-3 py-2 text-xs text-foreground whitespace-nowrap">{key.buyer || "-"}</td>
                       <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
                         {new Date(key.created_at).toLocaleString()}
                       </td>

@@ -20,6 +20,9 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
 
     List<CommissionRecord> findByOrderId(UUID orderId);
 
+    /** 某推广员在某订单下的佣金记录（团队-客户聚合购买佣金） */
+    List<CommissionRecord> findByDistributorIdAndOrderId(UUID distributorId, UUID orderId);
+
     /**
      * 管理后台佣金记录列表。from/to 由服务层传入非空哨兵值（null 时间参数出现在
      * "IS NULL" 谓词时 PG 无法推断类型，报 could not determine data type of parameter）。

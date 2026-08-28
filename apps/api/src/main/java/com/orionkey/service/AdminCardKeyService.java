@@ -20,5 +20,8 @@ public interface AdminCardKeyService {
 
     List<?> getCardKeysByOrder(UUID orderId);
 
-    PageResult<?> listCardKeys(UUID productId, UUID specId, int page, int pageSize);
+    PageResult<?> listCardKeys(UUID productId, UUID specId, String status, String keyword, int page, int pageSize);
+
+    /** 全局已售出卡密记录（商品/金额/卡密/售出时间/用户/推广员，默认 10 条/页） */
+    PageResult<?> listSoldRecords(String keyword, int page, int pageSize);
 }

@@ -78,6 +78,24 @@ public class AdminDistributionController {
         return ApiResponse.success(distributionService.adminGetDistributor(id));
     }
 
+    /** 某推广员的下级成员分页（团队-下级） */
+    @GetMapping("/distributors/{id}/subordinates")
+    public ApiResponse<?> listSubordinates(@PathVariable UUID id,
+                                           @RequestParam(required = false) String keyword,
+                                           @RequestParam(defaultValue = "1") int page,
+                                           @RequestParam(value = "page_size", defaultValue = "10") int pageSize) {
+        return ApiResponse.success(distributionService.adminListSubordinates(id, keyword, page, pageSize));
+    }
+
+    /** 某推广员绑定的客户分页（团队-客户） */
+    @GetMapping("/distributors/{id}/customers")
+    public ApiResponse<?> listCustomers(@PathVariable UUID id,
+                                        @RequestParam(required = false) String keyword,
+                                        @RequestParam(defaultValue = "1") int page,
+                                        @RequestParam(value = "page_size", defaultValue = "10") int pageSize) {
+        return ApiResponse.success(distributionService.adminListCustomers(id, keyword, page, pageSize));
+    }
+
     @PutMapping("/distributors/{id}/status")
     public ApiResponse<?> updateDistributorStatus(@PathVariable UUID id, @RequestBody Map<String, Object> request) {
         String status = (String) request.get("status");

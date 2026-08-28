@@ -1,12 +1,16 @@
 "use client"
 
+import { useState } from "react"
 import { OrderStatusBadge } from "@/components/shared/order-status-badge"
+import { OrderDetailModal } from "@/components/admin/order-detail-modal"
+import { Eye } from "lucide-react"
 import { useLocale } from "@/lib/context"
 import { toast } from "sonner"
 import type { AdminOrderItem } from "@/types"
 
 export function RecentOrders({ orders }: { orders: AdminOrderItem[] }) {
   const { t } = useLocale()
+  const [detailOrder, setDetailOrder] = useState<AdminOrderItem | null>(null)
 
   const copyToClipboard = (text: string) => {
     if (navigator.clipboard?.writeText) {
@@ -35,21 +39,25 @@ export function RecentOrders({ orders }: { orders: AdminOrderItem[] }) {
       <div className="overflow-x-auto">
         <table className="w-full text-sm table-fixed">
           <colgroup>
-            <col className="w-[18%]" />{/* 订单号 */}
-            <col className="w-[24%]" />{/* 商品 */}
-            <col className="w-[19%]" />{/* 用户 */}
-            <col className="w-[10%]" />{/* 金额 */}
-            <col className="w-[10%]" />{/* 状态 */}
+            <col className="w-[16%]" />{/* 订单号 */}
+            <col className="w-[22%]" />{/* 商品 */}
+            <col className="w-[17%]" />{/* 用户 */}
+            <col className="w-[12%]" />{/* 推广员 */}
+            <col className="w-[9%]" />{/* 金额 */}
+            <col className="w-[9%]" />{/* 状态 */}
             <col className="w-[19%]" />{/* 时间 */}
+            <col className="w-[5%]" />{/* 操作 */}
           </colgroup>
           <thead>
             <tr className="border-b border-border text-left">
               <th className="pb-3 font-medium text-muted-foreground">{t("admin.orderNo")}</th>
               <th className="pb-3 font-medium text-muted-foreground">{t("admin.product")}</th>
               <th className="pb-3 font-medium text-muted-foreground">{t("admin.user")}</th>
+              <th className="pb-3 font-medium text-muted-foreground">推广员</th>
               <th className="pb-3 font-medium text-muted-foreground">{t("admin.amount")}</th>
               <th className="pb-3 font-medium text-muted-foreground">{t("admin.statusLabel")}</th>
               <th className="pb-3 font-medium text-muted-foreground">{t("admin.time")}</th>
+              <th className="pb-3 text-right font-medium text-muted-foreground">{t("admin.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -78,6 +86,7 @@ export function RecentOrders({ orders }: { orders: AdminOrderItem[] }) {
                   </div>
                 </td>
                 <td className="py-3 truncate text-foreground" title={order.username || order.email}>{order.username || order.email}</td>
+                <td className="py-3 truncate text-muted-foreground" title={order.promoter || "-"}>{order.promoter || "-"}</td>
                 <td className="py-3 font-medium text-foreground">¥{order.actual_amount.toFixed(2)}</td>
                 <td className="py-3">
                   <OrderStatusBadge status={order.status} />
@@ -85,11 +94,21 @@ export function RecentOrders({ orders }: { orders: AdminOrderItem[] }) {
                 <td className="py-3 text-muted-foreground">
                   {new Date(order.created_at).toLocaleString()}
                 </td>
+                <td className="py-3 text-right">
+                  <button
+                    type="button"
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                    title="查看详情"
+                    onClick={() => setDetailOrder(order)}
+                  >
+                    <Eye className="h-4 w-4" />
+                  </button>
+                </td>
               </tr>
             ))}
             {orders.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
                   {t("admin.noOrderData")}
                 </td>
               </tr>
@@ -97,6 +116,8 @@ export function RecentOrders({ orders }: { orders: AdminOrderItem[] }) {
           </tbody>
         </table>
       </div>
+
+      <OrderDetailModal order={detailOrder} onClose={() => setDetailOrder(null)} />
     </div>
   )
 }

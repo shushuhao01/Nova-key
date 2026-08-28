@@ -769,6 +769,17 @@ export interface CardKeyListItem {
   order_id: string | null
   created_at: string
   sold_at: string | null
+  buyer: string | null
+}
+
+export interface SoldCardKeyRecord {
+  id: string
+  content: string
+  product_title: string | null
+  amount: number
+  sold_at: string | null
+  buyer: string | null
+  promoter: string | null
 }
 
 export interface CardImportBatch {
@@ -801,6 +812,10 @@ export interface AdminOrderItem extends OrderDetail {
   is_risk_flagged: boolean
   // 支付渠道提供商类型（native_wxpay/native_alipay/epay/usdt），用于判断是否可发起退款
   provider_type?: string | null
+  // 下单设备/来源（PC浏览器 Chrome / 手机浏览器 Safari / 微信 等）
+  device?: string | null
+  // 推广员（推荐成交的分销员用户名，无则 null）
+  promoter?: string | null
   // 订单完成 / 退款信息
   completed_at?: string | null
   refunded_amount?: number

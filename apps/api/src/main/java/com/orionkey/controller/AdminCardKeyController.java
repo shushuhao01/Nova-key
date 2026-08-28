@@ -21,9 +21,20 @@ public class AdminCardKeyController {
     public ApiResponse<?> listCardKeys(
             @RequestParam("product_id") UUID productId,
             @RequestParam(value = "spec_id", required = false) UUID specId,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
-        return ApiResponse.success(adminCardKeyService.listCardKeys(productId, specId, page, pageSize));
+        return ApiResponse.success(adminCardKeyService.listCardKeys(productId, specId, status, keyword, page, pageSize));
+    }
+
+    /** 全局已售出卡密记录（商品/金额/卡密/售出时间/用户/推广员） */
+    @GetMapping("/sold")
+    public ApiResponse<?> listSoldRecords(
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "10") int pageSize) {
+        return ApiResponse.success(adminCardKeyService.listSoldRecords(keyword, page, pageSize));
     }
 
     @GetMapping("/stock")
