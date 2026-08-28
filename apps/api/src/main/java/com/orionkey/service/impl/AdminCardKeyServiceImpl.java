@@ -214,7 +214,7 @@ public class AdminCardKeyServiceImpl implements AdminCardKeyService {
     public PageResult<?> listCardKeys(UUID productId, UUID specId, String status, String keyword, int page, int pageSize) {
         var pageable = PageRequest.of(page - 1, pageSize);
         String kw = keyword == null ? "" : keyword.trim().toLowerCase();
-        Collection<CardKeyStatus> statuses = parseStatuses(status);
+        List<CardKeyStatus> statuses = parseStatuses(status);
         Page<CardKey> keyPage;
         if (statuses != null && statuses.size() == 1 && statuses.contains(CardKeyStatus.SOLD)) {
             keyPage = cardKeyRepository.findAdminSoldList(productId, specId, kw, pageable);
@@ -274,13 +274,13 @@ public class AdminCardKeyServiceImpl implements AdminCardKeyService {
         return PageResult.of(keyPage, list);
     }
 
-    /** 解析状态参数：all/空=全部(空集合)，unsold=未售出(AVAILABLE+LOCKED)，sold=已售出(SOLD) */
-    private Collection<CardKeyStatus> parseStatuses(String status) {
-        if (status == null || status.isBlank()) return Collections.emptyList();
+    /** 解析状态参数：null/空=全部；unsold=未售出(AVAILABLE+LOCKED)；sold=已售出(SOLD) */
+    private List<CardKeyStatus> parseStatuses(String status) {
+        if (status == null || status.isBlank()) return null;
         return switch (status.trim().toLowerCase()) {
             case "unsold" -> List.of(CardKeyStatus.AVAILABLE, CardKeyStatus.LOCKED);
             case "sold" -> List.of(CardKeyStatus.SOLD);
-            default -> Collections.emptyList();
+            default -> null;
         };
     }
 

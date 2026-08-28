@@ -9,7 +9,6 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -53,15 +52,15 @@ public interface CardKeyRepository extends JpaRepository<CardKey, UUID> {
                                                    @Param("specId") UUID specId,
                                                    @Param("excludeStatus") CardKeyStatus excludeStatus);
 
-    /** 管理后台卡密列表：支持状态集合（空=全部）与内容关键词，默认按创建时间倒序 */
+    /** 管理后台卡密列表：支持状态集合（null=全部）与内容关键词，默认按创建时间倒序 */
     @Query("SELECT ck FROM CardKey ck WHERE ck.productId = :productId " +
             "AND ((:specId IS NULL AND ck.specId IS NULL) OR ck.specId = :specId) " +
-            "AND (:statuses IS EMPTY OR ck.status IN :statuses) " +
+            "AND (:statuses IS NULL OR ck.status IN :statuses) " +
             "AND (:keyword IS NULL OR :keyword = '' OR LOWER(ck.content) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
             "ORDER BY ck.createdAt DESC")
     Page<CardKey> findAdminList(@Param("productId") UUID productId,
                                 @Param("specId") UUID specId,
-                                @Param("statuses") Collection<CardKeyStatus> statuses,
+                                @Param("statuses") List<CardKeyStatus> statuses,
                                 @Param("keyword") String keyword,
                                 Pageable pageable);
 
