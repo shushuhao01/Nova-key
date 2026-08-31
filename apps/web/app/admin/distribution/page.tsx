@@ -875,7 +875,8 @@ function DistributorDetailModal({ distributor, onClose, onOpenTeam }: {
   ]
 
   const statCards = [
-    { label: "总佣金", value: fmtMoney(v("total_commission")), cls: "text-primary", tip: "累计佣金（不含已取消）" },
+    { label: "总销售额", value: fmtMoney(v("total_sales")), cls: "text-primary", tip: "该推广员推广成功销售的商品金额总额" },
+    { label: "总佣金", value: fmtMoney(v("total_commission")), cls: "text-emerald-600", tip: "累计佣金（不含已取消）" },
     { label: "可提现", value: fmtMoney(v("available_balance")), cls: "text-emerald-600", tip: "已入账可提现余额" },
     { label: "冻结中", value: fmtMoney(v("frozen_balance")), cls: "text-slate-600", tip: "已申请提现冻结金额" },
     { label: "已提现", value: fmtMoney(v("withdrawn_amount")), cls: "text-amber-600", tip: "已成功提现累计金额" },
