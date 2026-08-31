@@ -27,14 +27,21 @@ export function ProductCard({ product }: ProductCardProps) {
   // 推广链接进店会话（dist_link cookie）下点击商品 → 上报埋点，计入分销员对应商品点击/转化统计（含全店推广链接流量）
   const handleCardClick = () => {
     try {
-      if (typeof navigator === "undefined" || !navigator.sendBeacon || typeof document === "undefined") return
+      if (typeof document === "undefined" || typeof window === "undefined") return
       const m = document.cookie.match(/(?:^|;\s*)dist_link=([^;]+)/)
       if (!m) return
-      const blob = new Blob(
-        [JSON.stringify({ link_id: decodeURIComponent(m[1]), product_id: product.id })],
-        { type: "application/json" }
-      )
-      navigator.sendBeacon("/api/distribution/product-click", blob)
+      // 用 fetch 代替 sendBeacon：sendBeacon 发 JSON 时 Content-Type 常被当 text/plain，
+      // Spring @RequestBody 收不到 application/json 会返回 415 被后端静默吞掉，导致点击埋点丢失。
+      // keepalive 保证跳转商品页时请求仍发出；credentials 带上会话 Cookie。
+      fetch("/api/distribution/product-click", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ link_id: decodeURIComponent(m[1]), product_id: product.id }),
+        keepalive: true,
+        credentials: "include",
+      }).catch(() => {
+        /* 埋点失败静默，不影响用户操作 */
+      })
     } catch {
       /* 埋点失败静默，不影响用户操作 */
     }
