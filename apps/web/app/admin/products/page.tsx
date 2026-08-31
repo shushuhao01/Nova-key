@@ -489,6 +489,18 @@ export default function AdminProductsPage() {
                           <Link href={`/product/${product.id}`} className="font-medium text-foreground hover:text-primary hover:underline transition-colors">
                             {product.title}
                           </Link>
+                          <button
+                            type="button"
+                            className="mt-0.5 inline-flex items-center gap-1 font-mono text-left text-xs text-muted-foreground hover:text-foreground transition-colors"
+                            title="点击复制商品ID"
+                            onClick={() => {
+                              if (navigator.clipboard?.writeText) {
+                                navigator.clipboard.writeText(product.id).then(() => toast.success("商品ID已复制"))
+                              }
+                            }}
+                          >
+                            ID: {product.id.slice(0, 8)}…
+                          </button>
                           {product.stock_available <= (product.low_stock_threshold ?? 10) && product.stock_available > 0 && (
                             <span className="text-xs text-amber-500 flex items-center gap-1">
                               <AlertCircle className="h-3 w-3" />
