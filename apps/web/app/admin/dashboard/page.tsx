@@ -15,19 +15,16 @@ export default function AdminDashboardPage() {
   const [trends, setTrends] = useState<SalesTrend[]>([])
   const [recentOrders, setRecentOrders] = useState<AdminOrderItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [period, setPeriod] = useState<"week" | "month">("month")
 
   useEffect(() => {
     let cancelled = false
-    async function fetchAll() {
+    async function loadStats() {
       try {
-        const [statsData, trendData, orderData] = await Promise.all([
+        const [statsData, orderData] = await Promise.all([
           withMockFallback(
             () => adminDashboardApi.getStats(),
             () => mockDashboardStats
-          ),
-          withMockFallback(
-            () => adminDashboardApi.getSalesTrend({}),
-            () => mockSalesTrend
           ),
           withMockFallback(
             () => adminOrderApi.getList({ page: 1, page_size: 5 }),
@@ -36,7 +33,6 @@ export default function AdminDashboardPage() {
         ])
         if (!cancelled) {
           setStats(statsData)
-          setTrends(trendData)
           setRecentOrders(orderData.list)
         }
       } catch {
@@ -45,9 +41,27 @@ export default function AdminDashboardPage() {
         if (!cancelled) setLoading(false)
       }
     }
-    fetchAll()
+    loadStats()
     return () => { cancelled = true }
   }, [])
+
+  // 趋势图：随「周/月」切换重新加载
+  useEffect(() => {
+    let cancelled = false
+    async function loadTrend() {
+      try {
+        const trendData = await withMockFallback(
+          () => adminDashboardApi.getSalesTrend({ period }),
+          () => mockSalesTrend
+        )
+        if (!cancelled) setTrends(trendData)
+      } catch {
+        // 忽略
+      }
+    }
+    loadTrend()
+    return () => { cancelled = true }
+  }, [period])
 
   if (loading) {
     return (
@@ -77,7 +91,7 @@ export default function AdminDashboardPage() {
       {/* Charts and Alerts */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="xl:col-span-2">
-          <SalesChart trends={trends} />
+          <SalesChart trends={trends} period={period} onPeriodChange={setPeriod} />
         </div>
         <LowStockAlert products={stats?.low_stock_products ?? []} />
       </div>

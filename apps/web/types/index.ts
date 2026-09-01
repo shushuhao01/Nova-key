@@ -731,11 +731,19 @@ export interface LowStockProduct {
 export interface DashboardStats {
   today_sales: number
   month_sales: number
+  yesterday_sales: number
   today_orders: number
   month_orders: number
+  yesterday_orders: number
   conversion_rate: number
+  month_conversion_rate: number
+  yesterday_conversion_rate: number
   today_pv: number
   today_uv: number
+  month_pv: number
+  month_uv: number
+  yesterday_pv: number
+  yesterday_uv: number
   low_stock_products: LowStockProduct[]
 }
 

@@ -10,23 +10,47 @@ import {
   ResponsiveContainer,
 } from "recharts"
 import { useLocale } from "@/lib/context"
+import { cn } from "@/lib/utils"
 import type { SalesTrend } from "@/types"
 
-export function SalesChart({ trends }: { trends: SalesTrend[] }) {
+type Period = "week" | "month"
+
+export function SalesChart({ trends, period, onPeriodChange }: { trends: SalesTrend[]; period: Period; onPeriodChange: (p: Period) => void }) {
   const { t } = useLocale()
+  const periods = [
+    { key: "week", label: "周" },
+    { key: "month", label: "月" },
+  ] as const
   return (
     <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-semibold text-foreground">{t("admin.salesTrend")}</h3>
-        <div className="flex gap-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-blue-500" />
-            {t("admin.salesAmount")}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            {t("admin.orderCount")}
-          </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center rounded-md bg-muted p-0.5">
+            {periods.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => onPeriodChange(p.key)}
+                className={cn(
+                  "rounded px-3 py-1 text-xs font-medium transition-colors",
+                  period === p.key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-4 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-blue-500" />
+              {t("admin.salesAmount")}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              {t("admin.orderCount")}
+            </span>
+          </div>
         </div>
       </div>
       <div className="h-72">

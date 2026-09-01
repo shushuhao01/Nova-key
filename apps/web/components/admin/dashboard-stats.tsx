@@ -6,14 +6,22 @@ import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
 import type { DashboardStats as DashboardStatsType, LowStockProduct } from "@/types"
 
+interface StatDelta {
+  pct: number | null
+  up: boolean
+}
+
 interface StatCardProps {
   title: string
   value: string
   icon: React.ElementType
   iconBg: string
+  monthLabel: string
+  monthValue: string
+  delta: StatDelta
 }
 
-function StatCard({ title, value, icon: Icon, iconBg }: StatCardProps) {
+function StatCard({ title, value, icon: Icon, iconBg, monthLabel, monthValue, delta }: StatCardProps) {
   return (
     <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-start justify-between">
@@ -25,36 +33,72 @@ function StatCard({ title, value, icon: Icon, iconBg }: StatCardProps) {
           <Icon className="h-5 w-5 text-white" />
         </div>
       </div>
+      <div className="mt-3 flex flex-col gap-1 border-t border-border/60 pt-2.5 text-[11px] leading-tight">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">{monthLabel}</span>
+          <span className="font-medium text-foreground">{monthValue}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">较昨日</span>
+          <span
+            className={cn(
+              "font-medium",
+              delta.pct === null ? "text-muted-foreground" : delta.up ? "text-emerald-600" : "text-red-500"
+            )}
+          >
+            {delta.pct === null ? "—" : `${delta.up ? "↑" : "↓"} ${Math.abs(delta.pct).toFixed(1)}%`}
+          </span>
+        </div>
+      </div>
     </div>
   )
 }
 
 export function DashboardStats({ stats }: { stats: DashboardStatsType }) {
   const { t } = useLocale()
+
+  const delta = (today: number, yesterday: number): StatDelta => {
+    if (yesterday === 0) return { pct: today > 0 ? 100 : null, up: today > 0 }
+    const pct = ((today - yesterday) / yesterday) * 100
+    return { pct, up: pct >= 0 }
+  }
+
   const statCards: StatCardProps[] = [
     {
       title: t("admin.todaySales"),
       value: `¥${stats.today_sales.toLocaleString()}`,
       icon: DollarSign,
       iconBg: "bg-blue-500",
+      monthLabel: "本月累计",
+      monthValue: `¥${stats.month_sales.toLocaleString()}`,
+      delta: delta(stats.today_sales, stats.yesterday_sales),
     },
     {
       title: t("admin.todayOrders"),
       value: String(stats.today_orders),
       icon: ShoppingCart,
       iconBg: "bg-emerald-500",
+      monthLabel: "本月累计",
+      monthValue: String(stats.month_orders),
+      delta: delta(stats.today_orders, stats.yesterday_orders),
     },
     {
       title: t("admin.conversionRate"),
       value: `${stats.conversion_rate}%`,
       icon: TrendingUp,
       iconBg: "bg-amber-500",
+      monthLabel: "本月累计",
+      monthValue: `${stats.month_conversion_rate}%`,
+      delta: delta(stats.conversion_rate, stats.yesterday_conversion_rate),
     },
     {
       title: t("admin.todayPvUv"),
       value: `${stats.today_pv.toLocaleString()} / ${stats.today_uv.toLocaleString()}`,
       icon: Eye,
       iconBg: "bg-violet-500",
+      monthLabel: "本月累计",
+      monthValue: `${stats.month_pv.toLocaleString()} / ${stats.month_uv.toLocaleString()}`,
+      delta: delta(stats.today_uv, stats.yesterday_uv),
     },
   ]
 

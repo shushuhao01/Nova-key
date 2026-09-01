@@ -28,19 +28,39 @@ public class DashboardServiceImpl implements DashboardService {
 
     @Override
     public Map<String, Object> getStats() {
-        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
-        LocalDateTime monthStart = LocalDate.now().withDayOfMonth(1).atStartOfDay();
+        LocalDate today = LocalDate.now();
+        LocalDate yesterday = today.minusDays(1);
+        LocalDateTime todayStart = today.atStartOfDay();
+        LocalDateTime yesterdayStart = yesterday.atStartOfDay();
+        LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
 
         // Use aggregate queries instead of loading all orders
         BigDecimal todaySales = orderRepository.sumSalesSince(todayStart);
         BigDecimal monthSales = orderRepository.sumSalesSince(monthStart);
+        BigDecimal yesterdaySales = orderRepository.sumSalesBetween(yesterdayStart, todayStart);
         long todayOrders = orderRepository.countPaidOrdersSince(todayStart);
         long monthOrders = orderRepository.countPaidOrdersSince(monthStart);
-        VisitStats todayVisit = visitStatsRepository.findByVisitDate(LocalDate.now()).orElse(null);
-        long todayUv = todayVisit != null ? todayVisit.getUv() : 0;
+        long yesterdayOrders = orderRepository.countPaidOrdersBetween(yesterdayStart, todayStart);
 
-        // 电商标准转化率 = 今日成交订单数 / 今日 UV × 100%
-        double conversionRate = todayUv > 0 ? (double) todayOrders / todayUv * 100 : 0;
+        // PV / UV：今日、昨日、本月累计
+        VisitStats todayVisit = visitStatsRepository.findByVisitDate(today).orElse(null);
+        VisitStats yesterdayVisit = visitStatsRepository.findByVisitDate(yesterday).orElse(null);
+        long todayPv = todayVisit != null ? todayVisit.getPv() : 0;
+        long todayUv = todayVisit != null ? todayVisit.getUv() : 0;
+        long yesterdayPv = yesterdayVisit != null ? yesterdayVisit.getPv() : 0;
+        long yesterdayUv = yesterdayVisit != null ? yesterdayVisit.getUv() : 0;
+        List<Object[]> monthStats = visitStatsRepository.sumPvUvBetween(today.withDayOfMonth(1), today.plusDays(1));
+        long monthPv = 0, monthUv = 0;
+        if (!monthStats.isEmpty() && monthStats.get(0) != null) {
+            Object[] row = monthStats.get(0);
+            monthPv = ((Number) row[0]).longValue();
+            monthUv = ((Number) row[1]).longValue();
+        }
+
+        // 电商标准转化率 = 成交订单数 / UV × 100%
+        double conversionRate = pct(todayOrders, todayUv);
+        double monthConversionRate = pct(monthOrders, monthUv);
+        double yesterdayConversionRate = pct(yesterdayOrders, yesterdayUv);
 
         // Low stock products — count ALL available keys per product (across all specs)
         List<Product> products = productRepository.findAll().stream()
@@ -62,19 +82,47 @@ public class DashboardServiceImpl implements DashboardService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("today_sales", todaySales);
         result.put("month_sales", monthSales);
+        result.put("yesterday_sales", yesterdaySales);
         result.put("today_orders", todayOrders);
         result.put("month_orders", monthOrders);
-        result.put("conversion_rate", Math.round(conversionRate * 100.0) / 100.0);
-        result.put("today_pv", todayVisit != null ? todayVisit.getPv() : 0);
-        result.put("today_uv", todayVisit != null ? todayVisit.getUv() : 0);
+        result.put("yesterday_orders", yesterdayOrders);
+        result.put("conversion_rate", round2(conversionRate));
+        result.put("month_conversion_rate", round2(monthConversionRate));
+        result.put("yesterday_conversion_rate", round2(yesterdayConversionRate));
+        result.put("today_pv", todayPv);
+        result.put("today_uv", todayUv);
+        result.put("month_pv", monthPv);
+        result.put("month_uv", monthUv);
+        result.put("yesterday_pv", yesterdayPv);
+        result.put("yesterday_uv", yesterdayUv);
         result.put("low_stock_products", lowStock);
         return result;
     }
 
+    private static double pct(long orders, long uv) {
+        return uv > 0 ? (double) orders / uv * 100 : 0;
+    }
+
+    private static double round2(double v) {
+        return Math.round(v * 100.0) / 100.0;
+    }
+
     @Override
     public List<?> getSalesTrend(String period, String startDate, String endDate) {
-        LocalDate start = startDate != null ? LocalDate.parse(startDate) : LocalDate.now().minusDays(30);
-        LocalDate end = endDate != null ? LocalDate.parse(endDate) : LocalDate.now();
+        LocalDate today = LocalDate.now();
+        LocalDate start;
+        if (startDate != null) {
+            start = LocalDate.parse(startDate);
+        } else if ("week".equalsIgnoreCase(period)) {
+            start = today.minusDays(6);
+        } else if ("month".equalsIgnoreCase(period)) {
+            start = today.withDayOfMonth(1);
+        } else {
+            start = today.minusDays(30);
+        }
+        LocalDate end = endDate != null ? LocalDate.parse(endDate) : today;
+
+        boolean monthlyGroup = "monthly".equalsIgnoreCase(period);
 
         // Still load filtered orders for trend grouping, but with date range filter
         LocalDateTime startDt = start.atStartOfDay();
@@ -90,7 +138,7 @@ public class DashboardServiceImpl implements DashboardService {
 
         for (Order o : orders) {
             String key;
-            if ("monthly".equals(period)) {
+            if (monthlyGroup) {
                 key = o.getPaidAt().toLocalDate().withDayOfMonth(1).toString().substring(0, 7);
             } else {
                 key = o.getPaidAt().toLocalDate().toString();
