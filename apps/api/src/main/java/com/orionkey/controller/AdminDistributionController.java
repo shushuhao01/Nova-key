@@ -96,10 +96,12 @@ public class AdminDistributionController {
         return ApiResponse.success(distributionService.adminListCustomers(id, keyword, page, page_size));
     }
 
-    /** 某推广员绑定客户（按邮箱）的订单列表（团队-绑定客户-点击付款单查看） */
+    /** 某推广员绑定客户（按邮箱）的订单列表（团队-绑定客户-点击付款单查看，默认10条/页） */
     @GetMapping("/distributors/{id}/customer-orders")
-    public ApiResponse<?> listCustomerOrders(@PathVariable UUID id, @RequestParam String email) {
-        return ApiResponse.success(distributionService.adminListCustomerOrders(id, email));
+    public ApiResponse<?> listCustomerOrders(@PathVariable UUID id, @RequestParam String email,
+                                             @RequestParam(defaultValue = "1") int page,
+                                             @RequestParam(defaultValue = "10") int page_size) {
+        return ApiResponse.success(distributionService.adminListCustomerOrders(id, email, page, page_size));
     }
 
     @PutMapping("/distributors/{id}/status")

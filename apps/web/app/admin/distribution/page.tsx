@@ -1249,7 +1249,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
   alipay: "支付宝", native_alipay: "支付宝",
 }
 
-const ORDER_TYPE_LABEL: Record<string, string> = { direct: "直接购买", cart: "购物车" }
+const ORDER_TYPE_LABEL: Record<string, string> = { DIRECT: "直接购买", CART: "购物车" }
 
 /** 团队-绑定客户：点击「付款单」弹出的该客户订单列表 */
 function CustomerOrdersModal({ distributorId, customer, onClose }: {
@@ -1259,13 +1259,19 @@ function CustomerOrdersModal({ distributorId, customer, onClose }: {
 }) {
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const pageSize = 10
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       try {
-        const data = await adminDistributionApi.listCustomerOrders(distributorId, customer.customer_email)
-        if (!cancelled) setOrders(data || [])
+        const data = await adminDistributionApi.listCustomerOrders(distributorId, customer.customer_email, { page, page_size: pageSize })
+        if (!cancelled) {
+          setOrders(data?.list || [])
+          setTotal(data?.pagination?.total || 0)
+        }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "加载失败")
       } finally {
@@ -1274,7 +1280,9 @@ function CustomerOrdersModal({ distributorId, customer, onClose }: {
     }
     load()
     return () => { cancelled = true }
-  }, [distributorId, customer.customer_email])
+  }, [distributorId, customer.customer_email, page])
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -1285,7 +1293,7 @@ function CustomerOrdersModal({ distributorId, customer, onClose }: {
             <Receipt className="h-5 w-5 text-primary" />
             <div>
               <h2 className="text-lg font-bold text-foreground">{customer.username || customer.customer_email}</h2>
-              <p className="text-xs text-muted-foreground">该客户在 {customer.username || customer.customer_email} 名下的订单（共 {orders.length} 笔）</p>
+              <p className="text-xs text-muted-foreground">{customer.username || customer.customer_email} 的订单（共 {total} 笔）</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
@@ -1309,6 +1317,7 @@ function CustomerOrdersModal({ distributorId, customer, onClose }: {
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">付款金额</th>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">支付方式</th>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">来源</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">设备</th>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">状态</th>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">下单时间</th>
                     </tr>
@@ -1324,6 +1333,7 @@ function CustomerOrdersModal({ distributorId, customer, onClose }: {
                           <td className="px-4 py-3 text-right whitespace-nowrap font-medium text-primary">{fmtMoney(o.actual_amount)}</td>
                           <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{PAYMENT_METHOD_LABEL[o.payment_method] || o.payment_method || "—"}</td>
                           <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{ORDER_TYPE_LABEL[o.order_type] || o.order_type || "—"}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{o.device || "—"}</td>
                           <td className="px-4 py-3 whitespace-nowrap"><span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", st.cls)}>{st.label}</span></td>
                           <td className="px-4 py-3 whitespace-nowrap text-xs text-muted-foreground">{fmtDate(o.created_at)}</td>
                         </tr>
@@ -1332,6 +1342,11 @@ function CustomerOrdersModal({ distributorId, customer, onClose }: {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+          {!loading && totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-end">
+              <Pager page={page} totalPages={totalPages} onChange={setPage} />
             </div>
           )}
         </div>

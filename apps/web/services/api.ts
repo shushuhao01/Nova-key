@@ -927,8 +927,10 @@ export const adminDistributionApi = {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/distributors/${id}/customers?${qs}`)
   },
-  listCustomerOrders: (id: string, email: string) =>
-    request<any[]>(`/admin/distribution/distributors/${id}/customer-orders?email=${encodeURIComponent(email)}`),
+  listCustomerOrders: (id: string, email: string, params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<any>>(`/admin/distribution/distributors/${id}/customer-orders?email=${encodeURIComponent(email)}&${qs}`)
+  },
   updateDistributorStatus: (id: string, status: string, reason?: string) =>
     request<void>(`/admin/distribution/distributors/${id}/status`, { method: "PUT", body: JSON.stringify({ status, reason: reason || "" }) }),
   updateDistributorRate: (id: string, custom_rate?: number, sub_rate?: number) =>

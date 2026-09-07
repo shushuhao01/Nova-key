@@ -422,12 +422,17 @@ public class DistributionServiceImpl implements DistributionService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<?> adminListCustomerOrders(UUID distributorId, String email) {
+    public Map<String, Object> adminListCustomerOrders(UUID distributorId, String email, int page, int pageSize) {
         if (email == null || email.isBlank()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "缺少客户邮箱");
         }
         List<Order> orders = orderRepository.findDistributorOrdersByEmail(distributorId, email.trim().toLowerCase());
-        return orders.stream().map(o -> {
+        int total = orders.size();
+        int totalPages = Math.max(1, (int) Math.ceil((double) total / Math.max(1, pageSize)));
+        int safePage = Math.max(1, Math.min(page, totalPages));
+        int from = Math.min((safePage - 1) * pageSize, total);
+        int to = Math.min(from + pageSize, total);
+        List<Map<String, Object>> items = orders.subList(from, to).stream().map(o -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", o.getId());
             m.put("email", o.getEmail());
@@ -450,6 +455,7 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("quantity", qty);
             return m;
         }).collect(Collectors.toList());
+        return pageResult(items, total, safePage, pageSize);
     }
 
     /** 是否为有效成交订单（已付款/已发货/已完成） */
