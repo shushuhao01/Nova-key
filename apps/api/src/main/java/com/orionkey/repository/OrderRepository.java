@@ -194,14 +194,16 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
                                 @Param("isRiskFlagged") Boolean isRiskFlagged,
                                 Pageable pageable);
 
-    // 管理后台订单列表 — 带搜索词（按订单ID、邮箱或商品名称搜索，keyword 保证非 null）
+    // 管理后台订单列表 — 带搜索词（按订单ID、邮箱、商品名称或推广员搜索，keyword 保证非 null）
     @Query("SELECT DISTINCT o FROM Order o LEFT JOIN OrderItem oi ON oi.orderId = o.id WHERE " +
             "(:statuses IS NULL OR o.status IN :statuses " +
             " OR (:containsRefunded = TRUE AND o.status = com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED)) " +
             "AND (:orderType IS NULL OR o.orderType = :orderType) " +
             "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o.paymentMethod = :paymentMethod) " +
             "AND (:isRiskFlagged IS NULL OR o.riskFlagged = :isRiskFlagged) " +
-            "AND (str(o.id) LIKE :keywordPattern OR o.email LIKE :keywordPattern OR oi.productTitle LIKE :keywordPattern) " +
+            "AND (str(o.id) LIKE :keywordPattern OR o.email LIKE :keywordPattern OR oi.productTitle LIKE :keywordPattern " +
+            " OR o.referralDistributorId IN (SELECT d.id FROM Distributor d WHERE d.distributorCode LIKE :keywordPattern " +
+            "   OR d.userId IN (SELECT u.id FROM User u WHERE u.username LIKE :keywordPattern OR u.email LIKE :keywordPattern))) " +
             "ORDER BY o.createdAt DESC")
     Page<Order> findAdminOrdersByKeyword(@Param("statuses") List<OrderStatus> statuses,
                                          @Param("containsRefunded") boolean containsRefunded,

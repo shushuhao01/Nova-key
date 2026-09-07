@@ -92,8 +92,14 @@ public class AdminDistributionController {
     public ApiResponse<?> listCustomers(@PathVariable UUID id,
                                         @RequestParam(required = false) String keyword,
                                         @RequestParam(defaultValue = "1") int page,
-                                        @RequestParam(value = "page_size", defaultValue = "10") int pageSize) {
-        return ApiResponse.success(distributionService.adminListCustomers(id, keyword, page, pageSize));
+                                        @RequestParam(defaultValue = "10") int page_size) {
+        return ApiResponse.success(distributionService.adminListCustomers(id, keyword, page, page_size));
+    }
+
+    /** 某推广员绑定客户（按邮箱）的订单列表（团队-绑定客户-点击付款单查看） */
+    @GetMapping("/distributors/{id}/customer-orders")
+    public ApiResponse<?> listCustomerOrders(@PathVariable UUID id, @RequestParam String email) {
+        return ApiResponse.success(distributionService.adminListCustomerOrders(id, email));
     }
 
     @PutMapping("/distributors/{id}/status")

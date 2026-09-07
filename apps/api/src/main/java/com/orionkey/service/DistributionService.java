@@ -23,6 +23,8 @@ public interface DistributionService {
     Map<String, Object> adminListSubordinates(UUID distributorId, String keyword, int page, int pageSize);
     /** 管理后台：某推广员绑定的客户分页（商品/数量/付款金额/佣金/卡密/购买次数等） */
     Map<String, Object> adminListCustomers(UUID distributorId, String keyword, int page, int pageSize);
+    /** 管理后台：某推广员绑定客户（按邮箱）在该推广员名下的订单列表（团队-绑定客户-点击付款单查看） */
+    List<?> adminListCustomerOrders(UUID distributorId, String email);
 
     // ── 管理后台：规则配置 ──
     Map<String, Object> getRules();

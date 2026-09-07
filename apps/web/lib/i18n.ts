@@ -561,7 +561,7 @@ const zh = {
   "admin.paymentMethod": "支付方式",
   "admin.orderSource": "来源",
   "admin.ordersDesc": "管理平台订单",
-  "admin.searchOrder": "搜索订单号/商品/邮箱...",
+  "admin.searchOrder": "搜索订单号/商品/邮箱/推广员...",
   "admin.allPayment": "全部支付方式",
   "admin.allOrderType": "全部类型",
   "admin.directOrder": "直接购买",

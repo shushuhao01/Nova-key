@@ -7,7 +7,7 @@ import {
   Clock, CheckCircle2, UserCheck, UserX, Percent, RefreshCw, ShoppingBag,
   HandCoins, Loader2, ScrollText, ShieldCheck, Layers, CalendarRange,
   ArrowUpRight, ArrowDownRight, Eye, User, AtSign, KeyRound, Link2,
-  Crown, Users, AlertCircle, Send,
+  Crown, Users, AlertCircle, Send, Receipt,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -1012,6 +1012,7 @@ interface TeamCustomer {
   last_purchase_at: string | null
   product_titles: string
   quantity: number
+  order_count: number
   paid_amount: number
   commission: number
   commission_rate: number | null
@@ -1031,6 +1032,7 @@ function TeamModal({ distributorId, distributorName, initialMode, onClose }: {
   const [list, setList] = useState<TeamSubordinate[] | TeamCustomer[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [ordersModal, setOrdersModal] = useState<TeamCustomer | null>(null)
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -1135,14 +1137,14 @@ function TeamModal({ distributorId, distributorName, initialMode, onClose }: {
                     <tr className="border-b border-border bg-muted/30">
                       <th className="w-[14%] px-4 py-3 text-left font-medium text-muted-foreground">客户</th>
                       <th className="w-[15%] px-4 py-3 text-left font-medium text-muted-foreground">购买商品</th>
-                      <th className="w-[6%] px-4 py-3 text-left font-medium text-muted-foreground">数量</th>
+                      <th className="w-[7%] px-4 py-3 text-left font-medium text-muted-foreground">付款单</th>
                       <th className="w-[10%] px-4 py-3 text-left font-medium text-muted-foreground">付款金额</th>
                       <th className="w-[10%] px-4 py-3 text-left font-medium text-muted-foreground">抽成比例</th>
                       <th className="w-[8%] px-4 py-3 text-left font-medium text-muted-foreground">佣金</th>
                       <th className="w-[9%] px-4 py-3 text-left font-medium text-muted-foreground">卡密</th>
                       <th className="w-[11%] px-4 py-3 text-left font-medium text-muted-foreground">最近购买</th>
                       <th className="w-[11%] px-4 py-3 text-left font-medium text-muted-foreground">首次绑定</th>
-                      <th className="w-[6%] px-4 py-3 text-left font-medium text-muted-foreground">已购次数</th>
+                      <th className="w-[5%] px-4 py-3 text-left font-medium text-muted-foreground">已购次数</th>
                     </tr>
                   )}
                 </thead>
@@ -1180,7 +1182,16 @@ function TeamModal({ distributorId, distributorName, initialMode, onClose }: {
                           </div>
                         </td>
                         <td className="px-4 py-3"><div className="line-clamp-2 break-words text-muted-foreground" title={c.product_titles}>{c.product_titles || "—"}</div></td>
-                        <td className="px-4 py-3 whitespace-nowrap text-foreground">{c.quantity}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setOrdersModal(c)}
+                            className="font-medium text-primary underline-offset-2 hover:underline"
+                            title="查看该客户在此推广员名下的订单"
+                          >
+                            {c.order_count} 单
+                          </button>
+                        </td>
                         <td className="px-4 py-3 whitespace-nowrap font-medium text-primary">{fmtMoney(c.paid_amount)}</td>
                         <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{Number(c.commission_rate ?? 0).toFixed(2)}%</td>
                         <td className="px-4 py-3 whitespace-nowrap font-medium text-foreground">{fmtMoney(c.commission)}</td>
@@ -1213,6 +1224,116 @@ function TeamModal({ distributorId, distributorName, initialMode, onClose }: {
               </div>
             )}
           </div>
+        </div>
+      </div>
+      {ordersModal && (
+        <CustomerOrdersModal distributorId={distributorId} customer={ordersModal} onClose={() => setOrdersModal(null)} />
+      )}
+    </div>
+  )
+}
+
+const ORDER_STATUS_META: Record<string, { label: string; cls: string }> = {
+  PENDING: { label: "待支付", cls: "bg-amber-500/10 text-amber-600" },
+  PAID: { label: "已付款", cls: "bg-blue-500/10 text-blue-600" },
+  DELIVERED: { label: "已发货", cls: "bg-indigo-500/10 text-indigo-600" },
+  COMPLETED: { label: "已完成", cls: "bg-emerald-500/10 text-emerald-600" },
+  CANCELLED: { label: "已取消", cls: "bg-muted text-muted-foreground" },
+  EXPIRED: { label: "已过期", cls: "bg-muted text-muted-foreground" },
+  REFUNDED: { label: "已退款", cls: "bg-red-500/10 text-red-600" },
+  PARTIALLY_REFUNDED: { label: "部分退款", cls: "bg-red-500/10 text-red-600" },
+}
+
+const PAYMENT_METHOD_LABEL: Record<string, string> = {
+  wechat: "微信支付", wxpay: "微信支付", native_wxpay: "微信支付",
+  alipay: "支付宝", native_alipay: "支付宝",
+}
+
+const ORDER_TYPE_LABEL: Record<string, string> = { direct: "直接购买", cart: "购物车" }
+
+/** 团队-绑定客户：点击「付款单」弹出的该客户订单列表 */
+function CustomerOrdersModal({ distributorId, customer, onClose }: {
+  distributorId: string
+  customer: TeamCustomer
+  onClose: () => void
+}) {
+  const [orders, setOrders] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const data = await adminDistributionApi.listCustomerOrders(distributorId, customer.customer_email)
+        if (!cancelled) setOrders(data || [])
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "加载失败")
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [distributorId, customer.customer_email])
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-6 py-4">
+          <div className="flex items-center gap-2">
+            <Receipt className="h-5 w-5 text-primary" />
+            <div>
+              <h2 className="text-lg font-bold text-foreground">{customer.username || customer.customer_email}</h2>
+              <p className="text-xs text-muted-foreground">该客户在 {customer.username || customer.customer_email} 名下的订单（共 {orders.length} 笔）</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-6">
+          {loading ? (
+            <div className="flex items-center justify-center py-16"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
+          ) : orders.length === 0 ? (
+            <p className="py-12 text-center text-sm text-muted-foreground">暂无订单</p>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-border">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">订单号</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">商品</th>
+                      <th className="px-4 py-3 text-center font-medium text-muted-foreground">数量</th>
+                      <th className="px-4 py-3 text-right font-medium text-muted-foreground">付款金额</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">支付方式</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">来源</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">状态</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">下单时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orders.map((o) => {
+                      const st = ORDER_STATUS_META[o.status] || { label: o.status || "—", cls: "bg-muted text-muted-foreground" }
+                      return (
+                        <tr key={o.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-3 whitespace-nowrap font-mono text-xs text-muted-foreground" title={o.id}>{String(o.id).slice(0, 8)}…</td>
+                          <td className="px-4 py-3"><div className="line-clamp-2 break-words text-foreground" title={o.product_titles}>{o.product_titles || "—"}</div></td>
+                          <td className="px-4 py-3 text-center whitespace-nowrap text-muted-foreground">{o.quantity}</td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap font-medium text-primary">{fmtMoney(o.actual_amount)}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{PAYMENT_METHOD_LABEL[o.payment_method] || o.payment_method || "—"}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{ORDER_TYPE_LABEL[o.order_type] || o.order_type || "—"}</td>
+                          <td className="px-4 py-3 whitespace-nowrap"><span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", st.cls)}>{st.label}</span></td>
+                          <td className="px-4 py-3 whitespace-nowrap text-xs text-muted-foreground">{fmtDate(o.created_at)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -408,6 +408,9 @@ public class DistributionServiceImpl implements DistributionService {
             }
             m.put("product_titles", productTitles.stream().collect(Collectors.joining("、")));
             m.put("quantity", quantity);
+            // 付款单数量：该客户在此推广员名下的有效成交订单（已付款/已发货/已完成）单数
+            long paidCount = orders.stream().filter(this::isPaidOrder).count();
+            m.put("order_count", paidCount);
             m.put("paid_amount", paidAmount.setScale(2, RoundingMode.HALF_UP));
             m.put("commission", commission.setScale(2, RoundingMode.HALF_UP));
             m.put("commission_rate", rateToPercent(lastRate));
@@ -415,6 +418,38 @@ public class DistributionServiceImpl implements DistributionService {
             return m;
         }).toList();
         return pageResult(items, bindings.getTotalElements(), page, pageSize);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<?> adminListCustomerOrders(UUID distributorId, String email) {
+        if (email == null || email.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "缺少客户邮箱");
+        }
+        List<Order> orders = orderRepository.findDistributorOrdersByEmail(distributorId, email.trim().toLowerCase());
+        return orders.stream().map(o -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", o.getId());
+            m.put("email", o.getEmail());
+            m.put("actual_amount", o.getActualAmount());
+            m.put("status", o.getStatus() != null ? o.getStatus().name() : null);
+            m.put("order_type", o.getOrderType() != null ? o.getOrderType().name() : null);
+            m.put("payment_method", o.getPaymentMethod());
+            m.put("device", o.getDevice());
+            m.put("created_at", o.getCreatedAt());
+            m.put("paid_at", o.getPaidAt());
+            LinkedHashSet<String> titles = new LinkedHashSet<>();
+            int qty = 0;
+            for (OrderItem oi : orderItemRepository.findByOrderId(o.getId())) {
+                qty += oi.getQuantity();
+                if (oi.getProductTitle() != null && !oi.getProductTitle().isBlank()) {
+                    titles.add(oi.getProductTitle());
+                }
+            }
+            m.put("product_titles", titles.stream().collect(Collectors.joining("、")));
+            m.put("quantity", qty);
+            return m;
+        }).collect(Collectors.toList());
     }
 
     /** 是否为有效成交订单（已付款/已发货/已完成） */
