@@ -13,22 +13,21 @@ public interface DistributionClickRepository extends JpaRepository<DistributionC
     long countByPromotionLinkIdAndIp(UUID promotionLinkId, String ip);
     long countByDistributorId(UUID distributorId);
 
-    /** 区间内推广点击总数 */
-    @Query("SELECT COUNT(c) FROM DistributionClick c WHERE c.createdAt >= :from AND c.createdAt < :to")
-    long countBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+    /**
+     * 商品被点击总次数（单一口径）。distribution_click.product_id 在两种推广路径下都写入被点击的商品：
+     * 1) 商品推广链接 /p/{code} 被访问（resolve 时 product_id = 该链接商品）；
+     * 2) 全店推广链接进店后点击商品（product_id = 被点击商品）。
+     * 因此按 product_id 统计即为「该商品推广过程中的点击次数」，与 promotion_link.click_count 解耦。
+     */
+    long countByProductId(UUID productId);
 
-    /** 区间内点击总数（from/to 由服务层传入非空哨兵值，避免 null 时间参数 IS NULL 谓词导致 PG 类型推断失败） */
-    @Query("SELECT COUNT(c) FROM DistributionClick c WHERE c.createdAt >= :from AND c.createdAt < :to")
-    long countByRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
-
-    /** 商品推广点击按推广员分组（商品推广链接产生的点击；全店推广链接 product_id 为 null 不计入） */
-    @Query("SELECT c.distributorId, COUNT(c) FROM DistributionClick c WHERE c.productId = :productId GROUP BY c.distributorId")
-    List<Object[]> countClicksByProductGroupedByDistributor(@Param("productId") UUID productId);
-
-    /** 全店推广链接进店后的商品点击埋点数，按分销员聚合（仅统计全店链接：所属链接 productId 为 null 的点击，不含商品链接点击以免与 PromotionLink.clickCount 重复） */
-    @Query("SELECT c.distributorId, COUNT(c) FROM DistributionClick c JOIN PromotionLink pl ON pl.id = c.promotionLinkId " +
-            "WHERE pl.productId IS NULL AND c.productId = :productId GROUP BY c.distributorId")
-    List<Object[]> countStoreLinkProductClicksGroupedByDistributor(@Param("productId") UUID productId);
+    /**
+     * 区间内商品点击总数（仅 product_id 非空，即真正落到商品上的点击，
+     * 不含全店推广链接本身的进店点击）。from/to 由服务层传入非空哨兵值。
+     */
+    @Query("SELECT COUNT(c) FROM DistributionClick c WHERE c.productId IS NOT NULL " +
+            "AND c.createdAt >= :from AND c.createdAt < :to")
+    long countProductClicksBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 
     /** 全店推广链接进店后的商品点击埋点数，按商品聚合（限定分销员；用于前台已推广商品统计） */
     @Query("SELECT c.productId, COUNT(c) FROM DistributionClick c JOIN PromotionLink pl ON pl.id = c.promotionLinkId " +

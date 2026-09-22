@@ -111,26 +111,65 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
 
     /**
      * 管理后台商品维度推广聚合（佣金记录口径，含全店推广与商品推广链接成交）：
-     * 返回 [销售额(order_amount 分摊合计), 佣金合计, 付款订单数(去重), 推广人数(去重)]，剔除已取消佣金。
+     * 返回 [销售额(只算直接推广者，与推广员排行各行销售额之和一致), 佣金合计(全量，含上级抽成，即平台实际支出),
+     * 付款订单数(去重)]，剔除已取消佣金。
      */
-    @Query(value = "SELECT COALESCE(SUM(cr.order_amount), 0), COALESCE(SUM(cr.commission_amount), 0), " +
-            "COUNT(DISTINCT cr.order_id), COUNT(DISTINCT cr.distributor_id) " +
+    @Query(value = "SELECT " +
+            "COALESCE(SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM commission_records p " +
+            "WHERE p.order_id = cr.order_id AND p.parent_distributor_id = cr.distributor_id) " +
+            "THEN cr.order_amount ELSE 0 END), 0), " +
+            "COALESCE(SUM(cr.commission_amount), 0), " +
+            "COUNT(DISTINCT cr.order_id) " +
             "FROM commission_records cr WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED'",
             nativeQuery = true)
     List<Object[]> aggregateByProductAdmin(@Param("productId") UUID productId);
 
     /**
-     * 管理后台商品推广员排行（佣金记录口径，含全店推广与商品推广链接成交）：
-     * 按推广销售额倒序分页，每行 [distributorId, 销售额, 佣金合计, 付款订单数(去重)]，剔除已取消佣金。
+     * 管理后台商品推广人数（去重）：直接推广成交的推广员 ∪ 有点击埋点的推广员，
+     * 与 {@link #aggregatePromotersByProduct} 的分页总数保持一致（含只点击未成交的推广员）。
      */
-    @Query(value = "SELECT cr.distributor_id, COALESCE(SUM(cr.order_amount), 0), COALESCE(SUM(cr.commission_amount), 0), " +
-            "COUNT(DISTINCT cr.order_id) FROM commission_records cr " +
-            "WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED' " +
-            "GROUP BY cr.distributor_id ORDER BY COALESCE(SUM(cr.order_amount), 0) DESC",
-            countQuery = "SELECT COUNT(DISTINCT cr.distributor_id) FROM commission_records cr " +
-                    "WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED'",
+    @Query(value = "SELECT COUNT(*) FROM (" +
+            "SELECT cr.distributor_id AS did FROM commission_records cr " +
+            "WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED' " + DIRECT_PROMOTER_ONLY +
+            "UNION SELECT c.distributor_id AS did FROM distribution_clicks c WHERE c.product_id = :productId" +
+            ") t",
+            nativeQuery = true)
+    long countPromotersByProduct(@Param("productId") UUID productId);
+
+    /**
+     * 管理后台商品推广员排行（成交 ∪ 点击，按推广销售额倒序）：
+     * 每行 [distributorId, 销售额, 佣金合计, 付款订单数(去重), 点击次数]，剔除已取消佣金。
+     * 只点击未成交的推广员同样入榜（销售额/佣金/付款为 0），保证「点击排行」完整、
+     * 且各推广员点击之和等于商品的点击总数。
+     * 通过 {@link #DIRECT_PROMOTER_ONLY} 只统计“谁直接推广”，不把下级成交算进上级名下。
+     */
+    @Query(value = "SELECT t.did, COALESCE(SUM(t.sales), 0), COALESCE(SUM(t.commission), 0), " +
+            "COALESCE(SUM(t.paid), 0), COALESCE(SUM(t.clicks), 0) FROM (" +
+            "SELECT cr.distributor_id AS did, SUM(cr.order_amount) AS sales, " +
+            "SUM(cr.commission_amount) AS commission, COUNT(DISTINCT cr.order_id) AS paid, CAST(0 AS numeric) AS clicks " +
+            "FROM commission_records cr WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED' " +
+            DIRECT_PROMOTER_ONLY + " GROUP BY cr.distributor_id " +
+            "UNION ALL " +
+            "SELECT c.distributor_id AS did, CAST(0 AS numeric) AS sales, CAST(0 AS numeric) AS commission, " +
+            "CAST(0 AS bigint) AS paid, COUNT(*) AS clicks " +
+            "FROM distribution_clicks c WHERE c.product_id = :productId GROUP BY c.distributor_id" +
+            ") t GROUP BY t.did ORDER BY COALESCE(SUM(t.sales), 0) DESC, COALESCE(SUM(t.clicks), 0) DESC",
+            countQuery = "SELECT COUNT(*) FROM (" +
+                    "SELECT cr.distributor_id AS did FROM commission_records cr " +
+                    "WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED' " + DIRECT_PROMOTER_ONLY +
+                    "UNION SELECT c.distributor_id AS did FROM distribution_clicks c WHERE c.product_id = :productId" +
+                    ") t",
             nativeQuery = true)
     Page<Object[]> aggregatePromotersByProduct(@Param("productId") UUID productId, Pageable pageable);
+
+    /**
+     * 只保留“直接推广者”的佣金记录：排除二级分销里上级的抽成记录。
+     * 上级抽成记录与其下级的直接佣金记录同订单同商品项、order_amount 完全相同，
+     * 且下级记录的 parent_distributor_id 指向该上级；故“存在某条把 cr.distributor_id 当作上级的记录”
+     * 即判定 cr 为上级抽成记录，予以排除，避免下级的成交成绩被重复计入上级名下。
+     */
+    String DIRECT_PROMOTER_ONLY = "AND NOT EXISTS (SELECT 1 FROM commission_records p " +
+            "WHERE p.order_id = cr.order_id AND p.parent_distributor_id = cr.distributor_id) ";
 
     /**
      * 待结算佣金：订单已完成（COMPLETED）且完成时间超过结算延迟期。

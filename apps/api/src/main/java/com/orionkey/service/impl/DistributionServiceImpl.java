@@ -612,17 +612,16 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("custom_rate", rateToPercent(pc != null ? pc.getCustomRate() : null));
             m.put("excluded", pc != null && pc.isExcluded());
             m.put("default_rate", rateToPercent(defaultRate));
-            // 推广成交数据（佣金记录口径，含全店推广与商品推广链接成交）：销售额/佣金/付款订单/推广人数
+            // 推广成交数据（佣金记录口径，含全店推广与商品推广链接成交）：销售额/佣金/付款订单
             List<Object[]> agg = commissionRecordRepository.aggregateByProductAdmin(p.getId());
             BigDecimal sales = toBigDecimal(agg.get(0)[0], BigDecimal.ZERO);
             BigDecimal commission = toBigDecimal(agg.get(0)[1], BigDecimal.ZERO);
             long paid = ((Number) agg.get(0)[2]).longValue();
-            long promoters = ((Number) agg.get(0)[3]).longValue();
-            // 点击（双源，避免重复）：商品推广链接 clickCount 累计（含历史） + 全店推广链接进店后点击该商品的埋点
-            long clicks = ((Number) promotionLinkRepository.aggregateByProduct(p.getId()).get(0)[2]).longValue();
-            for (Object[] row : clickRepository.countStoreLinkProductClicksGroupedByDistributor(p.getId())) {
-                clicks += ((Number) row[1]).longValue();
-            }
+            // 点击（单一口径）：distribution_click 中该商品的点击埋点，同时覆盖
+            // 商品推广链接被点击 + 全店推广链接进店后的商品点击，不再叠加 promotion_link.click_count
+            long clicks = clickRepository.countByProductId(p.getId());
+            // 推广人数：成交推广员 ∪ 有点击的推广员（与推广员排行弹窗的总数一致）
+            long promoters = commissionRecordRepository.countPromotersByProduct(p.getId());
             m.put("promotion_sales", sales.setScale(2, RoundingMode.HALF_UP));
             m.put("promotion_commission", commission.setScale(2, RoundingMode.HALF_UP));
             m.put("click_count", clicks);
@@ -638,7 +637,7 @@ public class DistributionServiceImpl implements DistributionService {
     @Transactional(readOnly = true)
     public Map<String, Object> adminProductPromoters(UUID productId, int page, int pageSize) {
         Pageable pageable = toPageable(page, pageSize);
-        // 佣金记录口径：含全店推广与商品推广链接成交的推广员排行（按推广销售额倒序）
+        // 成交 ∪ 点击口径：含全店推广与商品推广链接成交的推广员，以及只点击未成交的推广员（按推广销售额倒序）
         Page<Object[]> cp = commissionRecordRepository.aggregatePromotersByProduct(productId, pageable);
         Set<UUID> distIds = cp.getContent().stream().map(row -> (UUID) row[0]).collect(Collectors.toSet());
         Map<UUID, Distributor> distMap = distIds.isEmpty() ? Map.of()
@@ -646,14 +645,6 @@ public class DistributionServiceImpl implements DistributionService {
         Map<UUID, User> userMap = distIds.isEmpty() ? Map.of()
                 : userRepository.findAllById(distMap.values().stream().map(Distributor::getUserId).collect(Collectors.toSet()))
                 .stream().collect(Collectors.toMap(User::getId, u -> u));
-        // 点击（双源，避免重复）：商品推广链接 clickCount 按推广员聚合（含历史） + 全店推广链接进店后点击该商品的埋点
-        Map<UUID, Long> clickMap = new HashMap<>();
-        for (Object[] row : promotionLinkRepository.sumClickCountGroupedByDistributor(productId)) {
-            clickMap.put((UUID) row[0], ((Number) row[1]).longValue());
-        }
-        for (Object[] row : clickRepository.countStoreLinkProductClicksGroupedByDistributor(productId)) {
-            clickMap.merge((UUID) row[0], ((Number) row[1]).longValue(), Long::sum);
-        }
         // 初始首次推广时间：该商品最早创建的推广链接时间 与 最早点击埋点时间，取更早者
         Map<UUID, LocalDateTime> promotedAtMap = new HashMap<>();
         for (Object[] row : promotionLinkRepository.minCreatedAtGroupedByDistributor(productId)) {
@@ -669,7 +660,7 @@ public class DistributionServiceImpl implements DistributionService {
             BigDecimal sales = toBigDecimal(row[1], BigDecimal.ZERO);
             BigDecimal commission = toBigDecimal(row[2], BigDecimal.ZERO);
             long paid = ((Number) row[3]).longValue();
-            long clicks = clickMap.getOrDefault(distId, 0L);
+            long clicks = ((Number) row[4]).longValue();
             Distributor d = distMap.get(distId);
             User u = d != null ? userMap.get(d.getUserId()) : null;
             m.put("distributor_id", distId);
@@ -708,7 +699,9 @@ public class DistributionServiceImpl implements DistributionService {
         }
 
         // 分销推广统计（商品推广 + 全店推广，凡是通过分销推广链接成交的数据均计入）
-        long clicks = clickRepository.countByRange(fromDt != null ? fromDt : RANGE_FROM_MIN,
+        // 点击口径与商品佣金列表一致：distribution_click 中落到具体商品上的点击埋点
+        // （商品推广链接 resolve 点击 + 全店推广链接进店后的商品点击），不含全店链接本身的进店点击
+        long clicks = clickRepository.countProductClicksBetween(fromDt != null ? fromDt : RANGE_FROM_MIN,
                 toDt != null ? toDt : RANGE_TO_MAX);
         long paid = orderRepository.countDistributionOrdersRange(fromDt != null ? fromDt : RANGE_FROM_MIN,
                 toDt != null ? toDt : RANGE_TO_MAX);
@@ -719,14 +712,14 @@ public class DistributionServiceImpl implements DistributionService {
                 fromDt != null ? fromDt : LocalDateTime.of(1970, 1, 1, 0, 0),
                 toDt != null ? toDt : now.plusYears(100)));
 
-        long todayClicks = clickRepository.countBetween(todayStart, now);
+        long todayClicks = clickRepository.countProductClicksBetween(todayStart, now);
         long todayPaid = orderRepository.countDistributionOrdersRange(todayStart, now);
         BigDecimal todayConversion = todayClicks > 0
                 ? new BigDecimal(todayPaid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(todayClicks), 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO.setScale(2);
         BigDecimal todayCommission = nullSafe(commissionRecordRepository.sumCommissionAmountBetween(todayStart, now));
 
-        long prevClicks = prevFrom != null ? clickRepository.countBetween(prevFrom, prevTo) : 0;
+        long prevClicks = prevFrom != null ? clickRepository.countProductClicksBetween(prevFrom, prevTo) : 0;
         long prevPaid = prevFrom != null ? orderRepository.countDistributionOrdersRange(prevFrom, prevTo) : 0;
         BigDecimal prevConversion = prevClicks > 0
                 ? new BigDecimal(prevPaid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(prevClicks), 2, RoundingMode.HALF_UP)
