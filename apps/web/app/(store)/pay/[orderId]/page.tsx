@@ -643,7 +643,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
                   <Copy className="h-4 w-4" />
                   {t("payment.copyPayLink")}
                 </button>
-                <p className="text-xs text-muted-foreground">{t("payment.copyPayLinkHint")}</p>
+                <p className="whitespace-pre-line text-center text-xs text-muted-foreground">{t("payment.copyPayLinkHint")}</p>
               </div>
             )}
 
