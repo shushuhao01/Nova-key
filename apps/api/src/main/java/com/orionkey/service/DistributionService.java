@@ -31,10 +31,11 @@ public interface DistributionService {
     void updateRules(Map<String, Object> request);
 
     // ── 管理后台：商品佣金 ──
-    Map<String, Object> adminListProductCommissions(int page, int pageSize, String keyword);
+    /** 商品佣金配置列表；from/to 限定列表内推广统计数据（销售额/佣金/点击/付款/推广人数）的统计区间 */
+    Map<String, Object> adminListProductCommissions(int page, int pageSize, String keyword, LocalDate from, LocalDate to);
     void adminUpdateProductCommission(UUID productId, BigDecimal customRate, boolean excluded);
-    /** 商品推广员排行（推广该商品的每个分销员明细） */
-    Map<String, Object> adminProductPromoters(UUID productId, int page, int pageSize);
+    /** 商品推广员排行（推广该商品的每个分销员明细）；from/to 限定统计区间 */
+    Map<String, Object> adminProductPromoters(UUID productId, LocalDate from, LocalDate to, int page, int pageSize);
     /** 商品佣金概览统计（点击/下单/转化/佣金 + 今日 + 环比） */
     Map<String, Object> adminProductStats(String range, LocalDate from, LocalDate to);
 

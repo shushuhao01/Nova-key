@@ -112,7 +112,7 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
     /**
      * 管理后台商品维度推广聚合（佣金记录口径，含全店推广与商品推广链接成交）：
      * 返回 [销售额(只算直接推广者，与推广员排行各行销售额之和一致), 佣金合计(全量，含上级抽成，即平台实际支出),
-     * 付款订单数(去重)]，剔除已取消佣金。
+     * 付款订单数(去重)]，剔除已取消佣金。按佣金创建时间落在 [from, to) 内统计，from/to 为服务层传入的非空哨兵值。
      */
     @Query(value = "SELECT " +
             "COALESCE(SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM commission_records p " +
@@ -120,25 +120,33 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
             "THEN cr.order_amount ELSE 0 END), 0), " +
             "COALESCE(SUM(cr.commission_amount), 0), " +
             "COUNT(DISTINCT cr.order_id) " +
-            "FROM commission_records cr WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED'",
+            "FROM commission_records cr WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED' " +
+            "AND cr.created_at >= :from AND cr.created_at < :to",
             nativeQuery = true)
-    List<Object[]> aggregateByProductAdmin(@Param("productId") UUID productId);
+    List<Object[]> aggregateByProductAdmin(@Param("productId") UUID productId,
+                                           @Param("from") LocalDateTime from,
+                                           @Param("to") LocalDateTime to);
 
     /**
-     * 管理后台商品推广人数（去重）：直接推广成交的推广员 ∪ 有点击埋点的推广员，
+     * 管理后台商品推广人数（去重，区间内）：直接推广成交的推广员 ∪ 有点击埋点的推广员，
      * 与 {@link #aggregatePromotersByProduct} 的分页总数保持一致（含只点击未成交的推广员）。
      */
     @Query(value = "SELECT COUNT(*) FROM (" +
             "SELECT cr.distributor_id AS did FROM commission_records cr " +
-            "WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED' " + DIRECT_PROMOTER_ONLY +
-            "UNION SELECT c.distributor_id AS did FROM distribution_clicks c WHERE c.product_id = :productId" +
+            "WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED' " +
+            "AND cr.created_at >= :from AND cr.created_at < :to " + DIRECT_PROMOTER_ONLY +
+            "UNION SELECT c.distributor_id AS did FROM distribution_clicks c " +
+            "WHERE c.product_id = :productId AND c.created_at >= :from AND c.created_at < :to" +
             ") t",
             nativeQuery = true)
-    long countPromotersByProduct(@Param("productId") UUID productId);
+    long countPromotersByProduct(@Param("productId") UUID productId,
+                                 @Param("from") LocalDateTime from,
+                                 @Param("to") LocalDateTime to);
 
     /**
      * 管理后台商品推广员排行（成交 ∪ 点击，按推广销售额倒序）：
-     * 每行 [distributorId, 销售额, 佣金合计, 付款订单数(去重), 点击次数]，剔除已取消佣金。
+     * 每行 [distributorId, 销售额, 佣金合计, 付款订单数(去重), 点击次数]，剔除已取消佣金，
+     * 统计范围限定在 [from, to) 内（from/to 为服务层传入的非空哨兵值）。
      * 只点击未成交的推广员同样入榜（销售额/佣金/付款为 0），保证「点击排行」完整、
      * 且各推广员点击之和等于商品的点击总数。
      * 通过 {@link #DIRECT_PROMOTER_ONLY} 只统计“谁直接推广”，不把下级成交算进上级名下。
@@ -148,19 +156,26 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
             "SELECT cr.distributor_id AS did, SUM(cr.order_amount) AS sales, " +
             "SUM(cr.commission_amount) AS commission, COUNT(DISTINCT cr.order_id) AS paid, CAST(0 AS numeric) AS clicks " +
             "FROM commission_records cr WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED' " +
+            "AND cr.created_at >= :from AND cr.created_at < :to " +
             DIRECT_PROMOTER_ONLY + " GROUP BY cr.distributor_id " +
             "UNION ALL " +
             "SELECT c.distributor_id AS did, CAST(0 AS numeric) AS sales, CAST(0 AS numeric) AS commission, " +
             "CAST(0 AS bigint) AS paid, COUNT(*) AS clicks " +
-            "FROM distribution_clicks c WHERE c.product_id = :productId GROUP BY c.distributor_id" +
+            "FROM distribution_clicks c WHERE c.product_id = :productId " +
+            "AND c.created_at >= :from AND c.created_at < :to GROUP BY c.distributor_id" +
             ") t GROUP BY t.did ORDER BY COALESCE(SUM(t.sales), 0) DESC, COALESCE(SUM(t.clicks), 0) DESC",
             countQuery = "SELECT COUNT(*) FROM (" +
                     "SELECT cr.distributor_id AS did FROM commission_records cr " +
-                    "WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED' " + DIRECT_PROMOTER_ONLY +
-                    "UNION SELECT c.distributor_id AS did FROM distribution_clicks c WHERE c.product_id = :productId" +
+                    "WHERE cr.product_id = :productId AND cr.status::text != 'CANCELLED' " +
+                    "AND cr.created_at >= :from AND cr.created_at < :to " + DIRECT_PROMOTER_ONLY +
+                    "UNION SELECT c.distributor_id AS did FROM distribution_clicks c " +
+                    "WHERE c.product_id = :productId AND c.created_at >= :from AND c.created_at < :to" +
                     ") t",
             nativeQuery = true)
-    Page<Object[]> aggregatePromotersByProduct(@Param("productId") UUID productId, Pageable pageable);
+    Page<Object[]> aggregatePromotersByProduct(@Param("productId") UUID productId,
+                                               @Param("from") LocalDateTime from,
+                                               @Param("to") LocalDateTime to,
+                                               Pageable pageable);
 
     /**
      * 只保留“直接推广者”的佣金记录：排除二级分销里上级的抽成记录。

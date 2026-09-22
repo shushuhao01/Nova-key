@@ -591,7 +591,10 @@ public class DistributionServiceImpl implements DistributionService {
 
     @Override
     @Transactional(readOnly = true)
-    public Map<String, Object> adminListProductCommissions(int page, int pageSize, String keyword) {
+    public Map<String, Object> adminListProductCommissions(int page, int pageSize, String keyword, LocalDate from, LocalDate to) {
+        // 列表内的推广统计数据跟随上方快捷日期筛选：区间 [from, to)，为空则不限（全部）
+        LocalDateTime fromDt = from != null ? from.atStartOfDay() : RANGE_FROM_MIN;
+        LocalDateTime toDt = to != null ? to.plusDays(1).atStartOfDay() : RANGE_TO_MAX;
         // 最新添加的商品排在前面
         Pageable pageable = PageRequest.of(Math.max(page - 1, 0), Math.min(Math.max(pageSize, 1), 100),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
@@ -613,15 +616,15 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("excluded", pc != null && pc.isExcluded());
             m.put("default_rate", rateToPercent(defaultRate));
             // 推广成交数据（佣金记录口径，含全店推广与商品推广链接成交）：销售额/佣金/付款订单
-            List<Object[]> agg = commissionRecordRepository.aggregateByProductAdmin(p.getId());
+            List<Object[]> agg = commissionRecordRepository.aggregateByProductAdmin(p.getId(), fromDt, toDt);
             BigDecimal sales = toBigDecimal(agg.get(0)[0], BigDecimal.ZERO);
             BigDecimal commission = toBigDecimal(agg.get(0)[1], BigDecimal.ZERO);
             long paid = ((Number) agg.get(0)[2]).longValue();
             // 点击（单一口径）：distribution_click 中该商品的点击埋点，同时覆盖
             // 商品推广链接被点击 + 全店推广链接进店后的商品点击，不再叠加 promotion_link.click_count
-            long clicks = clickRepository.countByProductId(p.getId());
+            long clicks = clickRepository.countProductClicksByProductBetween(p.getId(), fromDt, toDt);
             // 推广人数：成交推广员 ∪ 有点击的推广员（与推广员排行弹窗的总数一致）
-            long promoters = commissionRecordRepository.countPromotersByProduct(p.getId());
+            long promoters = commissionRecordRepository.countPromotersByProduct(p.getId(), fromDt, toDt);
             m.put("promotion_sales", sales.setScale(2, RoundingMode.HALF_UP));
             m.put("promotion_commission", commission.setScale(2, RoundingMode.HALF_UP));
             m.put("click_count", clicks);
@@ -635,10 +638,13 @@ public class DistributionServiceImpl implements DistributionService {
 
     @Override
     @Transactional(readOnly = true)
-    public Map<String, Object> adminProductPromoters(UUID productId, int page, int pageSize) {
+    public Map<String, Object> adminProductPromoters(UUID productId, LocalDate from, LocalDate to, int page, int pageSize) {
+        // 统计区间与商品佣金列表保持一致：区间 [from, to)，为空则不限（全部）
+        LocalDateTime fromDt = from != null ? from.atStartOfDay() : RANGE_FROM_MIN;
+        LocalDateTime toDt = to != null ? to.plusDays(1).atStartOfDay() : RANGE_TO_MAX;
         Pageable pageable = toPageable(page, pageSize);
         // 成交 ∪ 点击口径：含全店推广与商品推广链接成交的推广员，以及只点击未成交的推广员（按推广销售额倒序）
-        Page<Object[]> cp = commissionRecordRepository.aggregatePromotersByProduct(productId, pageable);
+        Page<Object[]> cp = commissionRecordRepository.aggregatePromotersByProduct(productId, fromDt, toDt, pageable);
         Set<UUID> distIds = cp.getContent().stream().map(row -> (UUID) row[0]).collect(Collectors.toSet());
         Map<UUID, Distributor> distMap = distIds.isEmpty() ? Map.of()
                 : distributorRepository.findAllById(distIds).stream().collect(Collectors.toMap(Distributor::getId, d -> d));

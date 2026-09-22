@@ -14,12 +14,17 @@ public interface DistributionClickRepository extends JpaRepository<DistributionC
     long countByDistributorId(UUID distributorId);
 
     /**
-     * 商品被点击总次数（单一口径）。distribution_click.product_id 在两种推广路径下都写入被点击的商品：
+     * 区间内某商品的点击次数（单一口径）。distribution_click.product_id 在两种推广路径下都写入被点击的商品：
      * 1) 商品推广链接 /p/{code} 被访问（resolve 时 product_id = 该链接商品）；
      * 2) 全店推广链接进店后点击商品（product_id = 被点击商品）。
      * 因此按 product_id 统计即为「该商品推广过程中的点击次数」，与 promotion_link.click_count 解耦。
+     * from/to 由服务层传入非空哨兵值，表示不限区间。
      */
-    long countByProductId(UUID productId);
+    @Query("SELECT COUNT(c) FROM DistributionClick c WHERE c.productId = :productId " +
+            "AND c.createdAt >= :from AND c.createdAt < :to")
+    long countProductClicksByProductBetween(@Param("productId") UUID productId,
+                                            @Param("from") LocalDateTime from,
+                                            @Param("to") LocalDateTime to);
 
     /**
      * 区间内商品点击总数（仅 product_id 非空，即真正落到商品上的点击，

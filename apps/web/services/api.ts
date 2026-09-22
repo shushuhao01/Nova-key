@@ -935,7 +935,7 @@ export const adminDistributionApi = {
     request<void>(`/admin/distribution/distributors/${id}/status`, { method: "PUT", body: JSON.stringify({ status, reason: reason || "" }) }),
   updateDistributorRate: (id: string, custom_rate?: number, sub_rate?: number) =>
     request<void>(`/admin/distribution/distributors/${id}/rate`, { method: "PUT", body: JSON.stringify({ custom_rate, sub_rate }) }),
-  listProducts: (params: { keyword?: string; page?: number; page_size?: number }) => {
+  listProducts: (params: { keyword?: string; from?: string; to?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/products?${qs}`)
   },
@@ -943,7 +943,7 @@ export const adminDistributionApi = {
     const qs = buildQuery(params)
     return request<any>(`/admin/distribution/products/stats?${qs}`)
   },
-  productPromoters: (productId: string, params: { page?: number; page_size?: number }) => {
+  productPromoters: (productId: string, params: { from?: string; to?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/products/${productId}/promoters?${qs}`)
   },

@@ -122,13 +122,15 @@ public class AdminDistributionController {
         return ApiResponse.success();
     }
 
-    // ── 商品佣金配置 ──
+    // ── 商品佣金配置（列表内推广统计随上方快捷日期区间 from/to 变化） ──
     @GetMapping("/products")
     public ApiResponse<?> listProductCommissions(
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
-        return ApiResponse.success(distributionService.adminListProductCommissions(page, pageSize, keyword));
+        return ApiResponse.success(distributionService.adminListProductCommissions(page, pageSize, keyword, from, to));
     }
 
     // ── 商品佣金概览统计（点击/下单/转化/佣金 + 今日 + 环比，支持快捷日期筛选） ──
@@ -140,12 +142,14 @@ public class AdminDistributionController {
         return ApiResponse.success(distributionService.adminProductStats(range, from, to));
     }
 
-    // ── 商品推广员排行（推广该商品的每个分销员明细） ──
+    // ── 商品推广员排行（推广该商品的每个分销员明细，统计区间与列表一致） ──
     @GetMapping("/products/{productId}/promoters")
     public ApiResponse<?> productPromoters(@PathVariable UUID productId,
+                                           @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+                                           @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to,
                                            @RequestParam(defaultValue = "1") int page,
                                            @RequestParam(value = "page_size", defaultValue = "10") int pageSize) {
-        return ApiResponse.success(distributionService.adminProductPromoters(productId, page, pageSize));
+        return ApiResponse.success(distributionService.adminProductPromoters(productId, from, to, page, pageSize));
     }
 
     @PutMapping("/products/{productId}")

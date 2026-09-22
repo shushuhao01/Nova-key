@@ -1499,10 +1499,14 @@ function ProductsTab() {
   const fetchList = useCallback(async () => {
     setLoading(true)
     try {
+      // 列表内推广统计数据跟随上方快捷日期筛选（与汇总卡片同区间）
+      const dates = rangeToDates(statsRange)
       const data = await adminDistributionApi.listProducts({
         page: currentPage,
         page_size: ITEMS_PER_PAGE,
         keyword: keyword || undefined,
+        from: dates.from,
+        to: dates.to,
       })
       setList((data.list || []) as DistributionProduct[])
       setTotal(data.pagination?.total ?? 0)
@@ -1513,7 +1517,7 @@ function ProductsTab() {
     } finally {
       setLoading(false)
     }
-  }, [currentPage, keyword])
+  }, [currentPage, keyword, statsRange])
 
   useEffect(() => {
     const timer = setTimeout(() => setCurrentPage(1), 300)
@@ -1566,7 +1570,7 @@ function ProductsTab() {
               <button
                 key={opt.key}
                 type="button"
-                onClick={() => setStatsRange(opt.key)}
+                onClick={() => { setStatsRange(opt.key); setCurrentPage(1) }}
                 className={cn(
                   "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
                   statsRange === opt.key
@@ -1615,7 +1619,9 @@ function ProductsTab() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-foreground">商品佣金配置</h2>
-          <p className="text-sm text-muted-foreground">为商品设置自定义佣金比例或排除分销</p>
+          <p className="text-sm text-muted-foreground">
+            为商品设置自定义佣金比例或排除分销 · 推广数据统计范围：{RANGE_OPTIONS.find(r => r.key === statsRange)?.label || "全部"}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative w-56">
@@ -1796,10 +1802,11 @@ function ProductsTab() {
         />
       )}
 
-      {/* 推广员排行弹窗 */}
+      {/* 推广员排行弹窗（统计区间与列表一致） */}
       {promoterProduct && (
         <PromoterRankModal
           product={promoterProduct}
+          dates={rangeToDates(statsRange)}
           onClose={() => setPromoterProduct(null)}
         />
       )}
@@ -1809,8 +1816,9 @@ function ProductsTab() {
 
 // ═══════════════════════ 推广员排行弹窗 ═══════════════════════
 
-function PromoterRankModal({ product, onClose }: {
+function PromoterRankModal({ product, dates, onClose }: {
   product: DistributionProduct
+  dates: { from?: string; to?: string }
   onClose: () => void
 }) {
   const [rows, setRows] = useState<any[]>([])
@@ -1818,10 +1826,11 @@ function PromoterRankModal({ product, onClose }: {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
 
+  const { from, to } = dates
   const fetchRows = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await adminDistributionApi.productPromoters(product.product_id, { page, page_size: 10 })
+      const data = await adminDistributionApi.productPromoters(product.product_id, { page, page_size: 10, from, to })
       setRows((data.list || []) as any[])
       setTotal(data.pagination?.total ?? 0)
     } catch (err) {
@@ -1831,7 +1840,7 @@ function PromoterRankModal({ product, onClose }: {
     } finally {
       setLoading(false)
     }
-  }, [product.product_id, page])
+  }, [product.product_id, page, from, to])
 
   useEffect(() => { fetchRows() }, [fetchRows])
 
