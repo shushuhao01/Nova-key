@@ -161,10 +161,6 @@ public class NotificationServiceImpl implements NotificationService {
                         "月经营账单",
                         "{site_name} 月经营账单（{month}）\n销售额：¥{sales}\n成交订单：{orders} 笔\n新增用户：{users} 人",
                         ALL_CHANNELS, false, 90, true),
-                template("DATA_SUMMARY", "数据汇总与环比", "REPORT",
-                        "数据汇总与环比",
-                        "{site_name} 数据汇总（{date}）\n今日销售额：¥{sales}（环比 {yoy}%）\n今日成交订单：{orders} 笔\n新增用户：{users} 人\n访问 UV：{uv}",
-                        ALL_CHANNELS, false, 100),
                 // ── 分销推广（管理员视角） ──
                 template("DIST_APPLIED", "分销员申请通知", "DISTRIBUTION",
                         "新分销员申请",
@@ -194,7 +190,37 @@ public class NotificationServiceImpl implements NotificationService {
                 template("WITHDRAWAL_REJECTED", "提现申请被拒", "DISTRIBUTION",
                         "提现申请未通过",
                         "{site_name}：您的提现申请 ¥{amount} 未通过审核。\n原因：{reason}\n处理时间：{time}",
-                        ALL_CHANNELS, false, 170)
+                        ALL_CHANNELS, false, 170),
+                // ── 分销员状态（用户站内信） ──
+                template("DIST_STATUS_PENDING", "分销员申请已提交", "DISTRIBUTION",
+                        "分销员申请已提交",
+                        "{site_name}：您的分销员申请已提交（推广员ID：{distributor_code}），请等待平台审核。\n提交时间：{time}",
+                        ALL_CHANNELS, false, 172),
+                template("DIST_STATUS_APPROVED", "分销员审核通过", "DISTRIBUTION",
+                        "分销员申请已通过",
+                        "{site_name}：恭喜！您的分销员申请已审核通过（推广员ID：{distributor_code}），现在可以分享推广赚取佣金了。\n通过时间：{time}",
+                        ALL_CHANNELS, false, 175),
+                template("DIST_STATUS_REJECTED", "分销员审核拒绝", "DISTRIBUTION",
+                        "分销员申请未通过",
+                        "{site_name}：抱歉，您的分销员申请未通过审核。\n原因：{reason}\n处理时间：{time}",
+                        ALL_CHANNELS, false, 180),
+                template("DIST_STATUS_DISABLED", "分销员账号已禁用", "DISTRIBUTION",
+                        "分销员账号已禁用",
+                        "{site_name}：您的分销员账号（{distributor_code}）已被禁用，如有疑问请联系客服。\n处理时间：{time}",
+                        ALL_CHANNELS, false, 185),
+                // ── 分销佣金（用户站内信） ──
+                template("COMMISSION_EARNED", "佣金入账", "DISTRIBUTION",
+                        "获得佣金",
+                        "{site_name}：客户通过您的推广完成下单，您获得佣金 ¥{commission_amount}。\n订单号：{order_id}\n入账时间：{time}",
+                        ALL_CHANNELS, false, 190),
+                template("COMMISSION_SETTLED", "佣金已结算", "DISTRIBUTION",
+                        "佣金已结算",
+                        "{site_name}：您的佣金 ¥{commission_amount} 已结算至可提现余额（商品：{product_title}），可在分销中心申请提现。\n结算时间：{time}",
+                        ALL_CHANNELS, false, 195),
+                template("COMMISSION_CANCELLED", "佣金已取消", "DISTRIBUTION",
+                        "佣金已取消",
+                        "{site_name}：因订单 {order_id}（商品：{product_title}）发生退款，对应佣金 ¥{commission_amount} 已取消。\n处理时间：{time}",
+                        ALL_CHANNELS, false, 200)
         );
         for (Map<String, Object> t : list) {
             String code = (String) t.get("code");
@@ -212,6 +238,9 @@ public class NotificationServiceImpl implements NotificationService {
                 return templateRepository.save(nt);
             });
         }
+        // 历史遗留模板：DATA_SUMMARY 无任何业务触发路径（日报由 DAILY_REPORT 承担），
+        // 保留只会让管理员启用后收不到消息，故直接清理
+        templateRepository.findByCode("DATA_SUMMARY").ifPresent(templateRepository::delete);
     }
 
     private Map<String, Object> template(String code, String name, String category, String title,

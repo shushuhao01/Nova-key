@@ -125,19 +125,19 @@ public class DistributionServiceImpl implements DistributionService {
         distributorRepository.save(d);
         log.info("Distributor applied: userId={}, code={}, status={}", userId, d.getDistributorCode(), d.getStatus());
 
-        // 发送用户消息
+        // 发送用户消息（与后台改状态共用 DIST_STATUS_* 模板：PENDING=已提交待审核 / APPROVED=自动通过）
         try {
             Map<String, Object> vars = new LinkedHashMap<>();
             vars.put("distributor_code", d.getDistributorCode());
             vars.put("status", d.getStatus().name());
             userMessageService.sendUserMessage(userId, user.getEmail(),
-                    autoApprove ? "DIST_APPROVED" : "DIST_APPLIED", vars);
+                    "DIST_STATUS_" + d.getStatus().name(), vars);
         } catch (Exception e) {
             log.warn("Failed to send distributor apply message: {}", e.getMessage());
         }
 
-        // 自动审核通过时通知管理员
-        if (autoApprove) {
+        // 进入待审核（非自动通过）时通知管理员处理
+        if (!autoApprove) {
             try {
                 Map<String, Object> adminVars = new LinkedHashMap<>();
                 adminVars.put("distributor_code", d.getDistributorCode());
@@ -507,6 +507,7 @@ public class DistributionServiceImpl implements DistributionService {
         try {
             Map<String, Object> adminVars = new LinkedHashMap<>();
             adminVars.put("distributor_code", d.getDistributorCode());
+            adminVars.put("user_email", user != null ? user.getEmail() : "-");
             adminVars.put("status", newStatus.name());
             notificationService.sendTemplate("DIST_STATUS_CHANGED", adminVars);
         } catch (Exception e) {
@@ -2072,6 +2073,8 @@ public class DistributionServiceImpl implements DistributionService {
         try {
             Map<String, Object> adminVars = new LinkedHashMap<>();
             adminVars.put("distributor_code", locked.getDistributorCode());
+            adminVars.put("user_email", userRepository.findById(locked.getUserId())
+                    .map(User::getEmail).orElse("-"));
             adminVars.put("amount", amount);
             notificationService.sendTemplate("WITHDRAWAL_PENDING", adminVars);
         } catch (Exception e) {
