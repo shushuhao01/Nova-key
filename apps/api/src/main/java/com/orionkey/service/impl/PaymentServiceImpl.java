@@ -76,6 +76,8 @@ public class PaymentServiceImpl implements PaymentService {
 
     /** 原生微信支付回调路径（相对 context-path） */
     private static final String WXPAY_WEBHOOK_PATH = "/api/payments/webhook/wxpay";
+    /** 原生微信退款结果回调路径（相对 context-path，微信通知不允许携带 query 参数，故使用独立路径） */
+    private static final String WXPAY_REFUND_WEBHOOK_PATH = "/api/payments/webhook/wxpay-refund";
     /** 原生支付宝回调路径（相对 context-path） */
     private static final String ALIPAY_WEBHOOK_PATH = "/api/payments/webhook/alipay";
 
@@ -227,18 +229,19 @@ public class PaymentServiceImpl implements PaymentService {
                 // 失败原因返回给前端透出，便于定位根因（最常见的根因：支付渠道 appid 与公众号 AppID 不一致）。
                 log.warn("Wxpay JSAPI failed, fallback to Native QR for order {}: {}", order.getId(), e.getMessage());
                 jsapiError = e.getMessage();
+                // 此处不 return：继续走下方 Native 扫码兜底。
+                // 否则微信内会出现「JSAPI 拉不起支付、又没有任何可支付方式」的空窗（延迟分支会提前返回）。
+                // 同一 out_trade_no + 同一交易类型重复下单，微信侧幂等返回首次结果，故兜底不会二次注册。
             }
-        }
-
-        // 微信内但尚未拿到 openid：延迟下单。
-        // 同一 out_trade_no 若先下 Native 单，微信侧会注册为 Native 交易，之后 pay 页授权拿到
-        // openid 再用 JSAPI 下单会因「请求重入时，参数与首次请求时不一致」被拒绝。
-        // 因此此处不下单，等待 pay 页静默授权拿到 openid 后 repay 走 JSAPI 首次下单；
-        // 若授权失败，JSAPI 下单失败会回退 Native（此时订单号从未注册过，Native 下单不会冲突）。
-        if ("wechat".equals(device)) {
+        } else if ("wechat".equals(device)) {
+            // 微信内但尚未拿到 openid：延迟下单。
+            // 同一 out_trade_no 若先下 Native 单，微信侧会注册为 Native 交易，之后 pay 页授权拿到
+            // openid 再用 JSAPI 下单会因「请求重入时，参数与首次请求时不一致」被拒绝。
+            // 因此此处不下单，等待 pay 页静默授权拿到 openid 后 repay 走 JSAPI 首次下单；
+            // 若授权失败，JSAPI 下单失败会回退 Native（此时订单号从未注册过，Native 下单不会冲突）。
             log.info("Wxpay deferred: waiting for openid (JSAPI) for order {}", order.getId());
             orderRepository.save(order);
-            return jsapiError;
+            return null;
         }
 
         // H5 支付需在后台开启且非 PC/微信浏览器内
@@ -314,6 +317,14 @@ public class PaymentServiceImpl implements PaymentService {
         return new WxpayConfig(appid, mchid, apiV3Key, serialNo, privateKey, notifyUrl,
                 "https://api.mch.weixin.qq.com", cfg.get("transfer_scene_id"), cfg.get("app_secret"),
                 cfg.get("transfer_scene_job_type"), cfg.get("transfer_scene_remark"));
+    }
+
+    /**
+     * 生成微信退款结果回调地址（app.base-url + 独立路径）。
+     * 微信要求 notify_url 为 https 完整路径且不能携带 query 参数，故退款回调使用独立路径区分。
+     */
+    public String buildWxpayRefundNotifyUrl() {
+        return trimTrailingSlash(appBaseUrl) + WXPAY_REFUND_WEBHOOK_PATH;
     }
 
     /**
@@ -585,7 +596,7 @@ public class PaymentServiceImpl implements PaymentService {
             case "native_wxpay" -> {
                 WxpayOrderQueryResult r = wxpayService.queryOrder(
                         buildWxpayConfig(channel), formatOutTradeNo(order.getId()));
-                yield r != null && "SUCCESS".equals(r.tradeState())
+                yield r != null && !r.isError() && "SUCCESS".equals(r.tradeState())
                         && r.total() != null
                         && BigDecimal.valueOf(r.total()).compareTo(expected.multiply(HUNDRED)) == 0;
             }

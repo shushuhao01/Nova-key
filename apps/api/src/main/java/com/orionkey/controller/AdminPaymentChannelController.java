@@ -49,7 +49,8 @@ public class AdminPaymentChannelController {
         return ApiResponse.success(adminPaymentChannelService.testChannel(id));
     }
 
-    /** 获取渠道完整配置（含私钥/公钥明文），仅管理员可用，用于后台查看原值 */
+    /** 获取渠道完整配置（含私钥/公钥明文），仅拥有 PAYMENT_MANAGE 权限者可用，查看行为记入操作日志 */
+    @LogOperation(action = "payment.rawConfig", targetType = "PAYMENT_CHANNEL", targetId = "#id", detail = "'查看支付渠道明文配置'")
     @GetMapping("/{id}/raw-config")
     public ApiResponse<?> getRawConfig(@PathVariable UUID id) {
         return ApiResponse.success(adminPaymentChannelService.getRawConfig(id));

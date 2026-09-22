@@ -156,6 +156,13 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     @Query("SELECT o FROM Order o WHERE o.status = com.orionkey.constant.OrderStatus.DELIVERED AND o.deliveredAt IS NOT NULL AND o.deliveredAt < :cutoff")
     List<Order> findAutoCompleteOrders(@Param("cutoff") LocalDateTime cutoff);
 
+    /** 退款处理中（已发起退款但微信尚未确认到账）的订单 */
+    @Query("SELECT o FROM Order o WHERE o.refundStatus = 'PENDING'")
+    List<Order> findPendingRefunds();
+
+    /** 按商户退款单号定位订单（退款结果通知回调用） */
+    Optional<Order> findByOutRefundNo(String outRefundNo);
+
     @Query("SELECT o FROM Order o WHERE o.riskFlagged = true ORDER BY o.createdAt DESC")
     Page<Order> findRiskFlaggedOrders(Pageable pageable);
 

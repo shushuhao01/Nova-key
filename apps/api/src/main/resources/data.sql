@@ -8,12 +8,14 @@
 
 -- ────────────────────────────────────────
 -- 1. 管理员账户 (默认密码: admin123，请首次登录后立即修改)
---    默认使用明文密码（application.yml: security.password-plain: true）。
---    若生产设置为 BCrypt，请将 password_hash 替换为 BCrypt 哈希。
+--    默认以 BCrypt 哈希存储（application.yml: security.password-plain: false）；
+--    此处存的即为 admin123 的 BCrypt 哈希，可直接使用，无需开启明文模式。
+--    若确实需要明文存储（仅开发调试），可将下方 password_hash 改为 'admin123'
+--    并设置环境变量 PASSWORD_PLAIN=true。
 -- ────────────────────────────────────────
 INSERT INTO users (id, username, email, password_hash, role, points, is_deleted, failed_login_attempts, lock_until, created_at, updated_at)
 SELECT gen_random_uuid(), 'admin', 'admin@novakey.com',
-       'admin123',
+       '$2a$10$y2Ay6javKx654rlfDzNLZ.8GrECvNMAAbP8fVvPxjrrFbpfJ5qZVu',
        'ADMIN', 0, 0, 0, NULL, NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = 'admin');
 

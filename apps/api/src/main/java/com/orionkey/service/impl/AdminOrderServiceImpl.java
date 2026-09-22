@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
@@ -36,6 +37,13 @@ import java.util.concurrent.ThreadLocalRandom;
 @Service
 @RequiredArgsConstructor
 public class AdminOrderServiceImpl implements AdminOrderService {
+
+    /** 退款处理中：已发起、等待微信确认到账（订单状态保持不变） */
+    private static final String REFUND_STATUS_PENDING = "PENDING";
+    /** 退款成功（终态） */
+    private static final String REFUND_STATUS_SUCCESS = "SUCCESS";
+    /** 退款未成功（关闭/异常，终态） */
+    private static final String REFUND_STATUS_FAILED = "FAILED";
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
@@ -159,13 +167,17 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         if (status != OrderStatus.PAID && status != OrderStatus.DELIVERED && status != OrderStatus.COMPLETED) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "仅已支付/已发货/已完成状态的订单可退款");
         }
-        // 2. 仅微信原生支付渠道支持原路退回（订单 payment_method 存渠道编码 channel_code，需反查渠道）
+        // 2. 已有退款处理中（已发起、微信尚未确认到账）时不允许再次发起，避免重复/超额退款
+        if (REFUND_STATUS_PENDING.equals(order.getRefundStatus())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "该订单有退款正在处理中，请等待退款结果确认后再操作");
+        }
+        // 3. 仅微信原生支付渠道支持原路退回（订单 payment_method 存渠道编码 channel_code，需反查渠道）
         PaymentChannel channel = order.getPaymentMethod() == null ? null
                 : paymentChannelRepository.findByChannelCodeAndIsDeleted(order.getPaymentMethod(), 0).orElse(null);
         if (channel == null || !"native_wxpay".equals(channel.getProviderType())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "仅微信支付订单支持在线退款");
         }
-        // 3. 校验退款金额
+        // 4. 校验退款金额
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "退款金额必须大于 0");
         }
@@ -196,53 +208,162 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         String outRefundNo = "RF" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(1000, 10000);
         WxpayService.WxpayRefundResult result = wxpayService.createRefund(
                 config, PaymentServiceImpl.formatOutTradeNo(order.getId()), outRefundNo,
-                amount, actualAmount, refundReason, null);
+                amount, actualAmount, refundReason, paymentServiceImpl.buildWxpayRefundNotifyUrl());
 
-        // 6. 更新订单退款信息（微信受理即视为退款成功）
-        boolean fullRefund = amount.compareTo(actualAmount) >= 0;
-        order.setRefundedAmount(alreadyRefunded.add(amount).setScale(2, java.math.RoundingMode.HALF_UP));
+        // 6. 更新订单退款信息
+        //    微信同步返回 SUCCESS 表示退款已成功（终态），直接落终态；
+        //    返回 PROCESSING 仅表示已受理、尚未到账，此时订单状态保持不变，退款状态置为 PENDING，
+        //    等待退款结果通知或定时回查确认到账（避免"受理即视为成功"造成资损）
         order.setRefundReason(refundReason);
         order.setOutRefundNo(outRefundNo);
         order.setWxRefundId(result.refundId());
-        order.setRefundedAt(LocalDateTime.now());
-        order.setStatus(fullRefund ? OrderStatus.REFUNDED : OrderStatus.PARTIALLY_REFUNDED);
+        boolean refundSucceeded = REFUND_STATUS_SUCCESS.equals(result.status());
+        if (refundSucceeded) {
+            order.setRefundedAmount(alreadyRefunded.add(amount).setScale(2, RoundingMode.HALF_UP));
+            order.setRefundStatus(REFUND_STATUS_SUCCESS);
+            order.setRefundedAt(LocalDateTime.now());
+            order.setStatus(amount.compareTo(actualAmount) >= 0 ? OrderStatus.REFUNDED : OrderStatus.PARTIALLY_REFUNDED);
+        } else {
+            order.setRefundStatus(REFUND_STATUS_PENDING);
+        }
         orderRepository.save(order);
 
-        // 7. 取消该订单的分销佣金（含已结算的余额扣回）
-        try {
-            distributionService.cancelCommissions(order.getId());
-        } catch (Exception e) {
-            log.error("Failed to cancel commissions for refunded order {}: {}", order.getId(), e.getMessage());
+        if (refundSucceeded) {
+            // 7. 取消该订单的分销佣金（含已结算的余额扣回）
+            cancelCommissionsQuietly(order.getId());
+            // 8. 通知：用户消息 + 管理员
+            sendRefundNotifications(order, amount, refundReason);
+            log.info("Order {} refunded: amount={}, status={}, outRefundNo={}",
+                    order.getId(), amount, order.getStatus(), outRefundNo);
+        } else {
+            log.info("Order {} refund accepted, awaiting confirmation: amount={}, outRefundNo={}, wxStatus={}",
+                    order.getId(), amount, outRefundNo, result.status());
         }
-
-        // 8. 通知：用户消息 + 管理员
-        try {
-            Map<String, Object> vars = new LinkedHashMap<>();
-            vars.put("order_no", order.getId().toString().substring(0, 8));
-            vars.put("amount", amount.toPlainString());
-            vars.put("reason", refundReason);
-            userMessageService.sendUserMessage(order.getUserId(), order.getEmail(), "ORDER_REFUNDED", vars);
-        } catch (Exception e) {
-            log.warn("Failed to send refund user message: {}", e.getMessage());
-        }
-        try {
-            notificationService.sendTemplate("ORDER_REFUNDED", Map.of(
-                    "order_no", order.getId().toString().substring(0, 8),
-                    "amount", amount.toPlainString(),
-                    "reason", refundReason));
-        } catch (Exception e) {
-            log.warn("Failed to notify admin for order refund: {}", e.getMessage());
-        }
-
-        log.info("Order {} refunded: amount={}, fullRefund={}, status={}, outRefundNo={}",
-                order.getId(), amount, fullRefund, order.getStatus(), outRefundNo);
 
         Map<String, Object> resultMap = new LinkedHashMap<>();
         resultMap.put("refunded_amount", order.getRefundedAmount());
         resultMap.put("out_refund_no", outRefundNo);
         resultMap.put("wx_refund_id", result.refundId());
         resultMap.put("status", order.getStatus().name());
+        resultMap.put("refund_status", order.getRefundStatus());
         return resultMap;
+    }
+
+    @Override
+    @Transactional
+    public boolean finalizeWxpayRefund(String outRefundNo, String refundStatus, Integer refundCents) {
+        Order order = orderRepository.findByOutRefundNo(outRefundNo).orElse(null);
+        if (order == null) {
+            log.warn("Wxpay refund finalize: order not found, outRefundNo={}", outRefundNo);
+            return false;
+        }
+        // 幂等：已落成功终态时直接确认（微信会重复通知）
+        if (REFUND_STATUS_SUCCESS.equals(order.getRefundStatus())) {
+            log.info("Wxpay refund finalize: already succeeded, outRefundNo={}", outRefundNo);
+            return true;
+        }
+        if (REFUND_STATUS_SUCCESS.equals(refundStatus)) {
+            if (refundCents == null) {
+                log.error("Wxpay refund finalize: missing refund amount for SUCCESS, outRefundNo={}", outRefundNo);
+                return false;
+            }
+            BigDecimal amount = BigDecimal.valueOf(refundCents)
+                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            BigDecimal alreadyRefunded = order.getRefundedAmount() != null ? order.getRefundedAmount() : BigDecimal.ZERO;
+            BigDecimal refunded = alreadyRefunded.add(amount).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal actualAmount = order.getActualAmount() != null ? order.getActualAmount() : BigDecimal.ZERO;
+            order.setRefundedAmount(refunded);
+            order.setRefundStatus(REFUND_STATUS_SUCCESS);
+            order.setRefundedAt(LocalDateTime.now());
+            order.setStatus(refunded.compareTo(actualAmount) >= 0
+                    ? OrderStatus.REFUNDED : OrderStatus.PARTIALLY_REFUNDED);
+            orderRepository.save(order);
+            cancelCommissionsQuietly(order.getId());
+            sendRefundNotifications(order, amount, order.getRefundReason());
+            log.info("Order {} refund finalized: outRefundNo={}, amount={}, status={}",
+                    order.getId(), outRefundNo, amount, order.getStatus());
+        } else {
+            // CLOSED / ABNORMAL：本次退款未成功，订单状态保持不变（终态，不触发佣金/通知）
+            order.setRefundStatus(REFUND_STATUS_FAILED);
+            orderRepository.save(order);
+            log.warn("Order {} refund not completed: outRefundNo={}, refundStatus={}",
+                    order.getId(), outRefundNo, refundStatus);
+        }
+        return true;
+    }
+
+    @Override
+    @Transactional
+    public int reconcilePendingRefunds() {
+        List<Order> pending = orderRepository.findPendingRefunds();
+        if (pending.isEmpty()) {
+            return 0;
+        }
+        int finalized = 0;
+        for (Order order : pending) {
+            String outRefundNo = order.getOutRefundNo();
+            if (outRefundNo == null || outRefundNo.isBlank()) {
+                continue;
+            }
+            try {
+                PaymentChannel channel = order.getPaymentMethod() == null ? null
+                        : paymentChannelRepository.findByChannelCodeAndIsDeleted(order.getPaymentMethod(), 0)
+                                .orElse(null);
+                if (channel == null || !"native_wxpay".equals(channel.getProviderType())) {
+                    log.warn("Pending refund reconcile skipped: channel unavailable, outRefundNo={}", outRefundNo);
+                    continue;
+                }
+                WxpayService.WxpayRefundQueryResult query = wxpayService.queryRefund(
+                        paymentServiceImpl.buildWxpayConfig(channel), outRefundNo);
+                if (query == null || query.isError()) {
+                    log.warn("Pending refund reconcile deferred: query failed, outRefundNo={}, error={}",
+                            outRefundNo, query != null ? query.error() : null);
+                    continue;
+                }
+                // 退款单尚不存在（404）或仍在处理中，留待下轮再查
+                if (query.status() == null || "PROCESSING".equals(query.status())) {
+                    continue;
+                }
+                if (finalizeWxpayRefund(outRefundNo, query.status(), query.refundAmount())) {
+                    finalized++;
+                }
+            } catch (Exception e) {
+                log.error("Pending refund reconcile failed for outRefundNo={}: {}", outRefundNo, e.getMessage());
+            }
+        }
+        return finalized;
+    }
+
+    /** 取消订单分销佣金（失败仅记录日志，不影响退款主流程） */
+    private void cancelCommissionsQuietly(UUID orderId) {
+        try {
+            distributionService.cancelCommissions(orderId);
+        } catch (Exception e) {
+            log.error("Failed to cancel commissions for refunded order {}: {}", orderId, e.getMessage());
+        }
+    }
+
+    /** 退款成功通知：用户消息 + 管理员模板通知（失败仅记录日志） */
+    private void sendRefundNotifications(Order order, BigDecimal amount, String reason) {
+        String orderNo = order.getId().toString().substring(0, 8);
+        String safeReason = reason != null ? reason : "";
+        try {
+            Map<String, Object> vars = new LinkedHashMap<>();
+            vars.put("order_no", orderNo);
+            vars.put("amount", amount.toPlainString());
+            vars.put("reason", safeReason);
+            userMessageService.sendUserMessage(order.getUserId(), order.getEmail(), "ORDER_REFUNDED", vars);
+        } catch (Exception e) {
+            log.warn("Failed to send refund user message: {}", e.getMessage());
+        }
+        try {
+            notificationService.sendTemplate("ORDER_REFUNDED", Map.of(
+                    "order_no", orderNo,
+                    "amount", amount.toPlainString(),
+                    "reason", safeReason));
+        } catch (Exception e) {
+            log.warn("Failed to notify admin for order refund: {}", e.getMessage());
+        }
     }
 
     private static String paymentMethodLabel(String method) {

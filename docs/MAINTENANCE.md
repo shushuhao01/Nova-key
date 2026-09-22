@@ -156,7 +156,7 @@ ps -ef | grep java                # 确认启动命令含 -Duser.timezone=Asia/S
 
 ## 6. 安全维护
 
-- 默认管理员 `admin/admin123`：**上线后立即改密**；生产建议 `PASSWORD_PLAIN=false`（按部署文档 2.5 流程切换）。
+- 默认管理员 `admin/admin123`：**上线后立即改密**；密码默认以 BCrypt 存储（`PASSWORD_PLAIN` 默认 `false`），旧版本明文密码会在启动时自动迁移为 BCrypt。
 - `JWT_SECRET`：使用随机密钥；泄露后**所有登录态可被伪造**，务必妥善保管。
 - 环境变量 `.env`：不入 Git（已在 `.gitignore` 中排除），服务器上权限收紧 `chmod 600 .env`。
 - 支付私钥：只存服务器，不外传；后台脱敏展示。

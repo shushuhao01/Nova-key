@@ -82,8 +82,9 @@ APP_BASE_URL=https://你的域名
 # JWT（必须，随机生成：openssl rand -base64 48）
 JWT_SECRET=<随机密钥>
 
-# 密码模式：生产建议先保持 true 登录一次，后台改密后再切 false（见 2.5）
-PASSWORD_PLAIN=true
+# 密码模式：默认 false（BCrypt），管理后台改密后即为 BCrypt 存储；
+# 仅开发调试时可临时设为 true（明文存储，切勿用于生产）
+PASSWORD_PLAIN=false
 
 # 邮件（可选，配置后发货自动发邮件）
 MAIL_ENABLED=false
@@ -155,9 +156,11 @@ server {
 ### 2.5 上线安全配置
 
 1. **登录改密**：用 `admin / admin123` 登录后台，立即修改密码。
-2. **切换 BCrypt（可选但推荐）**：修改所有用户密码后，将 `PASSWORD_PLAIN=false` 重启。
-   ⚠️ 注意：`data.sql` 中 admin 是**明文**密码；若直接切 `false` 会导致明文密码无法登录。
-   正确流程：先 `true` 启动 → 后台改密（存储为 BCrypt）→ 重启改为 `false`。
+2. **密码存储（默认已安全）**：`security.password-plain` 默认 `false`，即 BCrypt 存储。
+   - `data.sql` 中内置的 admin 密码本身已是 `admin123` 的 BCrypt 哈希，无需再做任何切换；
+   - 若从旧版本升级（库中为明文密码），以 `false` 启动时后端会自动把明文哈希转换为 BCrypt，
+     登录密码保持不变；
+   - 仅本地开发调试需要明文存储时才设置 `PASSWORD_PLAIN=true`，生产环境务必保持 `false`。
 3. **配置支付渠道**：后台「支付渠道」添加/编辑原生微信、支付宝，填入真实商户信息
    （回调地址由系统根据 `APP_BASE_URL` 自动生成，无需手动填写）。
 4. **修改 `JWT_SECRET`**：确认使用随机密钥，不要使用默认值。
@@ -230,7 +233,7 @@ docker compose logs -f
 - [ ] `APP_BASE_URL` 设置为 https 域名，回调地址可公网访问（微信/支付宝必须）
 - [ ] PostgreSQL 已建库建用户，`data.sql` 已执行
 - [ ] `JWT_SECRET` 已替换为随机密钥
-- [ ] 管理员已登录并修改默认密码（或 `PASSWORD_PLAIN=false` 已按 2.5 流程切换）
+- [ ] 管理员已登录并修改默认密码（`PASSWORD_PLAIN` 保持默认 `false`，即 BCrypt 存储）
 - [ ] 原生微信/支付宝渠道已填入真实商户信息并启用
 - [ ] 后端端口 8083、前端端口 3000 未被其他项目占用（`ss -lntp` 确认）
 - [ ] Nginx HTTPS 已配置，`/api/health` 返回正常
@@ -247,5 +250,5 @@ docker compose logs -f
 | 下单报"渠道缺少必填配置" | 后台渠道配置未填全，或渠道未启用 |
 | 时间差 8 小时 | 确认进程时区 `TZ=Asia/Shanghai` |
 | 端口冲突 | `ss -lntp` 查看占用，改 `server.port` / 前端 `--port` |
-| `PASSWORD_PLAIN=false` 后登录失败 | 需先 `true` 启动登录并在后台改密，再切 `false`（见 2.5） |
+| `PASSWORD_PLAIN=false` 后登录失败 | 启动日志中确认 `[Migration] users.password_hash` 明文转 BCrypt 是否执行；旧版本库升级后首次启动会自动转换（见 2.5），转换后原密码依然可用 |
 | 邮件不发送 | 检查 `MAIL_ENABLED`、SMTP 授权码、`MAIL_SITE_URL` |

@@ -40,4 +40,14 @@ public interface WebhookService {
      * @return "SUCCESS" 表示已确认处理，其他值触发微信重试
      */
     String processWxpayTransferCallback(Map<String, String> headers, String rawBody);
+
+    /**
+     * 处理微信支付退款结果通知（APIv3 通知，含平台证书验签与资源解密）。
+     * 退款到账（REFUND.SUCCESS）或关闭/异常（REFUND.CLOSED / REFUND.ABNORMAL）时收敛订单退款终态。
+     *
+     * @param headers 回调请求头（键已转为小写，含 wechatpay-* 签名头）
+     * @param rawBody 原始请求体
+     * @return "SUCCESS" 表示已确认处理，其他值触发微信重试
+     */
+    String processWxpayRefundCallback(Map<String, String> headers, String rawBody);
 }

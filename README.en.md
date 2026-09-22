@@ -247,8 +247,12 @@ jwt:
 
 ```yaml
 security:
-  password-plain: ${PASSWORD_PLAIN:true}  # true=plain (dev), false=BCrypt (production)
+  password-plain: ${PASSWORD_PLAIN:false}  # false=BCrypt (default, production standard), true=plain (dev only)
 ```
+
+- **Default (recommended)**: `false` — BCrypt hashing. The seeded `admin/admin123` in `data.sql` is already a BCrypt hash, so login works out of the box.
+- **Local development**: may be set to `true` for plain-text passwords (never in production).
+- **Upgrading from an older version**: plain-text hashes still in the database are automatically converted to BCrypt on startup with `false` (no manual password reset needed).
 
 ### Mail
 

@@ -4,9 +4,9 @@
 -- 仅用于本地无 PostgreSQL 环境的演示启动
 -- ============================================================
 
--- 1. 管理员账户 (明文密码 admin123，需 PASSWORD_PLAIN=true)
+-- 1. 管理员账户 (默认密码 admin123，以 BCrypt 哈希存储，无需 PASSWORD_PLAIN=true)
 INSERT INTO users (id, username, email, password_hash, role, points, is_deleted, failed_login_attempts, lock_until, created_at, updated_at)
-VALUES (RANDOM_UUID(), 'admin', 'admin@novakey.com', 'admin123', 'ADMIN', 0, 0, 0, NULL, NOW(), NOW());
+VALUES (RANDOM_UUID(), 'admin', 'admin@novakey.com', '$2a$10$y2Ay6javKx654rlfDzNLZ.8GrECvNMAAbP8fVvPxjrrFbpfJ5qZVu', 'ADMIN', 0, 0, 0, NULL, NOW(), NOW());
 
 -- 2. 站点配置
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)

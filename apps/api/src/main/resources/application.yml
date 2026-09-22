@@ -56,7 +56,7 @@ jwt:
 
 # Security
 security:
-  password-plain: ${PASSWORD_PLAIN:true}  # true=明文密码(开发用), false=BCrypt(生产用)
+  password-plain: ${PASSWORD_PLAIN:false}  # false=BCrypt(默认，生产标准), true=明文密码(仅开发调试用)
 
 # Upload
 upload:

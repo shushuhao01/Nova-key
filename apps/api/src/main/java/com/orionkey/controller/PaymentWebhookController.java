@@ -48,20 +48,16 @@ public class PaymentWebhookController {
      */
     @PostMapping(value = "/wxpay", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> handleWxpayCallback(HttpServletRequest request) {
-        Map<String, String> headers = new HashMap<>();
-        var headerNames = request.getHeaderNames();
-        while (headerNames.hasMoreElements()) {
-            String name = headerNames.nextElement();
-            headers.put(name.toLowerCase(), request.getHeader(name));
-        }
+        Map<String, String> headers = lowercaseHeaders(request);
         String rawBody;
-        try (var is = request.getInputStream()) {
-            rawBody = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        try {
+            rawBody = readRawBody(request);
         } catch (IOException e) {
             log.error("Wxpay callback failed to read body", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("FAIL");
         }
-        log.info("Wxpay callback received, headers={}, body={}", headers, rawBody);
+        // 不打印完整 body 与请求头：报文含加密资源/签名信息，仅记录长度便于排查
+        log.info("Wxpay callback received, bodyLength={}", rawBody.length());
 
         String result = webhookService.processWxpayCallback(headers, rawBody);
         if ("FAIL".equals(result)) {
@@ -88,25 +84,63 @@ public class PaymentWebhookController {
      */
     @PostMapping(value = "/wxpay-transfer", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> handleWxpayTransferCallback(HttpServletRequest request) {
-        Map<String, String> headers = new HashMap<>();
-        var headerNames = request.getHeaderNames();
-        while (headerNames.hasMoreElements()) {
-            String name = headerNames.nextElement();
-            headers.put(name.toLowerCase(), request.getHeader(name));
-        }
+        Map<String, String> headers = lowercaseHeaders(request);
         String rawBody;
-        try (var is = request.getInputStream()) {
-            rawBody = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        try {
+            rawBody = readRawBody(request);
         } catch (IOException e) {
             log.error("Wxpay transfer callback failed to read body", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("FAIL");
         }
-        log.info("Wxpay transfer callback received, headers={}, body={}", headers, rawBody);
+        // 不打印完整 body 与请求头：报文含加密资源/签名信息，仅记录长度便于排查
+        log.info("Wxpay transfer callback received, bodyLength={}", rawBody.length());
 
         String result = webhookService.processWxpayTransferCallback(headers, rawBody);
         if ("FAIL".equals(result)) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("FAIL");
         }
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 微信支付退款结果通知 — POST JSON（含验签请求头 + 加密资源）
+     * 退款到账 / 关闭 / 异常时收敛订单退款终态，成功返回 "SUCCESS"，失败返回 500 触发微信重试
+     */
+    @PostMapping(value = "/wxpay-refund", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> handleWxpayRefundCallback(HttpServletRequest request) {
+        Map<String, String> headers = lowercaseHeaders(request);
+        String rawBody;
+        try {
+            rawBody = readRawBody(request);
+        } catch (IOException e) {
+            log.error("Wxpay refund callback failed to read body", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("FAIL");
+        }
+        // 不打印完整 body 与请求头：报文含加密资源/签名信息，仅记录长度便于排查
+        log.info("Wxpay refund callback received, bodyLength={}", rawBody.length());
+
+        String result = webhookService.processWxpayRefundCallback(headers, rawBody);
+        if ("FAIL".equals(result)) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("FAIL");
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    /** 读取请求头并统一转为小写键（微信 APIv3 验签要求小写头名） */
+    private static Map<String, String> lowercaseHeaders(HttpServletRequest request) {
+        Map<String, String> headers = new HashMap<>();
+        var headerNames = request.getHeaderNames();
+        while (headerNames.hasMoreElements()) {
+            String name = headerNames.nextElement();
+            headers.put(name.toLowerCase(), request.getHeader(name));
+        }
+        return headers;
+    }
+
+    /** 读取原始请求体（微信 APIv3 必须用原始报文参与验签，不能反序列化后再拼接） */
+    private static String readRawBody(HttpServletRequest request) throws IOException {
+        try (var is = request.getInputStream()) {
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 }

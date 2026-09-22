@@ -11,6 +11,7 @@ import com.orionkey.entity.WebhookEvent;
 import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.PaymentChannelRepository;
 import com.orionkey.repository.WebhookEventRepository;
+import com.orionkey.service.AdminOrderService;
 import com.orionkey.service.BepusdtService;
 import com.orionkey.service.EpayService;
 import com.orionkey.service.AlipayService;
@@ -55,6 +56,7 @@ public class WebhookServiceImpl implements WebhookService {
     private final TxidVerifyService txidVerifyService;
     private final NotificationService notificationService;
     private final DistributionService distributionService;
+    private final AdminOrderService adminOrderService;
 
     @Override
     @Transactional
@@ -352,7 +354,9 @@ public class WebhookServiceImpl implements WebhookService {
     public String processWxpayCallback(Map<String, String> headers, String rawBody) {
         log.info("Wxpay callback received");
         try {
-            // 1. 用任一已启用的微信商户配置尝试验签 + 解密（同一通知可用任一商户配置解出）
+            // 1. 逐渠道验签 + 解密，并按解密出的商户号精确匹配所属支付渠道
+            //    （微信通知报文本身不含明文商户号，必须先解密才能确定渠道，故仍逐个尝试；
+            //      但只有解出的 mchid 与渠道配置一致时才接受，避免多商户场景串单）
             WxpayNotificationResult notification = null;
             for (PaymentChannel channel : paymentChannelRepository
                     .findByProviderTypeAndIsDeleted("native_wxpay", 0)) {
@@ -360,10 +364,14 @@ public class WebhookServiceImpl implements WebhookService {
                 try {
                     WxpayConfig config = paymentService.buildWxpayConfig(channel);
                     WxpayNotificationResult result = wxpayService.decryptNotification(config, headers, rawBody);
-                    if (result != null) {
-                        notification = result;
-                        break;
+                    if (result == null) continue;
+                    if (result.mchid() != null && !result.mchid().equals(config.mchid())) {
+                        log.warn("Wxpay notification mchid mismatch: notification={}, channel={}",
+                                result.mchid(), channel.getChannelCode());
+                        continue;
                     }
+                    notification = result;
+                    break;
                 } catch (Exception e) {
                     log.warn("Wxpay notification attempt failed for channel {}: {}",
                             channel.getChannelCode(), e.getMessage());
@@ -412,7 +420,7 @@ public class WebhookServiceImpl implements WebhookService {
             if (order.getActualAmount().compareTo(callbackAmount) != 0) {
                 log.error("Wxpay callback amount mismatch: order={}, callback={}",
                         order.getActualAmount(), callbackAmount);
-                saveWebhookEvent(eventId, "wxpay", orderId, rawBody, "AMOUNT_MISMATCH");
+                // 金额不符属于异常通知，不写入幂等表，确保微信重试时仍会重新校验
                 return "FAIL";
             }
 
@@ -421,14 +429,15 @@ public class WebhookServiceImpl implements WebhookService {
             WxpayOrderQueryResult queryResult = wxpayService.queryOrder(
                     paymentService.buildWxpayConfig(orderChannel),
                     PaymentServiceImpl.formatOutTradeNo(orderId));
-            if (queryResult == null) {
-                log.warn("Wxpay callback deferred: server-side order query failed, out_trade_no={}", orderId);
+            if (queryResult == null || queryResult.isError()) {
+                log.warn("Wxpay callback deferred: server-side order query failed, out_trade_no={}, error={}",
+                        orderId, queryResult != null ? queryResult.error() : null);
                 return "FAIL";
             }
             if (!"SUCCESS".equals(queryResult.tradeState())) {
                 log.error("Wxpay callback rejected: query trade_state={}, out_trade_no={}",
                         queryResult.tradeState(), orderId);
-                saveWebhookEvent(eventId, "wxpay", orderId, rawBody, "QUERY_STATUS_MISMATCH");
+                // 查单状态未达成功属于异常通知，不写入幂等表，确保微信重试时仍会重新校验
                 return "FAIL";
             }
 
@@ -587,7 +596,7 @@ public class WebhookServiceImpl implements WebhookService {
     public String processWxpayTransferCallback(Map<String, String> headers, String rawBody) {
         log.info("Wxpay transfer callback received");
         try {
-            // 1. 用任一已启用的微信商户配置验签 + 解密（与支付回调同一机制）
+            // 1. 逐渠道验签 + 解密，并按解密出的商户号精确匹配所属支付渠道（与支付回调同一机制）
             WxpayService.WxpayTransferNotificationResult notification = null;
             for (PaymentChannel channel : paymentChannelRepository
                     .findByProviderTypeAndIsDeleted("native_wxpay", 0)) {
@@ -596,10 +605,14 @@ public class WebhookServiceImpl implements WebhookService {
                     WxpayConfig config = paymentService.buildWxpayConfig(channel);
                     WxpayService.WxpayTransferNotificationResult result =
                             wxpayService.decryptTransferNotification(config, headers, rawBody);
-                    if (result != null) {
-                        notification = result;
-                        break;
+                    if (result == null) continue;
+                    if (result.mchid() != null && !result.mchid().equals(config.mchid())) {
+                        log.warn("Wxpay transfer notification mchid mismatch: notification={}, channel={}",
+                                result.mchid(), channel.getChannelCode());
+                        continue;
                     }
+                    notification = result;
+                    break;
                 } catch (Exception e) {
                     log.warn("Wxpay transfer notification attempt failed for channel {}: {}",
                             channel.getChannelCode(), e.getMessage());
@@ -625,6 +638,74 @@ public class WebhookServiceImpl implements WebhookService {
             return "SUCCESS";
         } catch (Exception e) {
             log.error("Wxpay transfer callback processing error", e);
+            return "FAIL";
+        }
+    }
+
+    /**
+     * 微信支付退款结果回调处理：
+     * 1) 平台证书验签 + APIv3 密钥解密资源
+     * 2) 幂等检查（通知 ID）
+     * 3) 收敛订单退款终态（到账置 REFUNDED/PARTIALLY_REFUNDED，关闭/异常仅标记退款失败）
+     */
+    @Override
+    @Transactional
+    public String processWxpayRefundCallback(Map<String, String> headers, String rawBody) {
+        log.info("Wxpay refund callback received");
+        try {
+            // 1. 逐渠道验签 + 解密，并按解密出的商户号精确匹配所属支付渠道（与支付/转账回调同一机制）
+            WxpayService.WxpayRefundNotificationResult notification = null;
+            for (PaymentChannel channel : paymentChannelRepository
+                    .findByProviderTypeAndIsDeleted("native_wxpay", 0)) {
+                if (!channel.isEnabled()) continue;
+                try {
+                    WxpayConfig config = paymentService.buildWxpayConfig(channel);
+                    WxpayService.WxpayRefundNotificationResult result =
+                            wxpayService.decryptRefundNotification(config, headers, rawBody);
+                    if (result == null) continue;
+                    if (result.mchid() != null && !result.mchid().equals(config.mchid())) {
+                        log.warn("Wxpay refund notification mchid mismatch: notification={}, channel={}",
+                                result.mchid(), channel.getChannelCode());
+                        continue;
+                    }
+                    notification = result;
+                    break;
+                } catch (Exception e) {
+                    log.warn("Wxpay refund notification attempt failed for channel {}: {}",
+                            channel.getChannelCode(), e.getMessage());
+                }
+            }
+            if (notification == null) {
+                log.error("Wxpay refund callback rejected: signature verification or decryption failed for all channels");
+                return "FAIL";
+            }
+
+            // 2. 幂等检查（通知 ID）
+            String eventId = "wxpay_refund_" + (notification.id() != null
+                    ? notification.id() : notification.outRefundNo());
+            if (webhookEventRepository.findByEventId(eventId).isPresent()) {
+                log.info("Wxpay refund callback already processed: {}", eventId);
+                return "SUCCESS";
+            }
+            if (notification.outRefundNo() == null || notification.outRefundNo().isBlank()) {
+                log.error("Wxpay refund callback missing out_refund_no");
+                return "FAIL";
+            }
+
+            // 3. 收敛退款终态（内部含终态幂等；处理失败返回 FAIL 触发微信重试）
+            boolean finalized = adminOrderService.finalizeWxpayRefund(
+                    notification.outRefundNo(), notification.refundStatus(), notification.refundAmount());
+            if (!finalized) {
+                log.warn("Wxpay refund callback deferred: finalize returned false, outRefundNo={}",
+                        notification.outRefundNo());
+                return "FAIL";
+            }
+            saveWebhookEvent(eventId, "wxpay_refund", null, rawBody, "SUCCESS");
+            log.info("Wxpay refund callback processed: outRefundNo={}, refundStatus={}",
+                    notification.outRefundNo(), notification.refundStatus());
+            return "SUCCESS";
+        } catch (Exception e) {
+            log.error("Wxpay refund callback processing error", e);
             return "FAIL";
         }
     }

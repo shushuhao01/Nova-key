@@ -6,16 +6,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * 应用启动后执行的一次性数据迁移。
  * 1. 将已有规格但 spec_enabled=false 的商品自动设为 true，确保向后兼容。
  * 2. 修复 users.role 原生 PG 枚举列（缺 'STAFF' 值导致保存客服角色报 System error）：
  *    若该列是 USER-DEFINED（PG 枚举），转换为 varchar(255)，并清除引用 role 的 CHECK 约束。
+ * 3. 将存量明文密码迁移为 BCrypt（详见 {@link #migratePlaintextPasswords()}）。
  * 幂等安全：后续启动无匹配行时 0 行更新 / 列类型已为 varchar 时跳过，无副作用。
  */
 @Slf4j
@@ -23,8 +28,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class DataMigrationRunner implements ApplicationRunner {
 
+    /** BCrypt 哈希格式：$2a$ / $2b$ / $2y$ + cost */
+    private static final Pattern BCRYPT_PATTERN = Pattern.compile("^\\$2[aby]\\$\\d{2}\\$");
+
     private final ProductRepository productRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final PasswordEncoder passwordEncoder;
 
     @Override
     @Transactional
@@ -37,6 +46,40 @@ public class DataMigrationRunner implements ApplicationRunner {
         migrateCouponCodes();
         migrateDistributionEnumColumns();
         migrateCommissionWithdrawalId();
+        migratePlaintextPasswords();
+    }
+
+    /**
+     * 存量明文密码迁移。
+     * 早期版本 security.password-plain 默认 true，密码以明文落库；现默认改为 false（BCrypt），
+     * 若不做迁移，升级后所有用户（含管理员）将无法通过校验。因此在启用 BCrypt 编码器时，
+     * 把 password_hash 不是 BCrypt 格式的行按其明文值重新编码 —— 用户原密码保持不变，无需重置。
+     * 明文模式下（PASSWORD_PLAIN=true）不做任何处理，保留开发调试行为。
+     * 幂等：已迁移为 BCrypt 的行不再匹配，重复启动无副作用。
+     */
+    private void migratePlaintextPasswords() {
+        if (!(passwordEncoder instanceof BCryptPasswordEncoder)) {
+            log.info("[Migration] password encoder is plain-text mode, skip password hash migration");
+            return;
+        }
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "SELECT id, password_hash FROM users WHERE password_hash IS NOT NULL AND password_hash <> ''");
+            int migrated = 0;
+            for (Map<String, Object> row : rows) {
+                String hash = (String) row.get("password_hash");
+                // 已是 BCrypt 哈希：跳过（幂等）
+                if (BCRYPT_PATTERN.matcher(hash).find()) continue;
+                jdbcTemplate.update("UPDATE users SET password_hash = ? WHERE id = ?",
+                        passwordEncoder.encode(hash), row.get("id"));
+                migrated++;
+            }
+            if (migrated > 0) {
+                log.warn("[Migration] migrated {} plain-text password(s) to BCrypt", migrated);
+            }
+        } catch (Exception e) {
+            log.warn("[Migration] password hash migration skipped: {}", e.getMessage());
+        }
     }
 
     /**

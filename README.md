@@ -354,11 +354,12 @@ openssl rand -base64 48
 
 ```yaml
 security:
-  password-plain: ${PASSWORD_PLAIN:true}  # true=明文密码(开发用), false=BCrypt(生产用)
+  password-plain: ${PASSWORD_PLAIN:false}  # false=BCrypt(默认，生产标准), true=明文密码(仅开发调试)
 ```
 
-- **本地开发**：`true`（默认），密码明文存储，方便调试
-- **生产环境**：设为 `false`，启用 BCrypt 加密，**必须在切换前重置所有用户密码**
+- **默认（推荐）**：`false`，BCrypt 加密存储；`data.sql` 内置的 `admin/admin123` 已是 BCrypt 哈希，开箱可登录
+- **本地开发**：可临时设为 `true`，密码明文存储、方便调试（切勿用于生产）
+- **从旧版本升级**：若数据库中仍存有明文密码，`false` 启动时会自动将其转换为 BCrypt（无需手工重置密码）
 
 ### 邮件发送
 

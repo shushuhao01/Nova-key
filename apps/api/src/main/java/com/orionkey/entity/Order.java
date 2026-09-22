@@ -75,7 +75,14 @@ public class Order extends BaseEntity {
     /** 微信退款单号（refund_id） */
     private String wxRefundId;
 
-    /** 退款时间 */
+    /**
+     * 退款状态：PENDING=已发起、等待微信确认到账（未到账，订单状态保持不变）；
+     * SUCCESS=退款成功（终态，订单状态置为 REFUNDED/PARTIALLY_REFUNDED）；
+     * FAILED=退款关闭或异常（未退款成功）
+     */
+    private String refundStatus;
+
+    /** 退款到账时间（仅退款成功时写入） */
     private LocalDateTime refundedAt;
 
     @Column(unique = true)

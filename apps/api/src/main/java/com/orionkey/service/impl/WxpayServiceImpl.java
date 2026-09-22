@@ -17,6 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
@@ -66,7 +67,7 @@ public class WxpayServiceImpl implements WxpayService {
         String canonicalPath = "/v3/pay/transactions/native";
         String gateway = trimSlash(config.gatewayUrl());
 
-        int totalCents = amount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        int totalCents = amount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.DOWN).intValue();
         if (totalCents <= 0) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "微信支付金额必须大于 0");
         }
@@ -114,7 +115,7 @@ public class WxpayServiceImpl implements WxpayService {
         String canonicalPath = "/v3/pay/transactions/h5";
         String gateway = trimSlash(config.gatewayUrl());
 
-        int totalCents = amount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        int totalCents = amount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.DOWN).intValue();
         if (totalCents <= 0) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "微信支付金额必须大于 0");
         }
@@ -167,7 +168,7 @@ public class WxpayServiceImpl implements WxpayService {
         String canonicalPath = "/v3/pay/transactions/jsapi";
         String gateway = trimSlash(config.gatewayUrl());
 
-        int totalCents = amount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        int totalCents = amount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.DOWN).intValue();
         if (totalCents <= 0) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "微信支付金额必须大于 0");
         }
@@ -254,10 +255,19 @@ public class WxpayServiceImpl implements WxpayService {
             if (resp.get("amount") instanceof Map<?, ?> am && am.get("total") instanceof Number n) {
                 total = n.intValue();
             }
-            return new WxpayOrderQueryResult(tradeState, total, transactionId);
+            return new WxpayOrderQueryResult(tradeState, total, transactionId, null);
+        } catch (HttpStatusCodeException e) {
+            // 微信「订单不存在」（404 ORDER_NOT_EXIST）属于正常查询结果，而非查询失败
+            if (e.getStatusCode().value() == 404 && e.getResponseBodyAsString().contains("ORDER_NOT_EXIST")) {
+                return new WxpayOrderQueryResult(null, null, null, null);
+            }
+            String detail = truncate(e.getResponseBodyAsString());
+            log.warn("Wxpay order query failed: outTradeNo={}, error={}", outTradeNo, detail);
+            return new WxpayOrderQueryResult(null, null, null, detail);
         } catch (Exception e) {
-            log.warn("Wxpay order query failed: outTradeNo={}, error={}", outTradeNo, e.getMessage());
-            return null;
+            String detail = truncate(e.getMessage());
+            log.warn("Wxpay order query failed: outTradeNo={}, error={}", outTradeNo, detail);
+            return new WxpayOrderQueryResult(null, null, null, detail);
         }
     }
 
@@ -279,7 +289,8 @@ public class WxpayServiceImpl implements WxpayService {
             if (resource.get("amount") instanceof Map<?, ?> am && am.get("total") instanceof Number n) {
                 total = n.intValue();
             }
-            return new WxpayNotificationResult(id, eventType, outTradeNo, tradeState, total, transactionId);
+            return new WxpayNotificationResult(id, eventType, outTradeNo, tradeState, total, transactionId,
+                    firstString(resource, "mchid", "mch_id"));
         } catch (Exception e) {
             log.warn("Wxpay notification processing failed: {}", e.getMessage());
             return null;
@@ -299,7 +310,8 @@ public class WxpayServiceImpl implements WxpayService {
             String outBillNo = resource.get("out_bill_no") != null ? resource.get("out_bill_no").toString() : null;
             String state = resource.get("state") != null ? resource.get("state").toString() : null;
             String failReason = resource.get("fail_reason") != null ? resource.get("fail_reason").toString() : null;
-            return new WxpayTransferNotificationResult(id, outBillNo, state, failReason);
+            return new WxpayTransferNotificationResult(id, outBillNo, state, failReason,
+                    firstString(resource, "mchid", "mch_id"));
         } catch (Exception e) {
             log.warn("Wxpay transfer notification processing failed: {}", e.getMessage());
             return null;
@@ -444,8 +456,8 @@ public class WxpayServiceImpl implements WxpayService {
         String canonicalPath = "/v3/refund/domestic/refunds";
         String gateway = trimSlash(config.gatewayUrl());
 
-        int refundCents = refundAmount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
-        int totalCents = totalAmount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        int refundCents = refundAmount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.DOWN).intValue();
+        int totalCents = totalAmount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.DOWN).intValue();
         if (refundCents <= 0) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "退款金额必须大于 0");
         }
@@ -510,13 +522,73 @@ public class WxpayServiceImpl implements WxpayService {
     }
 
     @Override
+    public WxpayRefundQueryResult queryRefund(WxpayConfig config, String outRefundNo) {
+        // 查询退款单：GET /v3/refund/domestic/refunds/{out_refund_no}
+        String canonicalPath = "/v3/refund/domestic/refunds/" + outRefundNo;
+        String gateway = trimSlash(config.gatewayUrl());
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    gateway + canonicalPath, HttpMethod.GET,
+                    new HttpEntity<>(apiV3Headers(config, "GET", canonicalPath, "")),
+                    String.class);
+            Map<String, Object> resp = objectMapper.readValue(response.getBody(), new TypeReference<>() {
+            });
+            String refundId = resp.get("refund_id") != null ? resp.get("refund_id").toString() : null;
+            String refundNo = resp.get("out_refund_no") != null ? resp.get("out_refund_no").toString() : null;
+            String status = resp.get("status") != null ? resp.get("status").toString() : null;
+            Integer refundAmount = null;
+            if (resp.get("amount") instanceof Map<?, ?> am && am.get("refund") instanceof Number n) {
+                refundAmount = n.intValue();
+            }
+            return new WxpayRefundQueryResult(refundId, refundNo, status, refundAmount, null);
+        } catch (HttpStatusCodeException e) {
+            // 退款单不存在（404 RESOURCE_NOT_EXISTS）属于正常查询结果，而非查询失败
+            if (e.getStatusCode().value() == 404 && e.getResponseBodyAsString().contains("RESOURCE_NOT_EXISTS")) {
+                return new WxpayRefundQueryResult(null, outRefundNo, null, null, null);
+            }
+            String detail = truncate(e.getResponseBodyAsString());
+            log.warn("Wxpay refund query failed: outRefundNo={}, error={}", outRefundNo, detail);
+            return new WxpayRefundQueryResult(null, null, null, null, detail);
+        } catch (Exception e) {
+            String detail = truncate(e.getMessage());
+            log.warn("Wxpay refund query failed: outRefundNo={}, error={}", outRefundNo, detail);
+            return new WxpayRefundQueryResult(null, null, null, null, detail);
+        }
+    }
+
+    @Override
+    public WxpayRefundNotificationResult decryptRefundNotification(WxpayConfig config, Map<String, String> headers, String rawBody) {
+        try {
+            Map<String, Object> resource = verifyAndDecryptResource(config, headers, rawBody);
+            if (resource == null) {
+                return null;
+            }
+            Map<String, Object> root = objectMapper.readValue(rawBody, new TypeReference<>() {
+            });
+            String id = root.get("id") != null ? root.get("id").toString() : null;
+            String eventType = root.get("event_type") != null ? root.get("event_type").toString() : null;
+            String outRefundNo = firstString(resource, "out_refund_no");
+            String refundStatus = firstString(resource, "refund_status");
+            Integer refundAmount = null;
+            if (resource.get("amount") instanceof Map<?, ?> am && am.get("refund") instanceof Number n) {
+                refundAmount = n.intValue();
+            }
+            return new WxpayRefundNotificationResult(id, eventType, outRefundNo, refundStatus, refundAmount,
+                    firstString(resource, "mchid", "mch_id"));
+        } catch (Exception e) {
+            log.warn("Wxpay refund notification processing failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    @Override
     public WxpayTransferResult createTransfer(WxpayConfig config, String outBillNo, String openid,
                                               BigDecimal amount, String remark, String notifyUrl) {
         // 商家转账单笔接口（场景ID/感知文案等字段属此接口）：POST /v3/fund-app/mch-transfer/transfer-bills
         String canonicalPath = "/v3/fund-app/mch-transfer/transfer-bills";
         String gateway = trimSlash(config.gatewayUrl());
 
-        int totalCents = amount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        int totalCents = amount.multiply(HUNDRED).setScale(0, java.math.RoundingMode.DOWN).intValue();
         if (totalCents <= 0) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "转账金额必须大于 0");
         }
@@ -606,12 +678,27 @@ public class WxpayServiceImpl implements WxpayService {
             }
             return new WxpayTransferQueryResult(state, transferBillNo, failReason, transferAmount, null);
         } catch (Exception e) {
-            String detail = e instanceof org.springframework.web.client.HttpStatusCodeException hce
+            String detail = e instanceof HttpStatusCodeException hce
                     ? hce.getResponseBodyAsString() : e.getMessage();
-            if (detail != null && detail.length() > 300) detail = detail.substring(0, 300);
+            detail = truncate(detail);
             log.warn("Wxpay transfer query failed: outBillNo={}, error={}", outBillNo, detail);
             return new WxpayTransferQueryResult(null, null, null, null, detail);
         }
+    }
+
+    /** 截断错误详情，避免过长响应体写入日志/返回体 */
+    private static String truncate(String detail) {
+        if (detail != null && detail.length() > 300) return detail.substring(0, 300);
+        return detail;
+    }
+
+    /** 按候选键顺序取第一个非空值（不同微信接口对商户号的字段名不一致） */
+    private static String firstString(Map<String, Object> map, String... keys) {
+        for (String key : keys) {
+            Object value = map.get(key);
+            if (value != null && !value.toString().isBlank()) return value.toString();
+        }
+        return null;
     }
 
     /** 从微信 APIv3 错误响应体中提取 message 字段（如签名错误的具体原因） */
@@ -631,18 +718,45 @@ public class WxpayServiceImpl implements WxpayService {
 
     /**
      * 获取平台证书（带缓存），用于回调验签。
+     * <p>
+     * 缓存按 serial_no 索引，命中且未过期直接返回；未命中时拉取全量平台证书并
+     * 顺带淘汰已过期条目（证书轮换后旧 serial 不再使用，避免缓存无限增长）。
+     * 返回前校验证书自身 serial_no 与请求头一致，防止映射错位导致验签用错证书。
      */
     private X509Certificate getPlatformCertificate(WxpayConfig config, String serialNo) {
+        long now = System.currentTimeMillis();
         CertEntry cached = platformCertCache.get(serialNo);
-        if (cached != null && System.currentTimeMillis() - cached.loadedAt() < CERT_CACHE_TTL_MS) {
+        if (cached != null && now - cached.loadedAt() < CERT_CACHE_TTL_MS) {
             return cached.cert();
         }
         Map<String, X509Certificate> certs = fetchPlatformCertificates(config);
-        long now = System.currentTimeMillis();
+        // 淘汰过期条目（在写入新证书之前执行，避免缓存无限增长）
+        platformCertCache.entrySet().removeIf(e -> now - e.getValue().loadedAt() >= CERT_CACHE_TTL_MS);
         for (Map.Entry<String, X509Certificate> entry : certs.entrySet()) {
             platformCertCache.put(entry.getKey(), new CertEntry(entry.getValue(), now));
         }
-        return certs.get(serialNo);
+        X509Certificate cert = certs.get(serialNo);
+        if (cert == null) {
+            log.warn("Wxpay platform certificate not found, serial={}", serialNo);
+            return null;
+        }
+        if (!serialMatches(cert, serialNo)) {
+            log.warn("Wxpay platform certificate serial mismatch, expected={}, actual={}",
+                    serialNo, cert.getSerialNumber().toString(16).toUpperCase());
+            return null;
+        }
+        return cert;
+    }
+
+    /**
+     * 校验证书内置 serial_no 与微信请求头声明的一致。
+     * BigInteger#toString(16) 不保留前导 0，故按声明长度左侧补 0 后比较。
+     */
+    private static boolean serialMatches(X509Certificate cert, String serialNo) {
+        String expected = serialNo.trim().toUpperCase();
+        String actual = cert.getSerialNumber().toString(16).toUpperCase();
+        actual = "0".repeat(Math.max(0, expected.length() - actual.length())) + actual;
+        return actual.equals(expected);
     }
 
     /**

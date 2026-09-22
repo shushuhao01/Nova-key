@@ -46,7 +46,19 @@ public interface WxpayService {
         }
     }
 
-    record WxpayOrderQueryResult(String tradeState, Integer total, String transactionId) {
+    /**
+     * 订单查询结果。
+     *
+     * @param tradeState    交易状态（SUCCESS / NOTPAY / CLOSED 等）
+     * @param total         支付金额（分）
+     * @param transactionId 微信支付订单号
+     * @param error         查询失败原因（网络/网关错误）；为空表示查询成功
+     */
+    record WxpayOrderQueryResult(String tradeState, Integer total, String transactionId, String error) {
+        /** 查询失败（网络/网关错误），error 非空 */
+        public boolean isError() {
+            return error != null && !error.isBlank();
+        }
     }
 
     /**
@@ -66,9 +78,10 @@ public interface WxpayService {
      * @param tradeState    交易状态
      * @param total         支付金额（分）
      * @param transactionId 微信支付订单号
+     * @param mchid         商户号（用于精确匹配回调所属支付渠道）
      */
     record WxpayNotificationResult(String id, String eventType, String outTradeNo, String tradeState,
-                                   Integer total, String transactionId) {
+                                   Integer total, String transactionId, String mchid) {
     }
 
     /**
@@ -89,8 +102,9 @@ public interface WxpayService {
      * @param outBillNo 商户转账单号
      * @param state     转账终态（FINISHED=成功，其他如 FAILED/CLOSED/WAIT_USER_CONFIRM 等）
      * @param failReason 失败原因
+     * @param mchid      商户号（用于精确匹配回调所属支付渠道）
      */
-    record WxpayTransferNotificationResult(String id, String outBillNo, String state, String failReason) {
+    record WxpayTransferNotificationResult(String id, String outBillNo, String state, String failReason, String mchid) {
     }
 
     /**
@@ -109,9 +123,41 @@ public interface WxpayService {
      *
      * @param refundId    微信退款单号（refund_id）
      * @param outRefundNo 商户退款单号（out_refund_no）
-     * @param status      退款状态（SUCCESS=退款成功 / PROCESSING=退款处理中 / CLOSED=退款关闭 / ABNORMAL=退款异常）
+     * @param status      退款状态：SUCCESS=退款成功（终态）；PROCESSING=退款处理中（未到账，
+     *                    需等待退款结果通知或主动回查确认）；CLOSED=退款关闭；ABNORMAL=退款异常
      */
     record WxpayRefundResult(String refundId, String outRefundNo, String status) {
+    }
+
+    /**
+     * 退款结果通知（已验签并解密，event_type 为 REFUND.SUCCESS / REFUND.CLOSED / REFUND.ABNORMAL）。
+     *
+     * @param id           通知 ID（幂等键）
+     * @param eventType    事件类型
+     * @param outRefundNo  商户退款单号
+     * @param refundStatus 退款状态（SUCCESS / CLOSED / ABNORMAL）
+     * @param refundAmount 退款金额（分）
+     * @param mchid        商户号（用于精确匹配回调所属支付渠道）
+     */
+    record WxpayRefundNotificationResult(String id, String eventType, String outRefundNo,
+                                         String refundStatus, Integer refundAmount, String mchid) {
+    }
+
+    /**
+     * 退款单查询结果（GET /v3/refund/domestic/refunds/{out_refund_no}）。
+     *
+     * @param refundId     微信退款单号
+     * @param outRefundNo  商户退款单号
+     * @param status       退款状态（SUCCESS / PROCESSING / CLOSED / ABNORMAL）
+     * @param refundAmount 退款金额（分）
+     * @param error        查询失败原因；为空表示查询成功
+     */
+    record WxpayRefundQueryResult(String refundId, String outRefundNo, String status,
+                                  Integer refundAmount, String error) {
+        /** 查询失败（网络/网关错误），error 非空 */
+        public boolean isError() {
+            return error != null && !error.isBlank();
+        }
     }
 
     /**
@@ -147,7 +193,10 @@ public interface WxpayService {
     Map<String, String> buildJsapiParams(WxpayConfig config, String prepayId);
 
     /**
-     * 主动查询订单状态。查询失败（网络/网关错误）返回 null。
+     * 主动查询订单状态。
+     * <p>
+     * 查询成功时 error 为空（微信返回「订单不存在」也属于查询成功，tradeState 为 null）；
+     * 网络/网关错误时返回结果中 error 非空，调用方可据此区分「无此订单」与「查询失败」。
      */
     WxpayOrderQueryResult queryOrder(WxpayConfig config, String outTradeNo);
 
@@ -163,12 +212,33 @@ public interface WxpayService {
      * @param refundAmount  退款金额（元）
      * @param totalAmount   原订单实付金额（元）
      * @param reason        退款原因（≤80 字符，选填但建议填写）
-     * @param notifyUrl     退款结果异步回调地址（可空，空则不传）
-     * @return 退款结果（含微信退款单号与受理状态）
+     * @param notifyUrl     退款结果异步回调地址（退款到账/关闭时微信通知，建议必传）
+     * @return 退款结果（含微信退款单号与受理状态，status=PROCESSING 表示尚未到账）
      */
     WxpayRefundResult createRefund(WxpayConfig config, String outTradeNo, String outRefundNo,
                                    BigDecimal refundAmount, BigDecimal totalAmount,
                                    String reason, String notifyUrl);
+
+    /**
+     * 查询退款单状态（GET /v3/refund/domestic/refunds/{out_refund_no}）。
+     * <p>
+     * 用于退款结果通知丢失时的兜底回查，确认退款是否真正到账（终态）。
+     *
+     * @param config      微信支付配置
+     * @param outRefundNo 商户退款单号
+     * @return 退款状态；查询失败（网络/网关错误）时 error 非空
+     */
+    WxpayRefundQueryResult queryRefund(WxpayConfig config, String outRefundNo);
+
+    /**
+     * 验证微信退款结果通知签名并解密资源内容
+     * （event_type 为 REFUND.SUCCESS / REFUND.CLOSED / REFUND.ABNORMAL）。
+     *
+     * @param headers 回调请求头（键已转为小写，含 wechatpay-* 头）
+     * @param rawBody 原始请求体（签名验证对象）
+     * @return 解密后的退款通知内容；验签或解密失败返回 null
+     */
+    WxpayRefundNotificationResult decryptRefundNotification(WxpayConfig config, Map<String, String> headers, String rawBody);
 
     /**
      * 商家转账到零钱单笔转账（POST /v3/fund-app/mch-transfer/transfer-bills）。
