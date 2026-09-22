@@ -3,12 +3,68 @@ package com.orionkey.util;
 import java.util.Locale;
 
 /**
- * 根据 User-Agent 识别下单设备/来源，用于管理后台订单列表"设备"字段展示。
- * 统一返回类似：微信、PC浏览器 Chrome、手机浏览器 Safari 等；无法识别时返回 null。
+ * 根据 User-Agent 识别下单设备/来源。
+ * <p>
+ * 两套返回值语义不同，不可混用：
+ * <ul>
+ *   <li>{@link #parseDevice(String)}：中文展示标签（如「微信」「PC浏览器 Chrome」），用于后台订单列表"设备"字段；</li>
+ *   <li>{@link #normalizePayDevice(String)} / {@link #labelToPayDevice(String)}：支付路由标识
+ *       （wechat / alipay / mobile / pc），与前端 detectPaymentDevice() 保持一致。</li>
+ * </ul>
  */
 public final class UserAgentUtil {
 
+    /** 支付路由设备标识：微信内置浏览器 */
+    public static final String DEVICE_WECHAT = "wechat";
+    /** 支付路由设备标识：支付宝内置浏览器 */
+    public static final String DEVICE_ALIPAY = "alipay";
+    /** 支付路由设备标识：手机浏览器 */
+    public static final String DEVICE_MOBILE = "mobile";
+    /** 支付路由设备标识：PC 浏览器 */
+    public static final String DEVICE_PC = "pc";
+
     private UserAgentUtil() {
+    }
+
+    /**
+     * 归一化调用方传入的设备标识（wechat / alipay / mobile / pc）。
+     * 无法识别时返回 null，由调用方决定回退策略。
+     */
+    public static String normalizePayDevice(String device) {
+        if (device == null || device.isBlank()) {
+            return null;
+        }
+        return switch (device.trim().toLowerCase(Locale.ROOT)) {
+            case DEVICE_WECHAT -> DEVICE_WECHAT;
+            case DEVICE_ALIPAY -> DEVICE_ALIPAY;
+            case DEVICE_MOBILE -> DEVICE_MOBILE;
+            case DEVICE_PC -> DEVICE_PC;
+            default -> null;
+        };
+    }
+
+    /**
+     * 展示标签（{@link #parseDevice} 的产物）→ 支付路由设备标识。
+     * 用于请求体未携带设备标识、仅能依赖 User-Agent 时的兜底；无法识别时返回 null。
+     */
+    public static String labelToPayDevice(String label) {
+        if (label == null || label.isBlank()) {
+            return null;
+        }
+        if (label.contains("微信")) {
+            // 含「企业微信」
+            return DEVICE_WECHAT;
+        }
+        if (label.contains("支付宝")) {
+            return DEVICE_ALIPAY;
+        }
+        if (label.startsWith("手机浏览器")) {
+            return DEVICE_MOBILE;
+        }
+        if (label.startsWith("PC浏览器")) {
+            return DEVICE_PC;
+        }
+        return null;
     }
 
     /**

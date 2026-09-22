@@ -12,6 +12,7 @@ import com.orionkey.service.NotificationService;
 import com.orionkey.service.OrderService;
 import com.orionkey.service.PaymentService;
 import com.orionkey.service.DistributionService;
+import com.orionkey.util.UserAgentUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -49,7 +50,10 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
-    public Map<String, Object> createDirectOrder(Map<String, Object> req, UUID userId, String clientIp, String device, String sessionToken, UUID referralDistributorId, UUID promotionLinkId) {
+    public Map<String, Object> createDirectOrder(Map<String, Object> req, UUID userId, String clientIp, String deviceLabel, String sessionToken, UUID referralDistributorId, UUID promotionLinkId) {
+        // 支付路由设备标识（wechat/alipay/mobile/pc）：优先取前端归一化值（原有行为），
+        // 请求体缺失/非法时回退解析 User-Agent 标签；deviceLabel 仅用于后台订单列表「设备」展示
+        String device = resolvePayDevice(req, deviceLabel);
         String idempotencyKey = (String) req.get("idempotency_key");
         if (idempotencyKey != null) {
             Optional<Order> existing = orderRepository.findByIdempotencyKey(idempotencyKey);
@@ -118,7 +122,7 @@ public class OrderServiceImpl implements OrderService {
         order.setExpiresAt(LocalDateTime.now().plusMinutes(expireMinutes));
         order.setIdempotencyKey(idempotencyKey);
         order.setClientIp(clientIp);
-        order.setDevice(device);
+        order.setDevice(deviceLabel);
         order.setSessionToken(sessionToken);
         applyReferralDistributor(order, referralDistributorId, promotionLinkId, userId);
         orderRepository.save(order);
@@ -170,7 +174,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
-    public Map<String, Object> createCartOrder(Map<String, Object> req, UUID userId, String clientIp, String device, String sessionToken, UUID referralDistributorId, UUID promotionLinkId) {
+    public Map<String, Object> createCartOrder(Map<String, Object> req, UUID userId, String clientIp, String deviceLabel, String sessionToken, UUID referralDistributorId, UUID promotionLinkId) {
+        // 同 createDirectOrder：device 用于支付路由，deviceLabel 用于后台展示
+        String device = resolvePayDevice(req, deviceLabel);
         String idempotencyKey = (String) req.get("idempotency_key");
         if (idempotencyKey != null) {
             Optional<Order> existing = orderRepository.findByIdempotencyKey(idempotencyKey);
@@ -226,7 +232,7 @@ public class OrderServiceImpl implements OrderService {
         order.setExpiresAt(LocalDateTime.now().plusMinutes(expireMinutes));
         order.setIdempotencyKey(idempotencyKey);
         order.setClientIp(clientIp);
-        order.setDevice(device);
+        order.setDevice(deviceLabel);
         order.setSessionToken(sessionToken);
         applyReferralDistributor(order, referralDistributorId, promotionLinkId, userId);
         orderRepository.save(order);
@@ -526,6 +532,23 @@ public class OrderServiceImpl implements OrderService {
             case "balance" -> "余额支付";
             default -> method.startsWith("usdt_") ? "USDT 链上转账" : method;
         };
+    }
+
+    /**
+     * 解析支付路由使用的设备标识（wechat/alipay/mobile/pc）。
+     * 优先取请求体中的前端归一化值（与历史行为一致，保证微信内能走 JSAPI 直接拉起）；
+     * 请求体未携带或值非法时，由 User-Agent 展示标签兜底推导；无法识别时返回 null（按 PC 处理）。
+     * 注意：该方法的结果仅用于支付路由，订单的「设备」展示字段使用 {@code deviceLabel}。
+     */
+    private static String resolvePayDevice(Map<String, Object> req, String deviceLabel) {
+        Object raw = req != null ? req.get("device") : null;
+        if (raw != null) {
+            String normalized = UserAgentUtil.normalizePayDevice(raw.toString());
+            if (normalized != null) {
+                return normalized;
+            }
+        }
+        return UserAgentUtil.labelToPayDevice(deviceLabel);
     }
 
     private Map<String, Object> buildOrderResult(Order order, String device) {
