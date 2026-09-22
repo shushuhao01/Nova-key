@@ -614,7 +614,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
                 <PaymentIcon method={paymentMethod} className="h-10 w-10" variant="plain" />
                 <span className="text-xl font-bold text-white">{paymentMethodName}</span>
               </div>
-              <p className="text-sm font-medium text-white/90">
+              <p className="whitespace-pre-line text-center text-sm font-medium text-white/90">
                 {isMobile ? t("payment.mobileScanOrCopyHint") : scanHint}
               </p>
               <div className="flex h-52 w-52 items-center justify-center rounded-xl bg-white p-3">
@@ -635,13 +635,16 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
 
             {/* 复制支付链接：可在微信内打开并直接拉起微信支付 */}
             {isMobile && (
-              <button
-                onClick={handleCopyPayLink}
-                className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-              >
-                <Copy className="h-4 w-4" />
-                {t("payment.copyPayLink")}
-              </button>
+              <div className="flex flex-col items-center gap-1.5">
+                <button
+                  onClick={handleCopyPayLink}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+                >
+                  <Copy className="h-4 w-4" />
+                  {t("payment.copyPayLink")}
+                </button>
+                <p className="text-xs text-muted-foreground">{t("payment.copyPayLinkHint")}</p>
+              </div>
             )}
 
             {/* 刷新二维码按钮 */}
