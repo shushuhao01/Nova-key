@@ -369,6 +369,14 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
     }
   }, [t])
 
+  // 复制支付链接：链接指向本支付页并仅携带订单号，用户/推广员/商品/金额等上下文由订单记录本身恢复，
+  // 因此在微信内打开该链接（粘贴到微信「搜一搜」，或发送到「文件传输助手」后点击）即可静默授权
+  // 并直接拉起微信支付，订单始终是同一笔。
+  const handleCopyPayLink = useCallback(() => {
+    const link = `${window.location.origin}/pay/${orderId}?method=${encodeURIComponent(paymentMethod)}`
+    copyToClipboard(link)
+  }, [orderId, paymentMethod, copyToClipboard])
+
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60)
     const s = seconds % 60
@@ -607,7 +615,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
                 <span className="text-xl font-bold text-white">{paymentMethodName}</span>
               </div>
               <p className="text-sm font-medium text-white/90">
-                {isMobile ? t("payment.mobileScreenshotHint") : scanHint}
+                {isMobile ? t("payment.mobileScanOrCopyHint") : scanHint}
               </p>
               <div className="flex h-52 w-52 items-center justify-center rounded-xl bg-white p-3">
                 {qrcodeUrl ? (
@@ -619,8 +627,22 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
                   </div>
                 )}
               </div>
+              {isMobile && (
+                <p className="text-xs text-white/70">{t("payment.noScreenshotAlbumHint")}</p>
+              )}
             </div>
             <p className="animate-pulse text-sm text-primary">{t("payment.detecting")}</p>
+
+            {/* 复制支付链接：可在微信内打开并直接拉起微信支付 */}
+            {isMobile && (
+              <button
+                onClick={handleCopyPayLink}
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              >
+                <Copy className="h-4 w-4" />
+                {t("payment.copyPayLink")}
+              </button>
+            )}
 
             {/* 刷新二维码按钮 */}
             <button

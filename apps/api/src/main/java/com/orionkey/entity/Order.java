@@ -108,6 +108,14 @@ public class Order extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String jsapiPayParams;
 
+    /**
+     * 微信 JSAPI 独立商户单号（≤32 字符）。
+     * 微信以 out_trade_no 首次下单时的参数锁定交易类型，同一单号先下 Native/H5 后无法再改走 JSAPI，
+     * 故 JSAPI 必须使用与扫码单号不同的独立单号；仅 JSAPI 下单成功后写入。
+     */
+    @Column(unique = true)
+    private String jsapiTradeNo;
+
     private String epayTradeNo;
 
     // ── USDT 支付字段 ──

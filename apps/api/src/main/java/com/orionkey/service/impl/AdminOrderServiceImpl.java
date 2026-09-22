@@ -206,8 +206,11 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         WxpayService.WxpayConfig config = paymentServiceImpl.buildWxpayConfig(channel);
 
         String outRefundNo = "RF" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(1000, 10000);
+        // 退款必须针对实际支付时使用的单号：微信内 JSAPI 支付用的是独立单号，扫码支付用订单号派生的单号
+        String refundTradeNo = order.getJsapiTradeNo() != null && !order.getJsapiTradeNo().isBlank()
+                ? order.getJsapiTradeNo() : PaymentServiceImpl.formatOutTradeNo(order.getId());
         WxpayService.WxpayRefundResult result = wxpayService.createRefund(
-                config, PaymentServiceImpl.formatOutTradeNo(order.getId()), outRefundNo,
+                config, refundTradeNo, outRefundNo,
                 amount, actualAmount, refundReason, paymentServiceImpl.buildWxpayRefundNotifyUrl());
 
         // 6. 更新订单退款信息

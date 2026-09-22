@@ -396,19 +396,25 @@ public class WebhookServiceImpl implements WebhookService {
                 return "SUCCESS";
             }
 
-            // 4. 解析订单
-            UUID orderId;
-            try {
-                orderId = PaymentServiceImpl.parseOutTradeNo(notification.outTradeNo());
-            } catch (Exception e) {
-                log.error("Wxpay callback invalid out_trade_no: {}", notification.outTradeNo());
-                return "FAIL";
-            }
-            Order order = orderRepository.findById(orderId).orElse(null);
+            // 4. 解析订单：微信单号有两种——扫码单号（订单 UUID 去连字符，可还原）与
+            //    JSAPI 独立单号（不可还原，需按列反查），故先按 jsapiTradeNo 反查，未命中再按 UUID 还原
+            String outTradeNo = notification.outTradeNo();
+            Order order = orderRepository.findByJsapiTradeNo(outTradeNo).orElse(null);
             if (order == null) {
-                log.warn("Wxpay callback order not found: {}, returning FAIL to trigger retry", orderId);
+                UUID parsedOrderId;
+                try {
+                    parsedOrderId = PaymentServiceImpl.parseOutTradeNo(outTradeNo);
+                } catch (Exception e) {
+                    log.error("Wxpay callback invalid out_trade_no: {}", outTradeNo);
+                    return "FAIL";
+                }
+                order = orderRepository.findById(parsedOrderId).orElse(null);
+            }
+            if (order == null) {
+                log.warn("Wxpay callback order not found: {}, returning FAIL to trigger retry", outTradeNo);
                 return "FAIL";
             }
+            UUID orderId = order.getId();
 
             // 5. 金额校验（分转元，与订单金额比较）
             if (notification.total() == null) {
@@ -424,11 +430,10 @@ public class WebhookServiceImpl implements WebhookService {
                 return "FAIL";
             }
 
-            // 6. 服务端主动查单二次确认（防止伪造回调）
+            // 6. 服务端主动查单二次确认（防止伪造回调）；按通知中的实际单号查询（扫码单号或 JSAPI 单号）
             PaymentChannel orderChannel = resolveChannelForOrder(order, "native_wxpay");
             WxpayOrderQueryResult queryResult = wxpayService.queryOrder(
-                    paymentService.buildWxpayConfig(orderChannel),
-                    PaymentServiceImpl.formatOutTradeNo(orderId));
+                    paymentService.buildWxpayConfig(orderChannel), outTradeNo);
             if (queryResult == null || queryResult.isError()) {
                 log.warn("Wxpay callback deferred: server-side order query failed, out_trade_no={}, error={}",
                         orderId, queryResult != null ? queryResult.error() : null);

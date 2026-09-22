@@ -214,10 +214,16 @@ public class PaymentServiceImpl implements PaymentService {
         String jsapiError = null;
         // 微信浏览器内 + 已获取 openid：优先 JSAPI 直接拉起微信支付
         if (wechatJsapi) {
+            // JSAPI 使用独立单号：Native/H5 单号一旦首次下单便被微信锁定交易类型，无法改走 JSAPI
+            // （否则报「请求重入时，参数与首次请求时不一致」）。已下单成功的单号复用，保证幂等。
+            String jsapiTradeNo = order.getJsapiTradeNo() != null && !order.getJsapiTradeNo().isBlank()
+                    ? order.getJsapiTradeNo() : newJsapiOutTradeNo();
             try {
                 var jsapiResult = wxpayService.createJsapiPayment(
-                        config, formatOutTradeNo(order.getId()), productName, amount, openid);
+                        config, jsapiTradeNo, productName, amount, openid);
                 var params = wxpayService.buildJsapiParams(config, jsapiResult.prepayId());
+                // 下单成功后才落库单号：失败会回退 Native 扫码，此时须保持该字段为空，避免退款/查单用错单号
+                order.setJsapiTradeNo(jsapiTradeNo);
                 order.setJsapiPayParams(serializeJson(params));
                 orderRepository.save(order);
                 log.info("Wxpay JSAPI order created for order: {}", order.getId());
@@ -229,13 +235,15 @@ public class PaymentServiceImpl implements PaymentService {
                 // 失败原因返回给前端透出，便于定位根因（最常见的根因：支付渠道 appid 与公众号 AppID 不一致）。
                 log.warn("Wxpay JSAPI failed, fallback to Native QR for order {}: {}", order.getId(), e.getMessage());
                 jsapiError = e.getMessage();
+                // 回退到 Native 后，实际支付单号将是 Native 单号，此处丢弃失效的 JSAPI 单号
+                order.setJsapiTradeNo(null);
                 // 此处不 return：继续走下方 Native 扫码兜底。
                 // 否则微信内会出现「JSAPI 拉不起支付、又没有任何可支付方式」的空窗（延迟分支会提前返回）。
                 // 同一 out_trade_no + 同一交易类型重复下单，微信侧幂等返回首次结果，故兜底不会二次注册。
             }
         } else if ("wechat".equals(device)) {
             // 微信内但尚未拿到 openid：延迟下单。
-            // 同一 out_trade_no 若先下 Native 单，微信侧会注册为 Native 交易，之后 pay 页授权拿到
+            // 扫码单号若先下 Native 单，微信侧会注册为 Native 交易，之后 pay 页授权拿到
             // openid 再用 JSAPI 下单会因「请求重入时，参数与首次请求时不一致」被拒绝。
             // 因此此处不下单，等待 pay 页静默授权拿到 openid 后 repay 走 JSAPI 首次下单；
             // 若授权失败，JSAPI 下单失败会回退 Native（此时订单号从未注册过，Native 下单不会冲突）。
@@ -577,6 +585,14 @@ public class PaymentServiceImpl implements PaymentService {
     /** 订单 ID → 最近一次主动查单时间戳 */
     private final Map<UUID, Long> lastActiveQueryAt = new ConcurrentHashMap<>();
 
+    /** 查询指定微信单号是否已支付成功且金额与订单一致 */
+    private boolean isWxpayOrderPaid(WxpayConfig config, String outTradeNo, BigDecimal expected) {
+        WxpayOrderQueryResult r = wxpayService.queryOrder(config, outTradeNo);
+        return r != null && !r.isError() && "SUCCESS".equals(r.tradeState())
+                && r.total() != null
+                && BigDecimal.valueOf(r.total()).compareTo(expected.multiply(HUNDRED)) == 0;
+    }
+
     @Override
     @Transactional
     public boolean settleByActiveQuery(UUID orderId) {
@@ -594,11 +610,14 @@ public class PaymentServiceImpl implements PaymentService {
         BigDecimal expected = order.getActualAmount();
         boolean paid = switch (channel.getProviderType()) {
             case "native_wxpay" -> {
-                WxpayOrderQueryResult r = wxpayService.queryOrder(
-                        buildWxpayConfig(channel), formatOutTradeNo(order.getId()));
-                yield r != null && !r.isError() && "SUCCESS".equals(r.tradeState())
-                        && r.total() != null
-                        && BigDecimal.valueOf(r.total()).compareTo(expected.multiply(HUNDRED)) == 0;
+                WxpayConfig wxpayConfig = buildWxpayConfig(channel);
+                // 微信内支付走 JSAPI 独立单号，扫码支付走订单号派生的 Native 单号。
+                // 同一订单可能两种单号都已注册（如先在手机浏览器看到收款码、又复制链接到微信内拉起支付），
+                // 故两个单号都查一次，任一支付成功即视为已支付。
+                boolean jsapiPaid = order.getJsapiTradeNo() != null
+                        && !order.getJsapiTradeNo().isBlank()
+                        && isWxpayOrderPaid(wxpayConfig, order.getJsapiTradeNo(), expected);
+                yield jsapiPaid || isWxpayOrderPaid(wxpayConfig, formatOutTradeNo(order.getId()), expected);
             }
             case "native_alipay" -> {
                 AlipayOrderQueryResult r = alipayService.queryOrder(
@@ -674,6 +693,16 @@ public class PaymentServiceImpl implements PaymentService {
      */
     public static String formatOutTradeNo(UUID orderId) {
         return orderId.toString().replace("-", "");
+    }
+
+    /**
+     * 生成微信 JSAPI 独立商户单号（out_trade_no，32 字符）。
+     * 微信以首次下单时的 out_trade_no 锁定交易类型，同一单号先下 Native/H5 单后无法再改走 JSAPI，
+     * 故 JSAPI 必须使用与扫码单号不同的独立单号。前缀 "JS" 非十六进制，与 Native 的纯十六进制
+     * 单号天然区分，不会被 {@link #parseOutTradeNo} 误解析；回调与查单需按 {@code Order.jsapiTradeNo} 反查订单。
+     */
+    public static String newJsapiOutTradeNo() {
+        return "JS" + UUID.randomUUID().toString().replace("-", "").substring(0, 30);
     }
 
     /**

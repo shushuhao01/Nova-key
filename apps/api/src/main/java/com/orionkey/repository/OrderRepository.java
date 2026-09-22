@@ -23,6 +23,9 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     Optional<Order> findByUsdtTxId(String usdtTxId);
 
+    /** 按微信 JSAPI 独立商户单号定位订单（JSAPI 单号无法还原为订单 UUID，需按列反查） */
+    Optional<Order> findByJsapiTradeNo(String jsapiTradeNo);
+
     Page<Order> findByUserIdOrderByCreatedAtDesc(UUID userId, Pageable pageable);
 
     List<Order> findByEmailOrderByCreatedAtDesc(String email);
