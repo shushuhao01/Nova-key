@@ -3,12 +3,12 @@
 import React from "react"
 import { useState, useEffect, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
-import { User, Lock, Star, Eye, EyeOff, Save, Ticket, Copy, UserPlus, Gift } from "lucide-react"
+import { User, Lock, Star, Eye, EyeOff, Save, Ticket, Copy, UserPlus, Gift, Send } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale } from "@/lib/context"
 import { useAuth } from "@/lib/context"
 import { useRequireAuth } from "@/lib/hooks"
-import { userApi, marketingApi, distributorApi, withMockFallback, getApiErrorMessage } from "@/services/api"
+import { userApi, marketingApi, distributorApi, authApi, withMockFallback, getApiErrorMessage } from "@/services/api"
 import { mockPointsData } from "@/lib/mock-data"
 import type { PointRecord, MyCouponItem } from "@/types"
 import { cn } from "@/lib/utils"
@@ -114,14 +114,47 @@ export default function ProfilePage() {
 
 function ChangePasswordForm() {
   const { t } = useLocale()
+  const { user } = useAuth()
+  const [mode, setMode] = useState<"old" | "code">("old")
   const [form, setForm] = useState({
     oldPassword: "",
     newPassword: "",
     confirmNew: "",
   })
+  const [code, setCode] = useState("")
   const [showOld, setShowOld] = useState(false)
   const [showNew, setShowNew] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [codeSending, setCodeSending] = useState(false)
+  const [countdown, setCountdown] = useState(0)
+  const [expireMinutes, setExpireMinutes] = useState(10)
+
+  const email = user?.email || ""
+
+  // 重发倒计时
+  useEffect(() => {
+    if (countdown <= 0) return
+    const timer = setTimeout(() => setCountdown((v) => v - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [countdown])
+
+  const handleSendCode = async () => {
+    if (!email) {
+      toast.error(t("auth.emailRequired"))
+      return
+    }
+    setCodeSending(true)
+    try {
+      const res = await authApi.sendEmailCode({ email, scene: "PASSWORD_RESET" })
+      setCountdown(res.resend_after_seconds || 60)
+      setExpireMinutes(res.expire_minutes || 10)
+      toast.success(t("auth.codeSent"))
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, t))
+    } finally {
+      setCodeSending(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -129,17 +162,32 @@ function ChangePasswordForm() {
       toast.error(t("profile.passwordMismatch"))
       return
     }
+    if (mode === "code") {
+      if (!code.trim()) {
+        toast.error(t("auth.codeRequired"))
+        return
+      }
+      if (form.newPassword.length < 6) {
+        toast.error(t("auth.passwordHint"))
+        return
+      }
+    }
     setIsLoading(true)
     try {
-      await withMockFallback(
-        () => userApi.updatePassword({
-          old_password: form.oldPassword,
-          new_password: form.newPassword,
-        }),
-        () => null
-      )
+      if (mode === "old") {
+        await withMockFallback(
+          () => userApi.updatePassword({
+            old_password: form.oldPassword,
+            new_password: form.newPassword,
+          }),
+          () => null
+        )
+      } else {
+        await authApi.resetPassword({ email, code: code.trim(), new_password: form.newPassword })
+      }
       toast.success(t("common.success"))
       setForm({ oldPassword: "", newPassword: "", confirmNew: "" })
+      setCode("")
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, t))
     } finally {
@@ -149,28 +197,98 @@ function ChangePasswordForm() {
 
   return (
     <div className="rounded-lg border border-border bg-card p-5">
+      {/* 修改方式切换 */}
+      <div className="mb-4 flex rounded-lg bg-muted p-1">
+        <button
+          type="button"
+          onClick={() => setMode("old")}
+          className={cn(
+            "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+            mode === "old" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {t("profile.pwdByOld")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("code")}
+          className={cn(
+            "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+            mode === "code" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {t("profile.pwdByCode")}
+        </button>
+      </div>
+
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-foreground">
-            {t("profile.oldPassword")}
-          </label>
-          <div className="relative">
-            <input
-              type={showOld ? "text" : "password"}
-              value={form.oldPassword}
-              onChange={(e) => setForm({ ...form, oldPassword: e.target.value })}
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 pr-10 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              required
-            />
-            <button
-              type="button"
-              onClick={() => setShowOld(!showOld)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            >
-              {showOld ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
+        {mode === "old" ? (
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">
+              {t("profile.oldPassword")}
+            </label>
+            <div className="relative">
+              <input
+                type={showOld ? "text" : "password"}
+                value={form.oldPassword}
+                onChange={(e) => setForm({ ...form, oldPassword: e.target.value })}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 pr-10 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowOld(!showOld)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              >
+                {showOld ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">
+                {t("auth.email")}
+              </label>
+              <input
+                type="email"
+                value={email}
+                readOnly
+                className="h-10 w-full rounded-lg border border-input bg-muted px-3 text-sm text-muted-foreground"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">
+                {t("auth.emailCode")}
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder={t("auth.codePlaceholder")}
+                  className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <button
+                  type="button"
+                  onClick={handleSendCode}
+                  disabled={codeSending || countdown > 0}
+                  className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-input px-3 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  {countdown > 0 ? `${countdown}s` : t("auth.resend")}
+                </button>
+              </div>
+              {countdown > 0 && email && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {`${t("auth.codeSentTip")} ${email}（${expireMinutes} ${t("auth.codeValidTip")}）`}
+                </p>
+              )}
+            </div>
+          </>
+        )}
         <div>
           <label className="mb-1.5 block text-sm font-medium text-foreground">
             {t("profile.newPassword")}
