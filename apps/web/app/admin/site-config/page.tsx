@@ -45,7 +45,7 @@ export default function AdminSiteConfigPage() {
   const [notifyLoading, setNotifyLoading] = useState(false)
   const [notifySaved, setNotifySaved] = useState(false)
   const [notifyTestResult, setNotifyTestResult] = useState<NotificationTestResult | null>(null)
-  const [notifyTesting, setNotifyTesting] = useState(false)
+  const [notifyTesting, setNotifyTesting] = useState<string | null>(null)
   // 模板分页 / 筛选
   const [notifyPage, setNotifyPage] = useState(1)
   const [notifyTemplateTotal, setNotifyTemplateTotal] = useState(0)
@@ -375,7 +375,7 @@ export default function AdminSiteConfigPage() {
   }
 
   const handleTestNotify = async (code: string) => {
-    setNotifyTesting(true)
+    setNotifyTesting(code)
     setNotifyTestResult(null)
     try {
       const result = await adminNotificationApi.testSend(code)
@@ -388,7 +388,7 @@ export default function AdminSiteConfigPage() {
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "测试发送失败")
     } finally {
-      setNotifyTesting(false)
+      setNotifyTesting(null)
     }
   }
 
@@ -1383,9 +1383,9 @@ export default function AdminSiteConfigPage() {
                           type="button"
                           className="flex h-7 items-center gap-1 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-50"
                           onClick={() => handleTestNotify(t.code)}
-                          disabled={notifyTesting}
+                          disabled={notifyTesting !== null}
                         >
-                          {notifyTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                          {notifyTesting === t.code ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                           测试发送
                         </button>
                       </div>

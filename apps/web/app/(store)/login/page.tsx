@@ -15,6 +15,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 const INPUT_CLASS =
   "h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 export default function LoginPage() {
   const { t } = useLocale()
   const { setUser } = useAuth()
@@ -102,6 +104,10 @@ export default function LoginPage() {
       toast.error(t("auth.emailRequired"))
       return
     }
+    if (!EMAIL_PATTERN.test(codeEmail.trim())) {
+      toast.error(t("auth.emailInvalid"))
+      return
+    }
     setCodeSending(true)
     try {
       const res = await authApi.sendEmailCode({ email: codeEmail.trim(), scene: "LOGIN" })
@@ -118,6 +124,10 @@ export default function LoginPage() {
     e.preventDefault()
     if (!codeEmail.trim()) {
       toast.error(t("auth.emailRequired"))
+      return
+    }
+    if (!EMAIL_PATTERN.test(codeEmail.trim())) {
+      toast.error(t("auth.emailInvalid"))
       return
     }
     if (!loginCode.trim()) {
@@ -145,6 +155,10 @@ export default function LoginPage() {
       toast.error(t("auth.emailRequired"))
       return
     }
+    if (!EMAIL_PATTERN.test(fgEmail.trim())) {
+      toast.error(t("auth.emailInvalid"))
+      return
+    }
     setFgSending(true)
     try {
       const res = await authApi.sendEmailCode({ email: fgEmail.trim(), scene: "PASSWORD_RESET" })
@@ -162,6 +176,10 @@ export default function LoginPage() {
     e.preventDefault()
     if (!fgEmail.trim()) {
       toast.error(t("auth.emailRequired"))
+      return
+    }
+    if (!EMAIL_PATTERN.test(fgEmail.trim())) {
+      toast.error(t("auth.emailInvalid"))
       return
     }
     if (!fgCode.trim()) {
