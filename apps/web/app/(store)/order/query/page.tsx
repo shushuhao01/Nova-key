@@ -101,10 +101,12 @@ export default function OrderQueryPage() {
         () => mockQueryOrders(queryParams)
       )
 
-      // Auto-deliver: PAID 触发发货分配卡密，DELIVERED 幂等返回已分配卡密
+      // Auto-deliver: PAID 触发发货分配卡密，DELIVERED/COMPLETED 幂等返回已分配卡密
       let finalOrders = found
       let finalDeliver: Awaited<ReturnType<typeof orderApi.deliver>> = []
-      const deliverableIds = found.filter(o => o.status === "PAID" || o.status === "DELIVERED").map(o => o.id)
+      const deliverableIds = found
+        .filter(o => o.status === "PAID" || o.status === "DELIVERED" || o.status === "COMPLETED")
+        .map(o => o.id)
       if (deliverableIds.length > 0) {
         finalDeliver = await withMockFallback(
           () => orderApi.deliver({ order_ids: deliverableIds }),

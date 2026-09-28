@@ -151,8 +151,9 @@ public class DeliverServiceImpl implements DeliverService {
         result.put("order_id", orderId);
 
         switch (order.getStatus()) {
-            case DELIVERED -> {
-                result.put("status", "DELIVERED");
+            case DELIVERED, COMPLETED -> {
+                // 已完成订单（DELIVERED 超 24 小时后自动完成）同样幂等返回已分配卡密
+                result.put("status", order.getStatus().name());
                 result.put("groups", buildCardKeyGroups(orderId));
             }
             case PAID -> {
@@ -227,6 +228,11 @@ public class DeliverServiceImpl implements DeliverService {
             }
             case EXPIRED -> {
                 result.put("status", "EXPIRED");
+                result.put("groups", List.of());
+            }
+            default -> {
+                // 其他状态（REFUNDED / PARTIALLY_REFUNDED 等）不返回卡密，保持字段结构完整
+                result.put("status", order.getStatus().name());
                 result.put("groups", List.of());
             }
         }

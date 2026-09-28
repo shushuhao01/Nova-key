@@ -145,7 +145,7 @@ export default function MyOrdersPage() {
                       {t("payment.continuePay")}
                     </Link>
                   )}
-                  {order.status === "DELIVERED" && (
+                  {(order.status === "DELIVERED" || order.status === "COMPLETED") && (
                     <Link
                       href={`/order/query?orderId=${order.id}`}
                       className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-3 text-xs font-medium text-foreground hover:bg-accent"
