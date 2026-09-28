@@ -38,6 +38,7 @@ import type {
   WholesaleRule,
   CaptchaResult,
   AuthResult,
+  SendCodeResult,
   CurrencyItem,
   TxidVerifyResult,
   SystemStaffItem,
@@ -339,6 +340,15 @@ export const authApi = {
     request<AuthResult>("/auth/register", { method: "POST", body: JSON.stringify(data) }),
   login: (data: { account: string; password: string }) =>
     request<AuthResult>("/auth/login", { method: "POST", body: JSON.stringify(data) }),
+  /** 验证码登录（邮箱 + 6 位验证码） */
+  loginByCode: (data: { email: string; code: string }) =>
+    request<AuthResult>("/auth/login-by-code", { method: "POST", body: JSON.stringify(data) }),
+  /** 发送邮箱验证码，scene: PASSWORD_RESET（忘记密码）/ LOGIN（验证码登录） */
+  sendEmailCode: (data: { email: string; scene: "PASSWORD_RESET" | "LOGIN" }) =>
+    request<SendCodeResult>("/auth/email-code/send", { method: "POST", body: JSON.stringify(data) }),
+  /** 忘记密码：邮箱验证码校验通过后重置密码 */
+  resetPassword: (data: { email: string; code: string; new_password: string }) =>
+    request<null>("/auth/forgot-password/reset", { method: "POST", body: JSON.stringify(data) }),
   logout: () =>
     request<null>("/auth/logout", { method: "POST" }),
 }
@@ -1110,6 +1120,7 @@ const ERROR_CODE_I18N: Record<number, string> = {
   20004: "error.invalidCredentials",
   20005: "error.oldPasswordWrong",
   20006: "error.accountDisabled",
+  20008: "error.emailCodeInvalid",
   // Product
   30001: "error.productNotFound",
   30002: "error.insufficientStock",

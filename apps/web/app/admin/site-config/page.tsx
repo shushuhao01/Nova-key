@@ -1046,6 +1046,54 @@ export default function AdminSiteConfigPage() {
               </div>
             </div>
 
+            {/* 邮箱验证码参数 */}
+            <div className="flex flex-col gap-5 border-t border-border pt-5">
+              <div>
+                <p className="text-sm font-medium text-foreground">邮箱验证码参数</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  用于前台「忘记密码」与「验证码登录」，发送的验证码为 6 位数字；可在「消息通知」中配置对应邮件模板
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <label className="text-sm font-medium text-foreground">验证码有效期（分钟）</label>
+                  <input
+                    type="number"
+                    min={1}
+                    className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="10"
+                    value={getValue("auth_code_expire_minutes")}
+                    onChange={(e) => setValue("auth_code_expire_minutes", e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">验证码过期后需重新获取，默认 10 分钟</p>
+                </div>
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <label className="text-sm font-medium text-foreground">重发间隔（秒）</label>
+                  <input
+                    type="number"
+                    min={1}
+                    className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="60"
+                    value={getValue("auth_code_send_interval_seconds")}
+                    onChange={(e) => setValue("auth_code_send_interval_seconds", e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">同一邮箱两次发送的最小间隔，默认 60 秒</p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">每邮箱每日发送上限（次）</label>
+                <input
+                  type="number"
+                  min={1}
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="10"
+                  value={getValue("auth_code_daily_limit")}
+                  onChange={(e) => setValue("auth_code_daily_limit", e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">单个邮箱 24 小时内最多发送次数，超出将被拒绝，默认 10 次</p>
+              </div>
+            </div>
+
             {/* 测试邮件 */}
             <div className="rounded-lg border border-border p-4">
               <p className="text-sm font-medium text-foreground">发送测试邮件</p>

@@ -47,6 +47,12 @@ export interface AuthResult {
   user: UserProfile
 }
 
+/** 发送邮箱验证码结果（返回有效期与重发间隔，供前端倒计时） */
+export interface SendCodeResult {
+  expire_minutes: number
+  resend_after_seconds: number
+}
+
 export interface UserProfile {
   id: string
   username: string

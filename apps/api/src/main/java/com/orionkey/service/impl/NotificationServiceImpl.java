@@ -125,6 +125,15 @@ public class NotificationServiceImpl implements NotificationService {
                         "新用户注册通知",
                         "{site_name}：新用户 {username}（{email}）于 {time} 注册成功。",
                         ALL_CHANNELS, false, 10),
+                // ── 登录/找回密码（功能性邮件：收件人为用户本人，走 sendTemplateToEmail 直发） ──
+                template("PASSWORD_RESET_CODE", "找回密码验证码", "USER",
+                        "找回密码验证码",
+                        "{site_name}：您正在申请重置账号密码，请在页面中填写以下验证码。\n验证码：{code}\n有效期 {expire_minutes} 分钟，请勿泄露给他人。\n如非本人操作，请忽略本邮件。",
+                        ALL_CHANNELS, true, 12),
+                template("LOGIN_CODE", "验证码登录", "USER",
+                        "登录验证码",
+                        "{site_name}：您正在使用邮箱验证码登录，请在页面中填写以下验证码。\n验证码：{code}\n有效期 {expire_minutes} 分钟，请勿泄露给他人。\n如非本人操作，请忽略本邮件。",
+                        ALL_CHANNELS, true, 14),
                 template("ORDER_CREATED", "新订单提交", "ORDER",
                         "新订单提交通知",
                         "{site_name}：新订单 {order_no}\n商品：{product} x{quantity}\n金额：¥{amount}\n支付方式：{payment_method}\n提交时间：{time}",
@@ -487,6 +496,41 @@ public class NotificationServiceImpl implements NotificationService {
         } catch (Exception e) {
             log.error("sendTemplate({}) failed: {}", code, e.getMessage(), e);
         }
+    }
+
+    /**
+     * 向指定邮箱（用户本人）直接发送模板邮件，用于登录/找回密码验证码等「功能性邮件」。
+     * 与 {@link #sendTemplate} 的渠道分发模型区分：
+     * <ul>
+     *   <li>收件人是用户本人（参数传入），而非后台配置的管理员通知邮箱；</li>
+     *   <li>不走渠道配置、不写系统消息、忽略模板 enabled/channels 开关；</li>
+     *   <li>同步发送，发送失败直接抛出异常由调用方兜底（如回滚验证码记录）。</li>
+     * </ul>
+     * 模板缺失时使用内置兜底文案，保证验证码邮件仍可送达。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public void sendTemplateToEmail(String code, String toEmail, Map<String, Object> vars) {
+        NotificationTemplate t = templateRepository.findByCode(code).orElse(null);
+        Map<String, Object> merged = new LinkedHashMap<>();
+        if (vars != null) {
+            merged.putAll(vars);
+        }
+        merged.putIfAbsent("site_name", siteName());
+        merged.putIfAbsent("time", LocalDateTime.now().format(FMT));
+
+        String title;
+        String content;
+        if (t != null) {
+            title = render(t.getTitle(), merged);
+            content = render(t.getContent(), merged);
+        } else {
+            // 兜底：模板被管理员误删时仍能发出验证码
+            log.warn("Email template not found, use builtin fallback: {}", code);
+            title = "PASSWORD_RESET_CODE".equals(code) ? "找回密码验证码" : "登录验证码";
+            content = render("{site_name}：您的验证码为 {code}，有效期 {expire_minutes} 分钟，请勿泄露给他人。", merged);
+        }
+        emailService.sendNoticeEmail(toEmail, "【" + siteName() + "】" + title, content);
     }
 
     /** 按渠道类型分发 */
