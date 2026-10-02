@@ -253,7 +253,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
         }
         if (result.status !== "PENDING") {
           setStatus(result.status)
-          if (result.status === "PAID" || result.status === "DELIVERED") {
+          if (result.status === "PAID" || result.status === "DELIVERED" || result.status === "COMPLETED") {
             refreshCart()
           }
         }
@@ -280,7 +280,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
       const result = await orderApi.getStatus(orderId)
       if (result.status !== "PENDING") {
         setStatus(result.status)
-        if (result.status === "PAID" || result.status === "DELIVERED") {
+        if (result.status === "PAID" || result.status === "DELIVERED" || result.status === "COMPLETED") {
           refreshCart()
         }
       }
@@ -387,7 +387,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
   const [redirectCount, setRedirectCount] = useState(3)
 
   useEffect(() => {
-    if (status !== "PAID" && status !== "DELIVERED") return
+    if (status !== "PAID" && status !== "DELIVERED" && status !== "COMPLETED") return
     if (redirectCount <= 0) {
       router.push(`/order/query?orderId=${orderId}`)
       return
@@ -396,7 +396,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
     return () => clearTimeout(timer)
   }, [status, redirectCount, orderId, router])
 
-  if (status === "PAID" || status === "DELIVERED") {
+  if (status === "PAID" || status === "DELIVERED" || status === "COMPLETED") {
     return (
       <div className="mx-auto flex max-w-md flex-col items-center py-16">
         <div className="mb-4 rounded-full bg-emerald-100 p-4 dark:bg-emerald-900/30">

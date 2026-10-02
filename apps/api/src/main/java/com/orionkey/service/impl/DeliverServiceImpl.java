@@ -243,7 +243,7 @@ public class DeliverServiceImpl implements DeliverService {
     public String exportCardKeys(UUID orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
-        if (order.getStatus() != OrderStatus.DELIVERED) {
+        if (order.getStatus() != OrderStatus.DELIVERED && order.getStatus() != OrderStatus.COMPLETED) {
             throw new BusinessException(ErrorCode.ORDER_NOT_PAID, "订单未发货");
         }
 

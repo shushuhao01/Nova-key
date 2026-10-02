@@ -13,7 +13,7 @@ import type { OrderBrief, OrderStatus } from "@/types"
 import type { TranslationKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 
-const STATUS_FILTERS: (OrderStatus | "ALL")[] = ["ALL", "PENDING", "PAID", "DELIVERED", "EXPIRED"]
+const STATUS_FILTERS: (OrderStatus | "ALL")[] = ["ALL", "PENDING", "PAID", "DELIVERED", "COMPLETED", "EXPIRED"]
 
 export default function MyOrdersPage() {
   const { t } = useLocale()

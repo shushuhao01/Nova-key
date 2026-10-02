@@ -11,6 +11,9 @@ import { cn } from "@/lib/utils"
 import { X, Copy } from "lucide-react"
 import type { AdminOrderItem, OrderCardKey } from "@/types"
 
+/** 已发货及之后的订单才可能已分配卡密（DELIVERED 超 24 小时会自动转为 COMPLETED） */
+const KEY_ISSUED_STATUSES = ["DELIVERED", "COMPLETED", "REFUNDED", "PARTIALLY_REFUNDED"]
+
 /**
  * 订单详情弹窗（可复用）。
  * 订单管理页与仪表盘"最近订单-查看详情"共用；操作按钮通过 showActions / onMarkPaid 控制。
@@ -53,7 +56,7 @@ export function OrderDetailModal({
 
   useEffect(() => {
     if (!order) { setCardKeys([]); return }
-    if (order.status !== "DELIVERED") { setCardKeys([]); return }
+    if (!KEY_ISSUED_STATUSES.includes(order.status)) { setCardKeys([]); return }
     let cancelled = false
     adminCardKeyApi.getByOrder(order.id)
       .then((keys) => { if (!cancelled) setCardKeys(keys) })
@@ -136,7 +139,7 @@ export function OrderDetailModal({
         </div>
 
         {/* 已发卡密 */}
-        {order.status === "DELIVERED" && cardKeys.length > 0 && (
+        {KEY_ISSUED_STATUSES.includes(order.status) && cardKeys.length > 0 && (
           <div onCopy={(e) => { const t = window.getSelection()?.toString(); if (t) { e.clipboardData.setData("text/plain", stripInvisible(t)); e.preventDefault() } }}>
             <p className="text-xs text-muted-foreground mb-2">已发卡密</p>
             {(() => {
