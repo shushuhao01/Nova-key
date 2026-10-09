@@ -378,6 +378,27 @@ function HoursChart({ data, peakHour }: { data: { hour: string; pv: number }[]; 
   )
 }
 
+/** 单行刻度：始终一行显示，超长截断并以原生 title 悬浮提示完整内容 */
+function SingleLineTick({
+  x,
+  y,
+  payload,
+  maxChars = 8,
+}: {
+  x?: number
+  y?: number
+  payload?: { value?: string | number }
+  maxChars?: number
+}) {
+  const full = payload?.value === undefined || payload?.value === null ? "" : String(payload.value)
+  return (
+    <text x={x} y={y} dx={-6} dy={4} textAnchor="end" fontSize={11} fill={AXIS_STROKE}>
+      <title>{full}</title>
+      {shortLabel(full, maxChars)}
+    </text>
+  )
+}
+
 /** 横向条形图：地域 / 运营商 / 城市 / 来源域名 */
 function HBarChart({
   data,
@@ -416,8 +437,8 @@ function HBarChart({
             type="category"
             dataKey="name"
             width={yAxisWidth}
-            tickFormatter={(v) => shortLabel(String(v), maxLabel)}
-            tick={{ fontSize: 11, fill: AXIS_STROKE }}
+            interval={0}
+            tick={<SingleLineTick maxChars={maxLabel} />}
             axisLine={false}
             tickLine={false}
           />
@@ -441,14 +462,17 @@ function FunnelBars({ stages }: { stages: VisitAnalytics["funnel"] }) {
             <span className="text-xs text-muted-foreground">
               {fmtNum(s.visitors)} 人 · {fmtNum(s.rate)}%
               {idx > 0 ? (
-                <span className="ml-2 text-primary">转化 {fmtNum(s.conversion)}%</span>
+                <span className="ml-2 text-[#5B9BFF]">转化 {fmtNum(s.conversion)}%</span>
               ) : null}
             </span>
           </div>
           <div className="h-6 w-full overflow-hidden rounded-md bg-muted">
             <div
-              className="flex h-full items-center justify-end rounded-md bg-gradient-to-r from-primary/60 to-primary pr-2 text-xs font-medium text-primary-foreground"
-              style={{ width: `${Math.max(3, s.rate)}%` }}
+              className="flex h-full items-center justify-end rounded-md pr-2 text-xs font-medium text-white"
+              style={{
+                width: `${Math.max(3, s.rate)}%`,
+                background: "linear-gradient(90deg, #3A7AFE 0%, #93B5FE 100%)",
+              }}
             >
               {s.visitors > 0 ? fmtNum(s.visitors) : ""}
             </div>
@@ -508,6 +532,7 @@ export default function AdminVisitPage() {
 
   const [analytics, setAnalytics] = useState<VisitAnalytics | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [options, setOptions] = useState<VisitOptions | null>(null)
 
   // 明细筛选
@@ -572,6 +597,21 @@ export default function AdminVisitPage() {
       setDetailLoading(false)
     }
   }, [baseParams, source, device, ipFilter, keyword, page])
+
+  /** 手动刷新：拉取最新统计数据（明细页同时刷新列表），并保证动画至少可见一段时间 */
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    const started = Date.now()
+    try {
+      const tasks: Promise<unknown>[] = [fetchAnalytics(false)]
+      if (tab === "detail") tasks.push(fetchVisits())
+      await Promise.all(tasks)
+    } finally {
+      const wait = Math.max(0, 600 - (Date.now() - started))
+      setTimeout(() => setRefreshing(false), wait)
+    }
+  }, [refreshing, tab, fetchAnalytics, fetchVisits])
 
   useEffect(() => {
     fetchAnalytics()
@@ -797,11 +837,13 @@ export default function AdminVisitPage() {
           ) : null}
           <button
             type="button"
-            onClick={() => fetchAnalytics()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            title="刷新最新数据"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-            刷新
+            <RefreshCw className={cn("h-3.5 w-3.5", (refreshing || loading) && "animate-spin")} />
+            {refreshing ? "刷新中…" : "刷新"}
           </button>
           {analytics ? (
             <span className="ml-auto text-xs text-muted-foreground">
@@ -1088,7 +1130,7 @@ export default function AdminVisitPage() {
                 <HBarChart data={refererData} gradId="visitHbarReferer" maxLabel={12} yAxisWidth={120} />
               </ChartCard>
               <ChartCard title="城市分布 Top 10">
-                <HBarChart data={cityData} gradId="visitHbarCity" maxLabel={10} yAxisWidth={104} />
+                <HBarChart data={cityData} gradId="visitHbarCity" maxLabel={11} yAxisWidth={128} />
               </ChartCard>
             </div>
           </div>
