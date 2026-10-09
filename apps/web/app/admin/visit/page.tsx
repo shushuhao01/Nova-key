@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState, type ComponentType } from "react"
+import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from "react"
 import {
   Eye,
   TrendingUp,
@@ -15,10 +15,6 @@ import {
   Settings2,
   Search,
   X,
-  Monitor,
-  Smartphone,
-  Tablet,
-  Bot,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react"
@@ -35,6 +31,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  type TooltipProps,
 } from "recharts"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -56,31 +53,21 @@ const QUICK_RANGES: { key: string; label: string }[] = [
   { key: "90d", label: "近 90 天" },
 ]
 
-const CHART_COLORS = [
-  "hsl(217, 91%, 60%)",
-  "hsl(160, 84%, 39%)",
-  "hsl(38, 92%, 50%)",
-  "hsl(280, 65%, 60%)",
-  "hsl(0, 72%, 58%)",
-  "hsl(190, 80%, 45%)",
-  "hsl(330, 70%, 60%)",
-  "hsl(90, 60%, 45%)",
+/** 图表统一色板（与参考项目一致） */
+const PALETTE = [
+  "#3A7AFE",
+  "#22C55E",
+  "#F59E0B",
+  "#EF4444",
+  "#8B5CF6",
+  "#06B6D4",
+  "#EC4899",
+  "#84CC16",
 ]
 
-const SOURCE_COLORS: Record<string, string> = {
-  direct: "hsl(217, 91%, 60%)",
-  search: "hsl(160, 84%, 39%)",
-  social: "hsl(280, 65%, 60%)",
-  external: "hsl(38, 92%, 50%)",
-}
-
-const DEVICE_ICONS: Record<string, ComponentType<{ className?: string }>> = {
-  desktop: Monitor,
-  mobile: Smartphone,
-  tablet: Tablet,
-  bot: Bot,
-  unknown: Monitor,
-}
+const AXIS_STROKE = "hsl(var(--muted-foreground))"
+const GRID_STROKE = "hsl(var(--border))"
+const PEAK_COLOR = "#F59E0B"
 
 function fmtNum(n: number | null | undefined): string {
   const v = typeof n === "number" && isFinite(n) ? n : 0
@@ -101,77 +88,370 @@ function fmtHour(hour: number | null | undefined): string {
   return `${String(h).padStart(2, "0")}:00`
 }
 
-function StatCard({
-  icon: Icon,
+function shortLabel(name: string, max = 8): string {
+  if (!name) return "-"
+  return name.length > max ? `${name.slice(0, max)}…` : name
+}
+
+/** 反差色图表提示：使用 popover 前景 / 背景，保证在任意主题下都清晰可读 */
+function ChartTooltip({
+  active,
+  payload,
   label,
-  value,
-  sub,
-  accent = "text-primary",
-}: {
-  icon: ComponentType<{ className?: string }>
-  label: string
-  value: string | number
-  sub?: string
-  accent?: string
+  unit = "",
+  total,
+  labelFormatter,
+}: TooltipProps<number, string> & {
+  unit?: string
+  total?: number
+  labelFormatter?: (v: string | number) => string
 }) {
+  if (!active || !payload || payload.length === 0) return null
+  const items = payload.filter((p) => p.value !== undefined && p.value !== null)
+  if (items.length === 0) return null
+
+  const sum =
+    total ??
+    items.reduce((s, p) => s + (typeof p.value === "number" ? p.value : Number(p.value) || 0), 0)
+
   return (
-    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-        <Icon className={cn("h-4 w-4", accent)} />
+    <div className="pointer-events-none min-w-[140px] rounded-lg border border-border bg-popover px-3 py-2 shadow-xl">
+      {label !== undefined && label !== null && label !== "" ? (
+        <div className="mb-1.5 text-xs font-semibold text-popover-foreground">
+          {labelFormatter ? labelFormatter(label) : String(label)}
+        </div>
+      ) : null}
+      <div className="flex flex-col gap-1">
+        {items.map((p, i) => {
+          const raw = p as {
+            color?: string
+            fill?: string
+            stroke?: string
+            payload?: { fill?: string }
+          }
+          const color =
+            raw.color || raw.fill || raw.payload?.fill || raw.stroke || "hsl(var(--primary))"
+          const val = typeof p.value === "number" ? p.value : Number(p.value) || 0
+          return (
+            <div key={`${p.name ?? i}-${i}`} className="flex items-center gap-2 text-xs">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+              <span className="text-muted-foreground">{p.name}</span>
+              <span className="ml-auto font-semibold tabular-nums text-popover-foreground">
+                {fmtNum(val)}
+                {unit}
+              </span>
+              {total ? (
+                <span className="tabular-nums text-muted-foreground">
+                  {fmtNum(sum > 0 ? (val / sum) * 100 : 0)}%
+                </span>
+              ) : null}
+            </div>
+          )
+        })}
       </div>
-      <div className="mt-2 text-2xl font-bold text-foreground">{value}</div>
-      {sub ? <div className="mt-1 text-xs text-muted-foreground">{sub}</div> : null}
     </div>
   )
 }
 
-function Panel({
+function ChartCard({
   title,
+  sub,
   action,
   children,
   className,
 }: {
   title: string
-  action?: React.ReactNode
-  children: React.ReactNode
+  sub?: ReactNode
+  action?: ReactNode
+  children: ReactNode
   className?: string
 }) {
   return (
-    <div className={cn("rounded-xl border border-border bg-card p-5 shadow-sm", className)}>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="font-semibold text-foreground">{title}</h3>
+    <div className={cn("flex flex-col rounded-xl border border-border bg-card p-4 shadow-sm", className)}>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          {title}
+          {sub ? <span className="text-xs font-normal text-muted-foreground">{sub}</span> : null}
+        </h3>
         {action}
       </div>
-      {children}
+      <div className="flex-1">{children}</div>
     </div>
   )
 }
 
 function Empty({ text = "暂无数据" }: { text?: string }) {
   return (
-    <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">{text}</div>
+    <div className="flex h-full min-h-[180px] items-center justify-center text-sm text-muted-foreground">
+      {text}
+    </div>
   )
 }
 
-function BarList({ items }: { items: { name: string; pv: number; uv?: number }[] }) {
-  if (items.length === 0) return <Empty />
-  const max = Math.max(1, ...items.map((i) => i.pv))
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  sub,
+}: {
+  icon: ComponentType<{ className?: string }>
+  label: string
+  value: string | number
+  sub?: string
+}) {
+  return (
+    <div className="flex flex-col rounded-xl border border-border bg-card p-3.5 shadow-sm">
+      <div className="flex items-center gap-1.5 text-muted-foreground">
+        <Icon className="h-3.5 w-3.5" />
+        <span className="text-xs font-medium">{label}</span>
+      </div>
+      <div className="mt-1.5 text-xl font-bold leading-tight text-foreground">{value}</div>
+      {sub ? <div className="mt-1 truncate text-xs text-muted-foreground">{sub}</div> : null}
+    </div>
+  )
+}
+
+function MiniStat({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+  return (
+    <div className="rounded-lg bg-muted/60 px-3 py-2.5">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 text-lg font-bold text-foreground">{value}</div>
+      {sub ? <div className="text-xs text-muted-foreground">{sub}</div> : null}
+    </div>
+  )
+}
+
+/** 环形图（含自绘图例），用于来源 / 设备 / 系统 / 浏览器 */
+function DonutChart({
+  data,
+  height = 176,
+}: {
+  data: { name: string; value: number }[]
+  height?: number
+}) {
+  const total = data.reduce((s, d) => s + d.value, 0)
+  if (data.length === 0 || total === 0) return <Empty />
+  const pieData = data.map((d, idx) => ({ ...d, fill: PALETTE[idx % PALETTE.length] }))
   return (
     <div className="flex flex-col gap-3">
-      {items.map((it, idx) => (
-        <div key={`${it.name}-${idx}`} className="flex flex-col gap-1">
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="truncate text-foreground" title={it.name}>{it.name}</span>
-            <span className="shrink-0 text-muted-foreground">
-              {fmtNum(it.pv)} PV{it.uv !== undefined ? ` · ${fmtNum(it.uv)} UV` : ""}
+      <div className="w-full" style={{ height }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={pieData}
+              dataKey="value"
+              nameKey="name"
+              innerRadius="60%"
+              outerRadius="88%"
+              paddingAngle={2}
+              stroke="hsl(var(--card))"
+              strokeWidth={2}
+            >
+              {pieData.map((entry, idx) => (
+                <Cell key={`${entry.name}-${idx}`} fill={entry.fill} />
+              ))}
+            </Pie>
+            <Tooltip content={<ChartTooltip total={total} />} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {data.map((d, idx) => (
+          <div key={`${d.name}-${idx}`} className="flex items-center gap-2 text-xs">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ background: PALETTE[idx % PALETTE.length] }}
+            />
+            <span className="truncate text-foreground" title={d.name}>
+              {d.name}
+            </span>
+            <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+              {fmtNum(d.value)} · {fmtNum((d.value / total) * 100)}%
             </span>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** 访问趋势：PV / UV 双折线（带渐变面积） */
+function TrendChart({ data }: { data: { date: string; pv: number; uv: number }[] }) {
+  if (data.length === 0) return <Empty />
+  return (
+    <div className="h-[320px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
+          <defs>
+            <linearGradient id="visitTrendPv" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#3A7AFE" stopOpacity={0.28} />
+              <stop offset="100%" stopColor="#3A7AFE" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="visitTrendUv" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#22C55E" stopOpacity={0.22} />
+              <stop offset="100%" stopColor="#22C55E" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} vertical={false} />
+          <XAxis
+            dataKey="date"
+            tickFormatter={(v) => String(v).slice(5)}
+            tick={{ fontSize: 11, fill: AXIS_STROKE }}
+            axisLine={{ stroke: GRID_STROKE }}
+            tickLine={false}
+            minTickGap={16}
+          />
+          <YAxis
+            tick={{ fontSize: 11, fill: AXIS_STROKE }}
+            axisLine={false}
+            tickLine={false}
+            allowDecimals={false}
+          />
+          <Tooltip cursor={{ stroke: GRID_STROKE }} content={<ChartTooltip />} />
+          <Area
+            type="monotone"
+            dataKey="pv"
+            name="访问量 (PV)"
+            stroke="#3A7AFE"
+            strokeWidth={2}
+            fill="url(#visitTrendPv)"
+            dot={false}
+            activeDot={{ r: 4 }}
+          />
+          <Area
+            type="monotone"
+            dataKey="uv"
+            name="访客数 (UV)"
+            stroke="#22C55E"
+            strokeWidth={2}
+            fill="url(#visitTrendUv)"
+            dot={false}
+            activeDot={{ r: 4 }}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/** 时段分布：竖向柱状图，峰值高亮 */
+function HoursChart({ data, peakHour }: { data: { hour: string; pv: number }[]; peakHour: number }) {
+  if (data.length === 0) return <Empty />
+  const hasData = data.some((d) => d.pv > 0)
+  if (!hasData) return <Empty />
+  return (
+    <div className="h-[300px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+          <defs>
+            <linearGradient id="visitHourBar" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#3A7AFE" />
+              <stop offset="100%" stopColor="#93B5FE" />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} vertical={false} />
+          <XAxis
+            dataKey="hour"
+            interval={1}
+            tick={{ fontSize: 10, fill: AXIS_STROKE }}
+            axisLine={{ stroke: GRID_STROKE }}
+            tickLine={false}
+          />
+          <YAxis
+            tick={{ fontSize: 11, fill: AXIS_STROKE }}
+            axisLine={false}
+            tickLine={false}
+            allowDecimals={false}
+          />
+          <Tooltip cursor={{ fill: "hsl(var(--accent))" }} content={<ChartTooltip unit=" 次" />} />
+          <Bar dataKey="pv" name="访问量" radius={[4, 4, 0, 0]} maxBarSize={22}>
+            {data.map((d, idx) => (
+              <Cell
+                key={d.hour}
+                fill={idx === peakHour && d.pv > 0 ? PEAK_COLOR : "url(#visitHourBar)"}
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/** 横向条形图：地域 / 运营商 / 城市 / 来源域名 */
+function HBarChart({
+  data,
+  gradId,
+  yAxisWidth = 84,
+  maxLabel = 8,
+  unit = " 次",
+}: {
+  data: { name: string; value: number }[]
+  gradId: string
+  yAxisWidth?: number
+  maxLabel?: number
+  unit?: string
+}) {
+  if (data.length === 0) return <Empty />
+  const items = data.slice().reverse()
+  return (
+    <div className="h-[320px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={items} layout="vertical" margin={{ top: 4, right: 28, left: 4, bottom: 4 }}>
+          <defs>
+            <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#3A7AFE" />
+              <stop offset="100%" stopColor="#93B5FE" />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} horizontal={false} />
+          <XAxis
+            type="number"
+            tick={{ fontSize: 11, fill: AXIS_STROKE }}
+            axisLine={{ stroke: GRID_STROKE }}
+            tickLine={false}
+            allowDecimals={false}
+          />
+          <YAxis
+            type="category"
+            dataKey="name"
+            width={yAxisWidth}
+            tickFormatter={(v) => shortLabel(String(v), maxLabel)}
+            tick={{ fontSize: 11, fill: AXIS_STROKE }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <Tooltip cursor={{ fill: "hsl(var(--accent))" }} content={<ChartTooltip unit={unit} />} />
+          <Bar dataKey="value" name="PV" fill={`url(#${gradId})`} radius={[0, 4, 4, 0]} barSize={14} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/** 访问转化漏斗 */
+function FunnelBars({ stages }: { stages: VisitAnalytics["funnel"] }) {
+  if (stages.length === 0) return <Empty />
+  return (
+    <div className="flex flex-col gap-3.5">
+      {stages.map((s, idx) => (
+        <div key={s.stage} className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium text-foreground">{s.label}</span>
+            <span className="text-xs text-muted-foreground">
+              {fmtNum(s.visitors)} 人 · {fmtNum(s.rate)}%
+              {idx > 0 ? (
+                <span className="ml-2 text-primary">转化 {fmtNum(s.conversion)}%</span>
+              ) : null}
+            </span>
+          </div>
+          <div className="h-6 w-full overflow-hidden rounded-md bg-muted">
             <div
-              className="h-full rounded-full bg-primary/70"
-              style={{ width: `${Math.max(2, (it.pv / max) * 100)}%` }}
-            />
+              className="flex h-full items-center justify-end rounded-md bg-gradient-to-r from-primary/60 to-primary pr-2 text-xs font-medium text-primary-foreground"
+              style={{ width: `${Math.max(3, s.rate)}%` }}
+            >
+              {s.visitors > 0 ? fmtNum(s.visitors) : ""}
+            </div>
           </div>
         </div>
       ))}
@@ -200,10 +480,15 @@ function Toggle({
         <span className="block text-sm font-medium text-foreground">{label}</span>
         {desc ? <span className="block text-xs text-muted-foreground">{desc}</span> : null}
       </span>
-      <span className={cn("relative h-5 w-9 shrink-0 rounded-full transition-colors", checked ? "bg-primary" : "bg-muted")}>
+      <span
+        className={cn(
+          "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+          checked ? "bg-primary" : "bg-muted"
+        )}
+      >
         <span
           className={cn(
-            "absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
+            "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
             checked && "translate-x-4"
           )}
         />
@@ -357,7 +642,9 @@ export default function AdminVisitPage() {
     setCleaning(true)
     try {
       const res = await adminVisitApi.cleanup()
-      toast.success(`已清理 ${fmtNum(res.deleted_logs)} 条明细、${fmtNum(res.deleted_sessions)} 条会话（保留 ${res.retention_days} 天）`)
+      toast.success(
+        `已清理 ${fmtNum(res.deleted_logs)} 条明细、${fmtNum(res.deleted_sessions)} 条会话（保留 ${res.retention_days} 天）`
+      )
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "清理失败")
     } finally {
@@ -395,42 +682,46 @@ export default function AdminVisitPage() {
     ? analytics.hours.labels.map((l, i) => ({ hour: l, pv: analytics.hours.pv[i] ?? 0 }))
     : []
 
-  const sourcePie = analytics
-    ? analytics.sources.map((s) => ({ name: s.name, value: s.pv, code: s.code }))
+  const sourceData = analytics ? analytics.sources.map((s) => ({ name: s.name, value: s.pv })) : []
+  const deviceData = analytics ? analytics.devices.map((d) => ({ name: d.name, value: d.pv })) : []
+  const osData = analytics ? analytics.os.map((o) => ({ name: o.name, value: o.pv })) : []
+  const browserData = analytics ? analytics.browsers.map((b) => ({ name: b.name, value: b.pv })) : []
+  const regionData = analytics ? analytics.regions.slice(0, 10).map((r) => ({ name: r.name, value: r.pv })) : []
+  const ispData = analytics ? analytics.isps.slice(0, 10).map((r) => ({ name: r.name, value: r.pv })) : []
+  const refererData = analytics ? analytics.referers.slice(0, 10).map((r) => ({ name: r.name, value: r.pv })) : []
+  const cityData = analytics
+    ? analytics.cities.slice(0, 10).map((c) => ({ name: `${c.province} · ${c.name}`, value: c.pv }))
     : []
 
-  const refererItems = analytics ? analytics.referers.map((r) => ({ name: r.name, pv: r.pv, uv: r.uv })) : []
-  const regionItems = analytics ? analytics.regions.map((r) => ({ name: r.name, pv: r.pv, uv: r.uv })) : []
-  const cityItems = analytics ? analytics.cities.map((c) => ({ name: `${c.province} · ${c.name}`, pv: c.pv, uv: c.uv })) : []
-  const osItems = analytics ? analytics.os.map((o) => ({ name: o.name, pv: o.pv, uv: o.uv })) : []
-  const browserItems = analytics ? analytics.browsers.map((b) => ({ name: b.name, pv: b.pv, uv: b.uv })) : []
-  const ispItems = analytics ? analytics.isps.map((i) => ({ name: i.name, pv: i.pv, uv: i.uv })) : []
-  const pageItems = analytics ? analytics.pages.map((p) => ({ name: p.path, pv: p.pv, uv: p.uv })) : []
+  const stats: { icon: ComponentType<{ className?: string }>; label: string; value: string; sub?: string }[] = [
+    { icon: Eye, label: "今日访问 (PV)", value: fmtNum(summary?.today_pv), sub: `今日访客 ${fmtNum(summary?.today_uv)}` },
+    { icon: Users, label: "今日访客 (UV)", value: fmtNum(summary?.today_uv), sub: `独立 IP ${fmtNum(summary?.ips)}` },
+    { icon: TrendingUp, label: "区间访问 (PV)", value: fmtNum(summary?.pv), sub: `日均 ${fmtNum(summary?.avg_pv)}` },
+    { icon: ContactRound, label: "区间访客 (UV)", value: fmtNum(summary?.uv), sub: `人均浏览 ${fmtNum(summary?.pv_per_visitor)} 次` },
+    { icon: Globe2, label: "独立 IP", value: fmtNum(summary?.ips), sub: `独立访客 ${fmtNum(summary?.visitors)}` },
+    { icon: Activity, label: "会话数", value: fmtNum(summary?.sessions), sub: `人均 ${fmtNum(summary?.avg_page_count)} 页` },
+    { icon: MousePointerClick, label: "跳出率", value: `${fmtNum(summary?.bounce_rate)}%`, sub: `跳出 ${fmtNum(analytics?.sessions.bounces)}` },
+    { icon: Clock, label: "日均访问", value: fmtNum(summary?.avg_pv), sub: `平均停留 ${fmtDuration(summary?.avg_duration_sec)}` },
+  ]
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5">
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">访问数据</h1>
-          <p className="text-sm text-muted-foreground">统计分析商城前台网站的真实访问流量（仅统计前台访客，不含后台与爬虫）</p>
+          <p className="text-sm text-muted-foreground">
+            统计分析商城前台网站的真实访问流量（仅统计前台访客，不含后台与爬虫）
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-600">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-500">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
             </span>
             实时在线 {fmtNum(analytics?.realtime.online ?? 0)}
           </span>
-          <button
-            type="button"
-            onClick={() => fetchAnalytics()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-            刷新
-          </button>
           <button
             type="button"
             onClick={openConfig}
@@ -443,7 +734,7 @@ export default function AdminVisitPage() {
       </div>
 
       {/* Filter toolbar */}
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex flex-wrap items-center gap-1 rounded-lg bg-muted p-1">
             {QUICK_RANGES.map((r) => {
@@ -490,7 +781,7 @@ export default function AdminVisitPage() {
                 onChange={(e) => setEndDate(e.target.value)}
                 className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-primary"
               />
-              {(startDate || endDate) ? (
+              {startDate || endDate ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -504,6 +795,19 @@ export default function AdminVisitPage() {
               ) : null}
             </div>
           ) : null}
+          <button
+            type="button"
+            onClick={() => fetchAnalytics()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+            刷新
+          </button>
+          {analytics ? (
+            <span className="ml-auto text-xs text-muted-foreground">
+              统计区间：{analytics.range.start} ~ {analytics.range.end}
+            </span>
+          ) : null}
         </div>
 
         {tab === "detail" ? (
@@ -515,7 +819,9 @@ export default function AdminVisitPage() {
             >
               <option value="">全部来源</option>
               {(options?.sources ?? []).map((s) => (
-                <option key={s.value} value={s.value}>{s.label}</option>
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
               ))}
             </select>
             <select
@@ -525,7 +831,9 @@ export default function AdminVisitPage() {
             >
               <option value="">全部设备</option>
               {(options?.devices ?? []).map((d) => (
-                <option key={d.value} value={d.value}>{d.label}</option>
+                <option key={d.value} value={d.value}>
+                  {d.label}
+                </option>
               ))}
             </select>
             <div className="relative">
@@ -561,7 +869,7 @@ export default function AdminVisitPage() {
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-border">
         {[
-          { key: "overview" as const, label: "数据概览" },
+          { key: "overview" as const, label: "流量分析" },
           { key: "detail" as const, label: "访问明细" },
         ].map((tItem) => (
           <button
@@ -586,273 +894,208 @@ export default function AdminVisitPage() {
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
         ) : !analytics ? (
-          <Panel title="数据概览"><Empty text="暂无访问数据" /></Panel>
+          <ChartCard title="流量分析">
+            <Empty text="暂无访问数据" />
+          </ChartCard>
         ) : (
-          <div className="flex flex-col gap-6">
-            {/* Summary cards */}
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-              <StatCard icon={Eye} label="今日 PV" value={fmtNum(summary?.today_pv)} sub={`今日 UV ${fmtNum(summary?.today_uv)}`} />
-              <StatCard icon={TrendingUp} label="区间 PV" value={fmtNum(summary?.pv)} sub={`日均 ${fmtNum(summary?.avg_pv)}`} accent="text-blue-500" />
-              <StatCard icon={Users} label="区间 UV" value={fmtNum(summary?.uv)} sub={`人均浏览 ${fmtNum(summary?.pv_per_visitor)} 次`} accent="text-emerald-500" />
-              <StatCard icon={Globe2} label="独立 IP" value={fmtNum(summary?.ips)} sub={`独立访客 ${fmtNum(summary?.visitors)}`} accent="text-violet-500" />
-              <StatCard icon={ContactRound} label="新访客 / 回访" value={fmtNum(summary?.new_uv)} sub={`回访 ${fmtNum(summary?.returning_uv)}`} accent="text-amber-500" />
-              <StatCard icon={Activity} label="会话数" value={fmtNum(summary?.sessions)} sub={`跳出率 ${fmtNum(summary?.bounce_rate)}%`} accent="text-rose-500" />
-              <StatCard icon={Clock} label="平均停留时长" value={fmtDuration(summary?.avg_duration_sec)} sub={`人均 ${fmtNum(summary?.avg_page_count)} 页`} accent="text-cyan-500" />
-              <StatCard icon={MousePointerClick} label="流量峰值时段" value={fmtHour(summary?.peak_hour)} sub={`${fmtNum(summary?.peak_hour_pv)} PV`} accent="text-orange-500" />
+          <div className="flex flex-col gap-5">
+            {/* 概览指标 */}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+              {stats.map((s) => (
+                <StatTile key={s.label} icon={s.icon} label={s.label} value={s.value} sub={s.sub} />
+              ))}
             </div>
 
-            {/* Trend + Hours */}
-            <Panel title="访问趋势（PV / UV）">
-              <div className="mb-4 flex gap-4 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-blue-500" />PV</span>
-                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500" />UV</span>
-              </div>
-              <div className="h-72">
-                {trendData.length === 0 ? (
-                  <Empty />
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={trendData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="visitPv" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0.25} />
-                          <stop offset="95%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="visitUv" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="hsl(160, 84%, 39%)" stopOpacity={0.25} />
-                          <stop offset="95%" stopColor="hsl(160, 84%, 39%)" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis
-                        dataKey="date"
-                        tickFormatter={(v) => String(v).slice(5)}
-                        tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
-                        axisLine={{ stroke: "hsl(var(--border))" }}
-                        tickLine={false}
-                      />
-                      <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                      <Tooltip
-                        contentStyle={{
-                          background: "hsl(var(--card))",
-                          border: "1px solid hsl(var(--border))",
-                          borderRadius: "8px",
-                          fontSize: "12px",
-                          color: "hsl(var(--foreground))",
-                        }}
-                      />
-                      <Area type="monotone" dataKey="pv" name="PV" stroke="hsl(217, 91%, 60%)" strokeWidth={2} fill="url(#visitPv)" />
-                      <Area type="monotone" dataKey="uv" name="UV" stroke="hsl(160, 84%, 39%)" strokeWidth={2} fill="url(#visitUv)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </Panel>
-
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-              <Panel title="流量来源分布" className="xl:col-span-1">
-                {sourcePie.length === 0 ? (
-                  <Empty />
-                ) : (
-                  <div className="flex flex-col gap-4">
-                    <div className="h-48">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={sourcePie} dataKey="value" nameKey="name" innerRadius={45} outerRadius={70} paddingAngle={2}>
-                            {sourcePie.map((entry, idx) => (
-                              <Cell key={entry.code || idx} fill={SOURCE_COLORS[entry.code] || CHART_COLORS[idx % CHART_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            contentStyle={{
-                              background: "hsl(var(--card))",
-                              border: "1px solid hsl(var(--border))",
-                              borderRadius: "8px",
-                              fontSize: "12px",
-                              color: "hsl(var(--foreground))",
-                            }}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      {analytics.sources.map((s, idx) => (
-                        <div key={s.code || idx} className="flex items-center justify-between text-sm">
-                          <span className="flex items-center gap-2 text-foreground">
-                            <span className="h-2.5 w-2.5 rounded-full" style={{ background: SOURCE_COLORS[s.code] || CHART_COLORS[idx % CHART_COLORS.length] }} />
-                            {s.name}
-                          </span>
-                          <span className="text-muted-foreground">{fmtNum(s.pv)} PV · {fmtNum(s.ratio)}%</span>
-                        </div>
-                      ))}
-                    </div>
+            {/* 访问趋势 + 流量来源 */}
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+              <ChartCard
+                title="访问趋势"
+                sub={`${analytics.range.days} 天 · PV / UV`}
+                className="xl:col-span-2"
+                action={
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#3A7AFE" }} />
+                      PV
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#22C55E" }} />
+                      UV
+                    </span>
                   </div>
-                )}
-              </Panel>
-
-              <Panel title="设备分布" className="xl:col-span-2">
-                {analytics.devices.length === 0 ? (
-                  <Empty />
-                ) : (
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    {analytics.devices.map((d, idx) => {
-                      const Icon = DEVICE_ICONS[d.code] || Monitor
-                      return (
-                        <div key={d.code || idx} className="flex items-center gap-3 rounded-lg border border-border p-3">
-                          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                            <Icon className="h-5 w-5" />
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-medium text-foreground">{d.name}</span>
-                              <span className="text-xs text-muted-foreground">{fmtNum(d.ratio)}%</span>
-                            </div>
-                            <div className="mt-1 text-xs text-muted-foreground">{fmtNum(d.pv)} PV · {fmtNum(d.uv)} UV</div>
-                            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                              <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.max(2, d.ratio)}%` }} />
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </Panel>
+                }
+              >
+                <TrendChart data={trendData} />
+              </ChartCard>
+              <ChartCard title="流量来源">
+                <DonutChart data={sourceData} />
+              </ChartCard>
             </div>
 
-            <Panel title="时段分布（24 小时）">
-              <div className="h-64">
-                {hourData.length === 0 ? (
-                  <Empty />
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={hourData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="hour" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={{ stroke: "hsl(var(--border))" }} tickLine={false} interval={1} />
-                      <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                      <Tooltip
-                        cursor={{ fill: "hsl(var(--accent))" }}
-                        contentStyle={{
-                          background: "hsl(var(--card))",
-                          border: "1px solid hsl(var(--border))",
-                          borderRadius: "8px",
-                          fontSize: "12px",
-                          color: "hsl(var(--foreground))",
-                        }}
-                      />
-                      <Bar dataKey="pv" name="PV" fill="hsl(217, 91%, 60%)" radius={[3, 3, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </Panel>
-
-            {/* Funnel + Sessions */}
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-              <Panel title="访问转化漏斗">
-                {analytics.funnel.length === 0 ? (
-                  <Empty />
-                ) : (
-                  <div className="flex flex-col gap-4">
-                    {analytics.funnel.map((s, idx) => (
-                      <div key={s.stage} className="flex flex-col gap-1.5">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-medium text-foreground">{s.label}</span>
-                          <span className="text-muted-foreground">
-                            {fmtNum(s.visitors)} 人 · {fmtNum(s.rate)}%
-                            {idx > 0 ? <span className="ml-2 text-xs text-primary">转化 {fmtNum(s.conversion)}%</span> : null}
-                          </span>
-                        </div>
-                        <div className="h-6 w-full overflow-hidden rounded-md bg-muted">
-                          <div
-                            className="flex h-full items-center justify-end rounded-md bg-gradient-to-r from-primary/60 to-primary pr-2 text-xs font-medium text-primary-foreground"
-                            style={{ width: `${Math.max(4, s.rate)}%` }}
-                          >
-                            {fmtNum(s.visitors)}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Panel>
-
-              <Panel title="会话质量">
-                <div className="grid grid-cols-2 gap-4">
-                  <StatCard icon={Activity} label="会话总数" value={fmtNum(analytics.sessions.sessions)} accent="text-rose-500" />
-                  <StatCard icon={MousePointerClick} label="跳出率" value={`${fmtNum(analytics.sessions.bounce_rate)}%`} sub={`跳出 ${fmtNum(analytics.sessions.bounces)}`} accent="text-amber-500" />
-                  <StatCard icon={Clock} label="平均停留" value={fmtDuration(analytics.sessions.avg_duration_sec)} accent="text-cyan-500" />
-                  <StatCard icon={Eye} label="人均页数" value={fmtNum(analytics.sessions.avg_page_count)} accent="text-blue-500" />
-                </div>
-                <div className="mt-4 border-t border-border pt-4">
-                  <h4 className="mb-3 text-sm font-medium text-foreground">会话来源质量</h4>
-                  {analytics.sessions.sources.length === 0 ? (
-                    <Empty text="暂无会话数据" />
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      {analytics.sessions.sources.map((s, idx) => (
-                        <div key={s.code || idx} className="flex items-center justify-between text-sm">
-                          <span className="text-foreground">{s.name}</span>
-                          <span className="text-muted-foreground">{fmtNum(s.sessions)} 会话 · 跳出 {fmtNum(s.bounce_rate)}%</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </Panel>
+            {/* 时段分布 + 设备类型 */}
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+              <ChartCard
+                title="时段分布（0-23 时）"
+                sub={
+                  summary && summary.peak_hour_pv > 0
+                    ? `高峰 ${fmtHour(summary.peak_hour)} · ${fmtNum(summary.peak_hour_pv)} 次`
+                    : undefined
+                }
+                className="xl:col-span-2"
+              >
+                <HoursChart data={hourData} peakHour={summary?.peak_hour ?? -1} />
+              </ChartCard>
+              <ChartCard title="设备类型">
+                <DonutChart data={deviceData} />
+              </ChartCard>
             </div>
 
-            {/* Dimensions */}
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-              <Panel title="来源域名 TOP"><BarList items={refererItems} /></Panel>
-              <Panel title="操作系统"><BarList items={osItems} /></Panel>
-              <Panel title="浏览器"><BarList items={browserItems} /></Panel>
+            {/* 操作系统 + 浏览器 */}
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+              <ChartCard title="操作系统">
+                <DonutChart data={osData} height={200} />
+              </ChartCard>
+              <ChartCard title="浏览器">
+                <DonutChart data={browserData} height={200} />
+              </ChartCard>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-              <Panel title="省份分布"><BarList items={regionItems} /></Panel>
-              <Panel title="城市分布 TOP"><BarList items={cityItems} /></Panel>
-              <Panel title="运营商分布"><BarList items={ispItems} /></Panel>
+            {/* 地域分布 + 网络运营商 */}
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+              <ChartCard title="地域分布 Top 10">
+                <HBarChart data={regionData} gradId="visitHbarRegion" />
+              </ChartCard>
+              <ChartCard title="网络运营商 Top 10">
+                <HBarChart data={ispData} gradId="visitHbarIsp" />
+              </ChartCard>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-              <Panel title="热门访问页面 TOP"><BarList items={pageItems} /></Panel>
-              <Panel title="活跃 IP TOP">
-                {analytics.ips.length === 0 ? (
+            {/* 热门页面 + 活跃 IP */}
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+              <ChartCard title="热门页面 Top 10">
+                {analytics.pages.length === 0 ? (
                   <Empty />
                 ) : (
-                  <div className="max-h-80 overflow-y-auto">
+                  <div className="max-h-[330px] overflow-y-auto">
                     <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-card text-xs text-muted-foreground">
+                      <thead className="sticky top-0 z-10 bg-card text-xs text-muted-foreground">
                         <tr className="border-b border-border">
-                          <th className="py-2 text-left font-medium">IP</th>
-                          <th className="py-2 text-left font-medium">归属地</th>
-                          <th className="py-2 text-left font-medium">运营商</th>
-                          <th className="py-2 text-right font-medium">PV</th>
-                          <th className="py-2 text-right font-medium">最近访问</th>
+                          <th className="w-10 py-2 text-left font-medium">#</th>
+                          <th className="py-2 text-left font-medium">页面路径</th>
+                          <th className="w-16 py-2 text-right font-medium">PV</th>
+                          <th className="w-16 py-2 text-right font-medium">UV</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {analytics.ips.map((item, idx) => (
-                          <tr key={`${item.ip}-${idx}`} className="border-b border-border/60 last:border-0">
-                            <td className="py-2 font-mono text-xs text-foreground">{item.ip}</td>
-                            <td className="py-2 text-muted-foreground">{[item.province, item.city].filter(Boolean).join(" ") || "未知"}</td>
-                            <td className="py-2 text-muted-foreground">{item.isp || "未知"}</td>
-                            <td className="py-2 text-right font-medium text-foreground">{fmtNum(item.pv)}</td>
-                            <td className="py-2 text-right text-xs text-muted-foreground">{item.last_time || "-"}</td>
+                        {analytics.pages.slice(0, 10).map((p, idx) => (
+                          <tr key={`${p.path}-${idx}`} className="border-b border-border/60 last:border-0 hover:bg-accent/40">
+                            <td className="py-2 text-muted-foreground">{idx + 1}</td>
+                            <td className="max-w-0 truncate py-2 text-foreground" title={p.path}>
+                              {p.path}
+                            </td>
+                            <td className="py-2 text-right font-medium tabular-nums text-foreground">{fmtNum(p.pv)}</td>
+                            <td className="py-2 text-right tabular-nums text-muted-foreground">{fmtNum(p.uv)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                 )}
-              </Panel>
+              </ChartCard>
+
+              <ChartCard title="活跃 IP Top">
+                {analytics.ips.length === 0 ? (
+                  <Empty />
+                ) : (
+                  <div className="max-h-[330px] overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 z-10 bg-card text-xs text-muted-foreground">
+                        <tr className="border-b border-border">
+                          <th className="w-10 py-2 text-left font-medium">#</th>
+                          <th className="py-2 text-left font-medium">IP</th>
+                          <th className="py-2 text-left font-medium">归属地</th>
+                          <th className="py-2 text-left font-medium">运营商</th>
+                          <th className="w-14 py-2 text-right font-medium">次数</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {analytics.ips.slice(0, 10).map((item, idx) => (
+                          <tr key={`${item.ip}-${idx}`} className="border-b border-border/60 last:border-0 hover:bg-accent/40">
+                            <td className="py-2 text-muted-foreground">{idx + 1}</td>
+                            <td className="py-2 font-mono text-xs text-foreground">{item.ip}</td>
+                            <td className="py-2 text-muted-foreground">
+                              {[item.province, item.city].filter(Boolean).join(" ") || "未知"}
+                            </td>
+                            <td className="py-2 text-muted-foreground">{item.isp || "未知"}</td>
+                            <td className="py-2 text-right font-medium tabular-nums text-foreground">{fmtNum(item.pv)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </ChartCard>
+            </div>
+
+            {/* 扩展分析（本项目额外指标） */}
+            <div className="mt-1 flex items-center gap-3">
+              <h2 className="text-sm font-semibold text-foreground">扩展分析</h2>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+              <ChartCard title="访问转化漏斗">
+                <FunnelBars stages={analytics.funnel} />
+              </ChartCard>
+
+              <ChartCard title="会话质量">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <MiniStat label="会话总数" value={fmtNum(analytics.sessions.sessions)} />
+                  <MiniStat label="跳出率" value={`${fmtNum(analytics.sessions.bounce_rate)}%`} sub={`跳出 ${fmtNum(analytics.sessions.bounces)}`} />
+                  <MiniStat label="平均停留" value={fmtDuration(analytics.sessions.avg_duration_sec)} />
+                  <MiniStat label="人均页数" value={fmtNum(analytics.sessions.avg_page_count)} />
+                  <MiniStat label="新访客" value={fmtNum(summary?.new_uv)} />
+                  <MiniStat label="回访访客" value={fmtNum(summary?.returning_uv)} />
+                </div>
+                <div className="mt-4 border-t border-border pt-3">
+                  <h4 className="mb-2.5 text-xs font-medium text-muted-foreground">会话来源质量</h4>
+                  {analytics.sessions.sources.length === 0 ? (
+                    <Empty text="暂无会话数据" />
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {analytics.sessions.sources.map((s, idx) => (
+                        <div key={s.code || idx} className="flex items-center justify-between text-sm">
+                          <span className="flex items-center gap-2 text-foreground">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full"
+                              style={{ background: PALETTE[idx % PALETTE.length] }}
+                            />
+                            {s.name}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {fmtNum(s.sessions)} 会话 · 跳出 {fmtNum(s.bounce_rate)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </ChartCard>
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+              <ChartCard title="来源域名 Top 10">
+                <HBarChart data={refererData} gradId="visitHbarReferer" maxLabel={12} yAxisWidth={120} />
+              </ChartCard>
+              <ChartCard title="城市分布 Top 10">
+                <HBarChart data={cityData} gradId="visitHbarCity" maxLabel={10} yAxisWidth={104} />
+              </ChartCard>
             </div>
           </div>
         )
       ) : (
         /* Detail tab */
-        <Panel title="访问明细">
+        <ChartCard title="访问明细" sub={`共 ${fmtNum(total)} 条`}>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1000px] text-sm">
               <thead className="text-xs text-muted-foreground">
@@ -861,9 +1104,7 @@ export default function AdminVisitPage() {
                   <th className="px-2 py-3 text-left font-medium">IP</th>
                   <th className="px-2 py-3 text-left font-medium">归属地</th>
                   <th className="px-2 py-3 text-left font-medium">运营商</th>
-                  <th className="px-2 py-3 text-left font-medium">设备</th>
-                  <th className="px-2 py-3 text-left font-medium">系统</th>
-                  <th className="px-2 py-3 text-left font-medium">浏览器</th>
+                  <th className="px-2 py-3 text-left font-medium">设备 / 系统 / 浏览器</th>
                   <th className="px-2 py-3 text-left font-medium">来源</th>
                   <th className="px-2 py-3 text-left font-medium">访问路径</th>
                   <th className="px-2 py-3 text-left font-medium">访客标识</th>
@@ -872,13 +1113,15 @@ export default function AdminVisitPage() {
               <tbody>
                 {detailLoading ? (
                   <tr>
-                    <td colSpan={10} className="py-16 text-center">
+                    <td colSpan={8} className="py-16 text-center">
                       <div className="mx-auto h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     </td>
                   </tr>
                 ) : visits.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-16 text-center text-sm text-muted-foreground">暂无访问明细</td>
+                    <td colSpan={8} className="py-16 text-center text-sm text-muted-foreground">
+                      暂无访问明细
+                    </td>
                   </tr>
                 ) : (
                   visits.map((v) => (
@@ -886,18 +1129,27 @@ export default function AdminVisitPage() {
                       <td className="whitespace-nowrap px-2 py-3 text-xs text-muted-foreground">{v.visit_time || "-"}</td>
                       <td className="px-2 py-3 font-mono text-xs text-foreground">{v.ip}</td>
                       <td className="px-2 py-3 text-muted-foreground">
-                        {[v.country, v.province, v.city].filter((x) => x && x !== "0").join(" ") || "未知"}
+                        {[v.country, v.province, v.city].filter((x) => x && x !== "0" && x !== "中国").join(" ") || "未知"}
                       </td>
                       <td className="px-2 py-3 text-muted-foreground">{v.isp || "未知"}</td>
-                      <td className="px-2 py-3 text-muted-foreground">{v.device_label}</td>
-                      <td className="px-2 py-3 text-muted-foreground">{v.os || "未知"}</td>
-                      <td className="px-2 py-3 text-muted-foreground">{v.browser || "未知"}</td>
+                      <td className="px-2 py-3">
+                        <span className="mr-1.5 inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                          {v.device_label}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {[v.os, v.browser].filter(Boolean).join(" · ") || "-"}
+                        </span>
+                      </td>
                       <td className="px-2 py-3">
                         <span className="text-foreground">{v.source_label}</span>
                         {v.referer ? <span className="block text-xs text-muted-foreground">{v.referer}</span> : null}
                       </td>
-                      <td className="max-w-[220px] truncate px-2 py-3 text-foreground" title={v.path}>{v.path}</td>
-                      <td className="px-2 py-3 font-mono text-xs text-muted-foreground">{v.visitor_id ? v.visitor_id.slice(0, 12) : "-"}</td>
+                      <td className="max-w-[220px] truncate px-2 py-3 text-foreground" title={v.path}>
+                        {v.path}
+                      </td>
+                      <td className="px-2 py-3 font-mono text-xs text-muted-foreground">
+                        {v.visitor_id ? v.visitor_id.slice(0, 12) : "-"}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -915,20 +1167,24 @@ export default function AdminVisitPage() {
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <ChevronLeft className="h-4 w-4" />上一页
+                <ChevronLeft className="h-4 w-4" />
+                上一页
               </button>
-              <span className="text-sm text-foreground">{page} / {totalPages}</span>
+              <span className="text-sm text-foreground">
+                {page} / {totalPages}
+              </span>
               <button
                 type="button"
                 disabled={page >= totalPages || detailLoading}
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
               >
-                下一页<ChevronRight className="h-4 w-4" />
+                下一页
+                <ChevronRight className="h-4 w-4" />
               </button>
             </div>
           </div>
-        </Panel>
+        </ChartCard>
       )}
 
       {/* Config modal */}
