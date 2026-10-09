@@ -92,6 +92,13 @@
             <version>5.2.5</version>
         </dependency>
 
+        <!-- IP 归属地离线解析（访问数据统计） -->
+        <dependency>
+            <groupId>org.lionsoul</groupId>
+            <artifactId>ip2region</artifactId>
+            <version>2.7.0</version>
+        </dependency>
+
         <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>

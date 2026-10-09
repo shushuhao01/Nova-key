@@ -16,6 +16,7 @@ public final class PermissionConst {
     /** 后台访问总开关：不勾选则无法登录/访问管理后台任何接口 */
     public static final String BACKEND_ACCESS = "BACKEND_ACCESS";
     public static final String DASHBOARD = "DASHBOARD";
+    public static final String VISIT_VIEW = "VISIT_VIEW";
     public static final String CATEGORY_MANAGE = "CATEGORY_MANAGE";
     public static final String PRODUCT_MANAGE = "PRODUCT_MANAGE";
     public static final String CARDKEY_MANAGE = "CARDKEY_MANAGE";
@@ -31,7 +32,7 @@ public final class PermissionConst {
 
     /** 全部权限码（超级管理员拥有） */
     public static final List<String> ALL = List.of(
-            BACKEND_ACCESS, DASHBOARD, CATEGORY_MANAGE, PRODUCT_MANAGE, CARDKEY_MANAGE,
+            BACKEND_ACCESS, DASHBOARD, VISIT_VIEW, CATEGORY_MANAGE, PRODUCT_MANAGE, CARDKEY_MANAGE,
             ORDER_MANAGE, CUSTOMER_MANAGE, MARKETING_MANAGE, PAYMENT_MANAGE,
             SITE_CONFIG_MANAGE, RISK_MANAGE, TXID_REVIEW, LOG_VIEW, SYSTEM_MANAGE);
 
@@ -39,6 +40,7 @@ public final class PermissionConst {
     public static final List<Map<String, String>> CATALOG = List.of(
             perm(BACKEND_ACCESS, "后台访问"),
             perm(DASHBOARD, "数据看板"),
+            perm(VISIT_VIEW, "访问数据"),
             perm(CATEGORY_MANAGE, "分类管理"),
             perm(PRODUCT_MANAGE, "商品管理"),
             perm(CARDKEY_MANAGE, "卡密管理"),

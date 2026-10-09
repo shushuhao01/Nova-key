@@ -85,6 +85,8 @@ public class SecurityConfig {
                         .requestMatchers("/user/**").authenticated()
                         // Admin endpoints (RBAC：拥有对应权限码才能访问)
                         .requestMatchers("/admin/system/**").hasAuthority("SYSTEM_MANAGE")
+                        // 访问数据（前台流量分析）需持有 VISIT_VIEW
+                        .requestMatchers("/admin/visit/**").hasAuthority("VISIT_VIEW")
                         // 支付渠道（含私钥/公钥明文的 raw-config）必须持有 PAYMENT_MANAGE，不能仅凭 BACKEND_ACCESS
                         .requestMatchers("/admin/payment-channels/**").hasAuthority("PAYMENT_MANAGE")
                         .requestMatchers("/admin/**").hasAuthority("BACKEND_ACCESS")

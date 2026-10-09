@@ -99,7 +99,20 @@ public final class UserAgentUtil {
         return browser == null ? terminal : terminal + " " + browser;
     }
 
-    private static String detectBrowser(String ua) {
+    /**
+     * 识别浏览器名称；无法识别返回 null。
+     */
+    public static String detectBrowser(String userAgent) {
+        if (userAgent == null || userAgent.isBlank()) {
+            return null;
+        }
+        String ua = userAgent.toLowerCase(Locale.ROOT);
+        if (ua.contains("micromessenger")) {
+            return "微信";
+        }
+        if (ua.contains("alipayclient")) {
+            return "支付宝";
+        }
         if (ua.contains("edg/") || ua.contains("edga") || ua.contains("edgios")) {
             return "Edge";
         }
@@ -117,6 +130,75 @@ public final class UserAgentUtil {
         }
         if (ua.contains("safari/")) {
             return "Safari";
+        }
+        return null;
+    }
+
+    /**
+     * 是否为爬虫/机器人流量。
+     */
+    public static boolean isBot(String userAgent) {
+        if (userAgent == null || userAgent.isBlank()) {
+            return false;
+        }
+        String ua = userAgent.toLowerCase(Locale.ROOT);
+        return ua.contains("bot") || ua.contains("spider") || ua.contains("crawler")
+                || ua.contains("crawl") || ua.contains("slurp") || ua.contains("bingpreview")
+                || ua.contains("facebookexternalhit") || ua.contains("python-requests")
+                || ua.contains("python-urllib") || ua.contains("curl/") || ua.contains("wget")
+                || ua.contains("headlesschrome") || ua.contains("phantomjs") || ua.contains("httpclient")
+                || ua.contains("okhttp") || ua.contains("go-http-client") || ua.contains("java/")
+                || ua.contains("monitor") || ua.contains("scrapy");
+    }
+
+    /**
+     * 归一化设备类型：desktop / mobile / tablet / bot / unknown。
+     */
+    public static String detectDeviceType(String userAgent) {
+        if (userAgent == null || userAgent.isBlank()) {
+            return "unknown";
+        }
+        if (isBot(userAgent)) {
+            return "bot";
+        }
+        String ua = userAgent.toLowerCase(Locale.ROOT);
+        if (ua.contains("ipad") || ua.contains("tablet") || ua.contains("kindle")
+                || (ua.contains("android") && !ua.contains("mobile"))) {
+            return "tablet";
+        }
+        if (ua.contains("mobile") || ua.contains("iphone") || ua.contains("ipod")
+                || ua.contains("android") || ua.contains("harmonyos") || ua.contains("micromessenger")
+                || ua.contains("alipayclient")) {
+            return "mobile";
+        }
+        return "desktop";
+    }
+
+    /**
+     * 识别操作系统；无法识别返回 null。
+     */
+    public static String detectOs(String userAgent) {
+        if (userAgent == null || userAgent.isBlank()) {
+            return null;
+        }
+        String ua = userAgent.toLowerCase(Locale.ROOT);
+        if (ua.contains("windows")) {
+            return "Windows";
+        }
+        if (ua.contains("iphone") || ua.contains("ipad") || ua.contains("ipod")) {
+            return "iOS";
+        }
+        if (ua.contains("mac os x") || ua.contains("macintosh")) {
+            return "macOS";
+        }
+        if (ua.contains("harmonyos")) {
+            return "HarmonyOS";
+        }
+        if (ua.contains("android")) {
+            return "Android";
+        }
+        if (ua.contains("linux")) {
+            return "Linux";
         }
         return null;
     }

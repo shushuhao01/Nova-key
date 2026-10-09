@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
   LayoutDashboard,
+  BarChart3,
   Package,
   FolderTree,
   KeyRound,
@@ -33,6 +34,7 @@ import type { UserProfile } from "@/types"
 
 const navItems: { labelKey: TranslationKey; href: string; icon: typeof LayoutDashboard; permission?: string }[] = [
   { labelKey: "admin.dashboard", href: "/admin/dashboard", icon: LayoutDashboard, permission: "DASHBOARD" },
+  { labelKey: "admin.visit", href: "/admin/visit", icon: BarChart3, permission: "VISIT_VIEW" },
   { labelKey: "admin.categories", href: "/admin/categories", icon: FolderTree, permission: "CATEGORY_MANAGE" },
   { labelKey: "admin.products", href: "/admin/products", icon: Package, permission: "PRODUCT_MANAGE" },
   { labelKey: "admin.cardKeys", href: "/admin/card-keys", icon: KeyRound, permission: "CARDKEY_MANAGE" },

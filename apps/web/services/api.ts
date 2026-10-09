@@ -20,6 +20,10 @@ import type {
   SiteConfigKV,
   DashboardStats,
   SalesTrend,
+  VisitAnalytics,
+  VisitLogItem,
+  VisitOptions,
+  VisitConfig,
   CardKeyStockSummary,
   CardKeyListItem,
   SoldCardKeyRecord,
@@ -519,6 +523,56 @@ export const adminDashboardApi = {
   getSalesTrend: (params: { period?: string; start_date?: string; end_date?: string }) => {
     const qs = buildQuery(params)
     return request<SalesTrend[]>(`/admin/dashboard/sales-trend?${qs}`)
+  },
+}
+
+// ============================================================
+// Admin Visit (访问数据 — 前台流量分析)
+// ============================================================
+
+export type VisitQueryParams = {
+  range?: string
+  start_date?: string
+  end_date?: string
+  source?: string
+  device?: string
+  ip?: string
+  keyword?: string
+}
+
+export const adminVisitApi = {
+  /** 综合分析：汇总 / 趋势 / 来源 / 设备 / 地域 / 页面 / IP / 会话 / 漏斗 / 实时 */
+  getAnalytics: (params: VisitQueryParams) => {
+    const qs = buildQuery(params)
+    return request<VisitAnalytics>(`/admin/visit/analytics?${qs}`)
+  },
+  /** 访问明细列表（分页） */
+  getVisits: (params: VisitQueryParams & { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<VisitLogItem>>(`/admin/visit/visits?${qs}`)
+  },
+  /** 筛选项（来源 / 设备 / 保留天数） */
+  getOptions: () =>
+    request<VisitOptions>("/admin/visit/options"),
+  /** 读取访问数据配置 */
+  getConfig: () =>
+    request<VisitConfig>("/admin/visit/config"),
+  /** 保存访问数据配置 */
+  updateConfig: (data: Partial<Record<string, string | number | boolean>>) =>
+    request<null>("/admin/visit/config", { method: "PUT", body: JSON.stringify(data) }),
+  /** 立即清理过期访问数据 */
+  cleanup: () =>
+    request<{ deleted_logs: number; deleted_sessions: number; retention_days: number }>("/admin/visit/cleanup", { method: "POST" }),
+  /** 导出访问明细 CSV */
+  exportVisits: (params: VisitQueryParams) => {
+    const query: Record<string, string> = {}
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== "") query[k] = String(v)
+    }
+    const d = new Date()
+    const pad = (n: number) => String(n).padStart(2, "0")
+    const filename = `访问明细_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.csv`
+    return downloadFile("/admin/visit/export", query, filename)
   },
 }
 

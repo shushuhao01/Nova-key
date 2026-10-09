@@ -760,6 +760,182 @@ export interface SalesTrend {
 }
 
 // ============================================================
+// Admin Visit Analytics (访问数据)
+// ============================================================
+
+/** 访问明细行 */
+export interface VisitLogItem {
+  id: string
+  visit_time: string | null
+  ip: string
+  country: string | null
+  province: string | null
+  city: string | null
+  isp: string | null
+  device: string | null
+  device_label: string
+  os: string | null
+  browser: string | null
+  source: string | null
+  source_label: string
+  referer: string | null
+  path: string
+  visitor_id: string | null
+}
+
+/** 汇总指标 */
+export interface VisitSummary {
+  today_pv: number
+  today_uv: number
+  pv: number
+  uv: number
+  ips: number
+  visitors: number
+  new_uv: number
+  returning_uv: number
+  avg_pv: number
+  peak_hour: number
+  peak_hour_pv: number
+  bounce_rate: number
+  avg_duration_sec: number
+  avg_page_count: number
+  sessions: number
+  pv_per_visitor: number
+}
+
+/** PV/UV 趋势（读 visit_stats，历史连续） */
+export interface VisitTrend {
+  dates: string[]
+  pv: number[]
+  uv: number[]
+}
+
+/** 时段分布 */
+export interface VisitHours {
+  labels: string[]
+  pv: number[]
+}
+
+/** 带占比的来源 / 设备项 */
+export interface VisitRatioItem {
+  code: string
+  name: string
+  pv: number
+  uv: number
+  ratio: number
+}
+
+/** 简单 PV/UV 项（域名 / 系统 / 浏览器 / 省份 / 运营商） */
+export interface VisitSimpleItem {
+  name: string
+  pv: number
+  uv: number
+}
+
+/** 城市项 */
+export interface VisitCityItem {
+  province: string
+  name: string
+  pv: number
+  uv: number
+}
+
+/** 页面项 */
+export interface VisitPageItem {
+  path: string
+  pv: number
+  uv: number
+}
+
+/** IP 项 */
+export interface VisitIpItem {
+  ip: string
+  province: string
+  city: string
+  isp: string
+  pv: number
+  last_path: string
+  last_time: string | null
+}
+
+/** 会话来源项 */
+export interface VisitSessionSourceItem {
+  code: string
+  name: string
+  sessions: number
+  bounce_rate: number
+}
+
+/** 会话统计 */
+export interface VisitSessionStats {
+  sessions: number
+  bounces: number
+  bounce_rate: number
+  avg_duration_sec: number
+  avg_page_count: number
+  sources: VisitSessionSourceItem[]
+}
+
+/** 漏斗阶段 */
+export interface VisitFunnelStage {
+  stage: number
+  label: string
+  visitors: number
+  rate: number
+  conversion: number
+}
+
+/** 实时数据 */
+export interface VisitRealtime {
+  online: number
+}
+
+/** 访问数据综合分析结果 */
+export interface VisitAnalytics {
+  range: { start: string; end: string; days: number }
+  summary: VisitSummary
+  trend: VisitTrend
+  hours: VisitHours
+  sources: VisitRatioItem[]
+  referers: VisitSimpleItem[]
+  devices: VisitRatioItem[]
+  os: VisitSimpleItem[]
+  browsers: VisitSimpleItem[]
+  regions: VisitSimpleItem[]
+  cities: VisitCityItem[]
+  isps: VisitSimpleItem[]
+  pages: VisitPageItem[]
+  ips: VisitIpItem[]
+  sessions: VisitSessionStats
+  funnel: VisitFunnelStage[]
+  realtime: VisitRealtime
+}
+
+/** 筛选项 */
+export interface VisitOptionItem {
+  value: string
+  label: string
+}
+
+export interface VisitOptions {
+  sources: VisitOptionItem[]
+  devices: VisitOptionItem[]
+  retention_days: number
+}
+
+/** 访问数据配置（键为 snake_case 原始配置键） */
+export interface VisitConfig {
+  visit_track_enabled: boolean
+  visit_exclude_admin: boolean
+  visit_exclude_bot: boolean
+  visit_retention_days: number
+  visit_geolocation_enabled: boolean
+  visit_ip_xdb_path: string
+  visit_ip_whitelist: string
+  visit_ip_blacklist: string
+}
+
+// ============================================================
 // Admin Card Keys
 // ============================================================
 
