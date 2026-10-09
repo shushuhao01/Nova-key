@@ -450,36 +450,65 @@ function HBarChart({
   )
 }
 
-/** 访问转化漏斗：居中梯形漏斗 + 右侧标签，统一蓝色渐变，避免大色块 */
+/** 漏斗各层级浅色渐变（每层不同色、均为浅色系，在暗色背景下对比清晰） */
+const FUNNEL_LEVEL_GRADIENTS: [string, string][] = [
+  ["#6E9BFF", "#AEC8FF"],
+  ["#57C9AE", "#A6E6D6"],
+  ["#E0A94E", "#F7DDA6"],
+  ["#E07AAE", "#F6C4DC"],
+  ["#9A88F5", "#CFC4FF"],
+  ["#57B6E8", "#A9DCF8"],
+  ["#8DCF6A", "#C6EDB0"],
+  ["#E58A8A", "#F6C3C3"],
+]
+
+/** 访问转化漏斗：居中梯形漏斗 + 右侧标签，每层浅色渐变，数据文字跟随层级颜色 */
 function FunnelBars({ stages }: { stages: VisitAnalytics["funnel"] }) {
   if (stages.length === 0) return <Empty />
 
-  const STAGE_H = 60
-  const GAP = 4
+  const STAGE_H = 46
+  const GAP = 3
   const VIEW_W = 560
   const CX = 150
-  const MAX_HALF = 128
-  const MIN_HALF = 12
-  const LABEL_X = 300
+  const MAX_HALF = 112
+  const MIN_HALF = 10
+  const LABEL_X = 292
   const total = stages.length
   const viewH = total * STAGE_H + (total - 1) * GAP
   const halfOf = (rate: number) =>
     MIN_HALF + ((MAX_HALF - MIN_HALF) * Math.max(0, Math.min(100, rate))) / 100
 
-  const topHalves = stages.map((s) => halfOf(s.rate))
+  // 各阶段人数相互独立：直接购买会跳过购物车，导致下层人数可能大于上层；
+  // 这里把图形宽度钳制为单调不增，保证漏斗形状始终正常（文字仍显示各阶段真实人数）
+  const topHalves: number[] = []
+  stages.forEach((s, i) => {
+    const w = halfOf(s.rate)
+    topHalves.push(i === 0 ? w : Math.min(w, topHalves[i - 1]))
+  })
   const bottomHalves = stages.map((_, i) =>
     i < total - 1 ? topHalves[i + 1] : Math.max(MIN_HALF * 0.5, topHalves[i] * 0.4),
   )
 
   return (
-    <svg viewBox={`0 0 ${VIEW_W} ${viewH}`} className="w-full" style={{ height: "auto" }} role="img">
+    <svg
+      viewBox={`0 0 ${VIEW_W} ${viewH}`}
+      className="mx-auto block w-full max-w-[520px]"
+      style={{ height: "auto" }}
+      role="img"
+    >
       <defs>
-        <linearGradient id="visitFunnelGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3A7AFE" />
-          <stop offset="100%" stopColor="#93B5FE" />
-        </linearGradient>
+        {stages.map((s, i) => {
+          const [from, to] = FUNNEL_LEVEL_GRADIENTS[i % FUNNEL_LEVEL_GRADIENTS.length]
+          return (
+            <linearGradient key={s.stage} id={`visitFunnelGrad${i}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={from} />
+              <stop offset="100%" stopColor={to} />
+            </linearGradient>
+          )
+        })}
       </defs>
       {stages.map((s, i) => {
+        const [levelColor] = FUNNEL_LEVEL_GRADIENTS[i % FUNNEL_LEVEL_GRADIENTS.length]
         const y0 = i * (STAGE_H + GAP)
         const y1 = y0 + STAGE_H
         const ht = topHalves[i]
@@ -490,7 +519,7 @@ function FunnelBars({ stages }: { stages: VisitAnalytics["funnel"] }) {
           <g key={s.stage}>
             <polygon
               points={`${CX - ht},${y0} ${CX + ht},${y0} ${CX + hb},${y1} ${CX - hb},${y1}`}
-              fill="url(#visitFunnelGrad)"
+              fill={`url(#visitFunnelGrad${i})`}
             />
             <line
               x1={CX + mid + 4}
@@ -502,12 +531,12 @@ function FunnelBars({ stages }: { stages: VisitAnalytics["funnel"] }) {
             />
             <text
               x={LABEL_X}
-              y={cy - 4}
-              style={{ fill: "hsl(var(--foreground))", fontSize: 12.5, fontWeight: 500 }}
+              y={cy - 3}
+              style={{ fill: "hsl(var(--foreground))", fontSize: 12, fontWeight: 500 }}
             >
               {s.label}
             </text>
-            <text x={LABEL_X} y={cy + 13} style={{ fill: "hsl(var(--muted-foreground))", fontSize: 10.5 }}>
+            <text x={LABEL_X} y={cy + 12} style={{ fill: levelColor, fontSize: 10.5, fontWeight: 600 }}>
               {`${fmtNum(s.visitors)} 人 · ${fmtNum(s.rate)}%${i > 0 ? ` · 转化 ${fmtNum(s.conversion)}%` : ""}`}
             </text>
           </g>

@@ -129,7 +129,11 @@ public interface VisitLogRepository extends JpaRepository<VisitLog, UUID> {
             "ORDER BY l.ip, l.created_at DESC) sub ORDER BY sub.pv DESC LIMIT 100", nativeQuery = true)
     List<Object[]> aggregateByIp(@Param("from") LocalDate from, @Param("to") LocalDate to);
 
-    /** 漏斗各阶段去重访客数 [all, product, cart, checkout, pay] */
+    /**
+     * 漏斗各阶段去重访客数 [all, product, cart, checkout, pay]，均为该阶段真实人数。
+     * 注意：各阶段相互独立，因存在「跳过购物车直接购买」，下层人数可能大于上层，
+     * 图形侧由前端做宽度单调钳制，此处不做累计合并。
+     */
     @Query(value = "SELECT " +
             "COUNT(DISTINCT l.visitor_id), " +
             "COUNT(DISTINCT CASE WHEN l.path LIKE '/product%' THEN l.visitor_id END), " +
