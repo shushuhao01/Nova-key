@@ -450,36 +450,70 @@ function HBarChart({
   )
 }
 
-/** 访问转化漏斗 */
+/** 访问转化漏斗：居中梯形漏斗 + 右侧标签，统一蓝色渐变，避免大色块 */
 function FunnelBars({ stages }: { stages: VisitAnalytics["funnel"] }) {
   if (stages.length === 0) return <Empty />
+
+  const STAGE_H = 60
+  const GAP = 4
+  const VIEW_W = 560
+  const CX = 150
+  const MAX_HALF = 128
+  const MIN_HALF = 12
+  const LABEL_X = 300
+  const total = stages.length
+  const viewH = total * STAGE_H + (total - 1) * GAP
+  const halfOf = (rate: number) =>
+    MIN_HALF + ((MAX_HALF - MIN_HALF) * Math.max(0, Math.min(100, rate))) / 100
+
+  const topHalves = stages.map((s) => halfOf(s.rate))
+  const bottomHalves = stages.map((_, i) =>
+    i < total - 1 ? topHalves[i + 1] : Math.max(MIN_HALF * 0.5, topHalves[i] * 0.4),
+  )
+
   return (
-    <div className="flex flex-col gap-3.5">
-      {stages.map((s, idx) => (
-        <div key={s.stage} className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between text-sm">
-            <span className="font-medium text-foreground">{s.label}</span>
-            <span className="text-xs text-muted-foreground">
-              {fmtNum(s.visitors)} 人 · {fmtNum(s.rate)}%
-              {idx > 0 ? (
-                <span className="ml-2 text-[#5B9BFF]">转化 {fmtNum(s.conversion)}%</span>
-              ) : null}
-            </span>
-          </div>
-          <div className="h-6 w-full overflow-hidden rounded-md bg-muted">
-            <div
-              className="flex h-full items-center justify-end rounded-md pr-2 text-xs font-medium text-white"
-              style={{
-                width: `${Math.max(3, s.rate)}%`,
-                background: "linear-gradient(90deg, #3A7AFE 0%, #93B5FE 100%)",
-              }}
+    <svg viewBox={`0 0 ${VIEW_W} ${viewH}`} className="w-full" style={{ height: "auto" }} role="img">
+      <defs>
+        <linearGradient id="visitFunnelGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#3A7AFE" />
+          <stop offset="100%" stopColor="#93B5FE" />
+        </linearGradient>
+      </defs>
+      {stages.map((s, i) => {
+        const y0 = i * (STAGE_H + GAP)
+        const y1 = y0 + STAGE_H
+        const ht = topHalves[i]
+        const hb = bottomHalves[i]
+        const cy = y0 + STAGE_H / 2
+        const mid = (ht + hb) / 2
+        return (
+          <g key={s.stage}>
+            <polygon
+              points={`${CX - ht},${y0} ${CX + ht},${y0} ${CX + hb},${y1} ${CX - hb},${y1}`}
+              fill="url(#visitFunnelGrad)"
+            />
+            <line
+              x1={CX + mid + 4}
+              y1={cy}
+              x2={LABEL_X - 10}
+              y2={cy}
+              style={{ stroke: "hsl(var(--border))" }}
+              strokeWidth={1}
+            />
+            <text
+              x={LABEL_X}
+              y={cy - 4}
+              style={{ fill: "hsl(var(--foreground))", fontSize: 12.5, fontWeight: 500 }}
             >
-              {s.visitors > 0 ? fmtNum(s.visitors) : ""}
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
+              {s.label}
+            </text>
+            <text x={LABEL_X} y={cy + 13} style={{ fill: "hsl(var(--muted-foreground))", fontSize: 10.5 }}>
+              {`${fmtNum(s.visitors)} 人 · ${fmtNum(s.rate)}%${i > 0 ? ` · 转化 ${fmtNum(s.conversion)}%` : ""}`}
+            </text>
+          </g>
+        )
+      })}
+    </svg>
   )
 }
 
