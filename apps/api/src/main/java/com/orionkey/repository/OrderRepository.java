@@ -13,6 +13,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -208,6 +209,12 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             "AND o.paidAt >= :from AND o.paidAt < :to")
     BigDecimal sumChannelSalesBetween(@Param("channel") String channel,
                                       @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** 批量统计各渠道累计已支付订单数（全量，按渠道分组）[channelCode, count] */
+    @Query("SELECT o.channelCode, COUNT(o) FROM Order o WHERE o.channelCode IN :channels " +
+            "AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) " +
+            "GROUP BY o.channelCode")
+    List<Object[]> countPaidGroupByChannel(@Param("channels") Collection<String> channels);
 
     // 管理后台订单列表 — 无搜索词
     // statuses 支持多选（逗号分隔解析为 List，空筛选传 null）；包含 REFUNDED 时同时匹配全额退款（REFUNDED）与部分退款（PARTIALLY_REFUNDED）

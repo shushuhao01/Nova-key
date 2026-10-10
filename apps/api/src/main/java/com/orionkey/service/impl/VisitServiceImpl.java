@@ -50,7 +50,10 @@ public class VisitServiceImpl implements VisitService {
             if (!visitConfigService.trackEnabled()) {
                 return;
             }
-            if (backendUser && visitConfigService.excludeAdmin()) {
+            // 渠道归因访问（携带 channel_code）始终记录：短链点击已在服务端计数，
+            // 若此处再排除管理员，会出现「有点击却无访问」的归因断层。
+            String channelCode = normalizeChannel(request != null ? request.getChannelCode() : null);
+            if (backendUser && visitConfigService.excludeAdmin() && channelCode == null) {
                 return;
             }
             boolean bot = UserAgentUtil.isBot(userAgent);
@@ -86,7 +89,7 @@ public class VisitServiceImpl implements VisitService {
             visitLog.setUserAgent(truncate(userAgent, 512));
             visitLog.setScreen(truncate(request != null ? request.getScreen() : null, 16));
             visitLog.setLang(truncate(request != null ? request.getLang() : null, 16));
-            visitLog.setChannelCode(normalizeChannel(request != null ? request.getChannelCode() : null));
+            visitLog.setChannelCode(channelCode);
 
             if (visitConfigService.geolocationEnabled() && !bot) {
                 IpLocationResolver.Location location = ipLocationResolver.resolve(ip, visitConfigService.xdbPath());

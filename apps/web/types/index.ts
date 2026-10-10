@@ -950,6 +950,10 @@ export interface ChannelLink {
   enabled: boolean
   click_count: number
   unique_click_count: number
+  /** 该渠道累计成交（已支付）订单数 */
+  paid_orders: number
+  /** 转化率（%）：付费订单 / 独立点击 */
+  conversion_rate: number
   url: string
   created_at: string | null
 }

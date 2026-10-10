@@ -105,9 +105,27 @@ public class ChannelServiceImpl implements ChannelService {
         if (pageSize > 200) pageSize = 200;
         Page<ChannelLink> result = channelLinkRepository.findAdminList(blankToNull(keyword),
                 PageRequest.of(page - 1, pageSize));
+        List<ChannelLink> links = result.getContent();
+
+        // 批量统计各渠道累计已支付订单数（一次查询覆盖当前页所有渠道）
+        Map<String, Long> paidOrderMap = new LinkedHashMap<>();
+        List<String> codes = new ArrayList<>();
+        for (ChannelLink l : links) {
+            if (l.getCode() != null && !l.getCode().isBlank()) {
+                codes.add(l.getCode());
+            }
+        }
+        if (!codes.isEmpty()) {
+            for (Object[] row : orderRepository.countPaidGroupByChannel(codes)) {
+                if (row[0] != null) {
+                    paidOrderMap.put(String.valueOf(row[0]), toLong(row[1]));
+                }
+            }
+        }
+
         List<Map<String, Object>> list = new ArrayList<>();
-        for (ChannelLink l : result.getContent()) {
-            list.add(toRow(l));
+        for (ChannelLink l : links) {
+            list.add(toRow(l, paidOrderMap.getOrDefault(l.getCode(), 0L)));
         }
         return PageResult.of(result, list);
     }
@@ -388,6 +406,10 @@ public class ChannelServiceImpl implements ChannelService {
     // ══════════════════════ 映射工具 ══════════════════════
 
     private Map<String, Object> toRow(ChannelLink l) {
+        return toRow(l, 0L);
+    }
+
+    private Map<String, Object> toRow(ChannelLink l, long paidOrders) {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("id", l.getId());
         item.put("code", l.getCode());
@@ -398,6 +420,12 @@ public class ChannelServiceImpl implements ChannelService {
         item.put("enabled", l.isEnabled());
         item.put("click_count", l.getClickCount());
         item.put("unique_click_count", l.getUniqueClickCount());
+        // 付费订单：该渠道累计成交（已支付/已交付/已完成）订单数
+        item.put("paid_orders", paidOrders);
+        // 转化率：付费订单 / 独立点击（按去重访客近似）
+        item.put("conversion_rate", l.getUniqueClickCount() > 0
+                ? round1(paidOrders * 100.0 / l.getUniqueClickCount())
+                : 0.0);
         item.put("url", buildChannelUrl(l.getCode()));
         item.put("created_at", l.getCreatedAt() != null ? l.getCreatedAt().format(TIME_FMT) : null);
         return item;

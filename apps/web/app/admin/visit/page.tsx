@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react"
 import {
   Eye,
   TrendingUp,
@@ -626,10 +626,13 @@ function ChannelsPanel({
   range,
   startDate,
   endDate,
+  refreshToken,
 }: {
   range: string
   startDate: string
   endDate: string
+  /** 顶部「刷新」按钮递增该值以触发列表及已打开详情的重新拉取 */
+  refreshToken: number
 }) {
   const query = useCallback((): VisitQueryParams => {
     if (startDate && endDate) return { start_date: startDate, end_date: endDate }
@@ -729,6 +732,18 @@ function ChannelsPanel({
   useEffect(() => {
     if (selected && dTab === "visits") fetchVisits()
   }, [selected, dTab, fetchVisits])
+
+  // 顶部「刷新」联动：仅当 refreshToken 变化时重新拉取列表及已打开的详情/明细
+  const prevRefreshToken = useRef(refreshToken)
+  useEffect(() => {
+    if (prevRefreshToken.current === refreshToken) return
+    prevRefreshToken.current = refreshToken
+    fetchList(true)
+    if (selected) {
+      fetchDetail()
+      if (dTab === "visits") fetchVisits()
+    }
+  }, [refreshToken, fetchList, fetchDetail, fetchVisits, selected, dTab])
 
   const openDetail = (link: ChannelLink) => {
     setSelected(link)
@@ -1236,6 +1251,8 @@ function ChannelsPanel({
                 <th className="px-2 py-3 text-left font-medium">短链</th>
                 <th className="px-2 py-3 text-left font-medium">目标路径</th>
                 <th className="px-2 py-3 text-right font-medium">点击 / 独立</th>
+                <th className="px-2 py-3 text-right font-medium">付费订单</th>
+                <th className="px-2 py-3 text-right font-medium">转化率</th>
                 <th className="px-2 py-3 text-left font-medium">状态</th>
                 <th className="px-2 py-3 text-left font-medium">备注</th>
                 <th className="px-2 py-3 text-right font-medium">操作</th>
@@ -1244,13 +1261,13 @@ function ChannelsPanel({
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="py-16 text-center">
+                  <td colSpan={10} className="py-16 text-center">
                     <div className="mx-auto h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                   </td>
                 </tr>
               ) : list.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-16 text-center text-sm text-muted-foreground">
+                  <td colSpan={10} className="py-16 text-center text-sm text-muted-foreground">
                     暂无渠道链接，点击右上角「新建渠道链接」开始
                   </td>
                 </tr>
@@ -1288,6 +1305,12 @@ function ChannelsPanel({
                     <td className="px-2 py-3 text-right tabular-nums">
                       <span className="font-medium text-foreground">{fmtNum(link.click_count)}</span>
                       <span className="text-muted-foreground"> / {fmtNum(link.unique_click_count)}</span>
+                    </td>
+                    <td className="px-2 py-3 text-right tabular-nums font-medium text-foreground">
+                      {fmtNum(link.paid_orders)}
+                    </td>
+                    <td className="px-2 py-3 text-right tabular-nums text-muted-foreground">
+                      {fmtNum(link.conversion_rate)}%
                     </td>
                     <td className="px-2 py-3">
                       <button
@@ -1496,6 +1519,9 @@ function ChannelsPanel({
 export default function AdminVisitPage() {
   const [tab, setTab] = useState<"overview" | "detail" | "channels">("overview")
 
+  // 渠道链接 Tab 的刷新信号：递增即触发列表/详情重新拉取
+  const [channelsToken, setChannelsToken] = useState(0)
+
   // 日期筛选
   const [range, setRange] = useState("7d")
   const [startDate, setStartDate] = useState("")
@@ -1578,6 +1604,7 @@ export default function AdminVisitPage() {
     try {
       const tasks: Promise<unknown>[] = [fetchAnalytics(false)]
       if (tab === "detail") tasks.push(fetchVisits())
+      if (tab === "channels") setChannelsToken((t) => t + 1)
       await Promise.all(tasks)
     } finally {
       const wait = Math.max(0, 600 - (Date.now() - started))
@@ -2201,7 +2228,7 @@ export default function AdminVisitPage() {
           </div>
         </ChartCard>
       ) : (
-        <ChannelsPanel range={range} startDate={startDate} endDate={endDate} />
+        <ChannelsPanel range={range} startDate={startDate} endDate={endDate} refreshToken={channelsToken} />
       )}
 
       {/* Config modal */}
