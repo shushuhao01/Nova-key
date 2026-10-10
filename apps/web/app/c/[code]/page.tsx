@@ -1,16 +1,16 @@
 "use client"
 
-import { useEffect, useRef, useState, use } from "react"
+import { useEffect, useRef, use } from "react"
 import { useRouter } from "next/navigation"
 import { channelApi } from "@/services/api"
 
 /**
  * 渠道短链跳转页
  * 用户访问 /c/{code} → 调用后端解析渠道并记录点击 → 写入 ch_ref Cookie → 跳转落地页
+ * 渠道不存在 / 已停用 / 已删除 / 解析失败时，同样静默重定向到首页，避免用户流失
  */
 export default function ChannelRedirectPage({ params }: { params: Promise<{ code: string }> }) {
   const router = useRouter()
-  const [error, setError] = useState<string | null>(null)
   const redirected = useRef(false)
   const { code } = use(params)
 
@@ -18,6 +18,7 @@ export default function ChannelRedirectPage({ params }: { params: Promise<{ code
     if (redirected.current) return
     redirected.current = true
 
+    // 无渠道编码直接回首页
     if (!code) {
       router.replace("/")
       return
@@ -36,24 +37,15 @@ export default function ChannelRedirectPage({ params }: { params: Promise<{ code
         router.replace(target)
       })
       .catch(() => {
-        setError("渠道链接无效或已停用")
-        setTimeout(() => router.replace("/"), 2000)
+        // 渠道失效 / 停用 / 删除 / 网络异常：静默回首页，避免用户流失
+        router.replace("/")
       })
   }, [code, router])
 
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
-      {error ? (
-        <>
-          <p className="text-sm text-muted-foreground">{error}</p>
-          <p className="text-xs text-muted-foreground">正在跳转首页...</p>
-        </>
-      ) : (
-        <>
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground">正在跳转...</p>
-        </>
-      )}
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      <p className="text-sm text-muted-foreground">正在跳转...</p>
     </div>
   )
 }
