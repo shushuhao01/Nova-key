@@ -50,7 +50,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
-    public Map<String, Object> createDirectOrder(Map<String, Object> req, UUID userId, String clientIp, String deviceLabel, String sessionToken, UUID referralDistributorId, UUID promotionLinkId) {
+    public Map<String, Object> createDirectOrder(Map<String, Object> req, UUID userId, String clientIp, String deviceLabel, String sessionToken, UUID referralDistributorId, UUID promotionLinkId, String channelCode) {
         // 支付路由设备标识（wechat/alipay/mobile/pc）：优先取前端归一化值（原有行为），
         // 请求体缺失/非法时回退解析 User-Agent 标签；deviceLabel 仅用于后台订单列表「设备」展示
         String device = resolvePayDevice(req, deviceLabel);
@@ -125,6 +125,7 @@ public class OrderServiceImpl implements OrderService {
         order.setDevice(deviceLabel);
         order.setSessionToken(sessionToken);
         applyReferralDistributor(order, referralDistributorId, promotionLinkId, userId);
+        order.setChannelCode(normalizeChannel(channelCode));
         orderRepository.save(order);
 
         // 优惠券抵扣（选填）：校验核销码 → 计算抵扣 → 绑定订单并重算应付金额
@@ -174,7 +175,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
-    public Map<String, Object> createCartOrder(Map<String, Object> req, UUID userId, String clientIp, String deviceLabel, String sessionToken, UUID referralDistributorId, UUID promotionLinkId) {
+    public Map<String, Object> createCartOrder(Map<String, Object> req, UUID userId, String clientIp, String deviceLabel, String sessionToken, UUID referralDistributorId, UUID promotionLinkId, String channelCode) {
         // 同 createDirectOrder：device 用于支付路由，deviceLabel 用于后台展示
         String device = resolvePayDevice(req, deviceLabel);
         String idempotencyKey = (String) req.get("idempotency_key");
@@ -235,6 +236,7 @@ public class OrderServiceImpl implements OrderService {
         order.setDevice(deviceLabel);
         order.setSessionToken(sessionToken);
         applyReferralDistributor(order, referralDistributorId, promotionLinkId, userId);
+        order.setChannelCode(normalizeChannel(channelCode));
         orderRepository.save(order);
 
         for (CartItem ci : cartItems) {
@@ -532,6 +534,18 @@ public class OrderServiceImpl implements OrderService {
             case "balance" -> "余额支付";
             default -> method.startsWith("usdt_") ? "USDT 链上转账" : method;
         };
+    }
+
+    /** 渠道码归一化：去空白、转小写、限长 32。 */
+    private static String normalizeChannel(String value) {
+        if (value == null) {
+            return null;
+        }
+        String v = value.trim().toLowerCase();
+        if (v.isEmpty()) {
+            return null;
+        }
+        return v.length() <= 32 ? v : v.substring(0, 32);
     }
 
     /**

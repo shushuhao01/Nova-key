@@ -27,7 +27,8 @@ import java.time.LocalDate;
         @Index(name = "idx_visit_logs_date_device", columnList = "visit_date,device"),
         @Index(name = "idx_visit_logs_date_path", columnList = "visit_date,path"),
         @Index(name = "idx_visit_logs_ip", columnList = "ip"),
-        @Index(name = "idx_visit_logs_visitor_id", columnList = "visitor_id")
+        @Index(name = "idx_visit_logs_visitor_id", columnList = "visitor_id"),
+        @Index(name = "idx_visit_logs_channel", columnList = "channel_code")
 })
 public class VisitLog extends BaseEntity {
 
@@ -98,4 +99,8 @@ public class VisitLog extends BaseEntity {
     /** 浏览器语言 */
     @Column(length = 16)
     private String lang;
+
+    /** 渠道码（来自渠道链接 /c/{code} 或 ?ch= / ?utm_source= 归一化） */
+    @Column(name = "channel_code", length = 32)
+    private String channelCode;
 }

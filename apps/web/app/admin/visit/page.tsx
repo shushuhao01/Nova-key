@@ -17,6 +17,14 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  Link2,
+  Copy,
+  Plus,
+  Pencil,
+  Trash2,
+  Power,
+  ArrowLeft,
+  ShoppingCart,
 } from "lucide-react"
 import {
   AreaChart,
@@ -35,12 +43,14 @@ import {
 } from "recharts"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
-import { adminVisitApi } from "@/services/api"
+import { adminVisitApi, type VisitQueryParams } from "@/services/api"
 import type {
   VisitAnalytics,
   VisitLogItem,
   VisitOptions,
   VisitConfig,
+  ChannelLink,
+  ChannelAnalytics,
 } from "@/types"
 
 const PAGE_SIZE = 20
@@ -584,8 +594,907 @@ function Toggle({
   )
 }
 
+const CHANNEL_PAGE_SIZE = 20
+
+type ChannelForm = {
+  code: string
+  name: string
+  channel: string
+  target_path: string
+  remark: string
+  enabled: boolean
+}
+
+const EMPTY_CHANNEL_FORM: ChannelForm = {
+  code: "",
+  name: "",
+  channel: "",
+  target_path: "/",
+  remark: "",
+  enabled: true,
+}
+
+function copyToClipboard(text: string): Promise<void> {
+  if (typeof navigator !== "undefined" && navigator.clipboard) {
+    return navigator.clipboard.writeText(text)
+  }
+  return Promise.reject(new Error("当前环境不支持复制"))
+}
+
+/** 渠道链接管理 + 渠道维度流量分析（引流归因） */
+function ChannelsPanel({
+  range,
+  startDate,
+  endDate,
+}: {
+  range: string
+  startDate: string
+  endDate: string
+}) {
+  const query = useCallback((): VisitQueryParams => {
+    if (startDate && endDate) return { start_date: startDate, end_date: endDate }
+    return { range }
+  }, [range, startDate, endDate])
+
+  // 渠道列表
+  const [list, setList] = useState<ChannelLink[]>([])
+  const [loading, setLoading] = useState(true)
+  const [keyword, setKeyword] = useState("")
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+
+  // 新建 / 编辑弹窗
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<ChannelLink | null>(null)
+  const [form, setForm] = useState<ChannelForm>(EMPTY_CHANNEL_FORM)
+  const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // 渠道详情
+  const [selected, setSelected] = useState<ChannelLink | null>(null)
+  const [analytics, setAnalytics] = useState<ChannelAnalytics | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [dTab, setDTab] = useState<"overview" | "visits">("overview")
+  const [visits, setVisits] = useState<VisitLogItem[]>([])
+  const [visitsTotal, setVisitsTotal] = useState(0)
+  const [visitsPage, setVisitsPage] = useState(1)
+  const [visitsLoading, setVisitsLoading] = useState(false)
+
+  const fetchList = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true)
+      try {
+        const data = await adminVisitApi.getChannels({
+          keyword: keyword || undefined,
+          page,
+          page_size: CHANNEL_PAGE_SIZE,
+        })
+        setList(data.list)
+        setTotal(data.pagination.total)
+      } catch (err) {
+        if (!silent) {
+          setList([])
+          setTotal(0)
+          toast.error(err instanceof Error ? err.message : "加载渠道链接失败")
+        }
+      } finally {
+        if (!silent) setLoading(false)
+      }
+    },
+    [keyword, page]
+  )
+
+  useEffect(() => {
+    fetchList()
+  }, [fetchList])
+
+  const fetchDetail = useCallback(async () => {
+    if (!selected) return
+    setDetailLoading(true)
+    try {
+      const data = await adminVisitApi.getChannelAnalytics(selected.code, query())
+      setAnalytics(data)
+    } catch (err) {
+      setAnalytics(null)
+      toast.error(err instanceof Error ? err.message : "加载渠道分析失败")
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [selected, query])
+
+  const fetchVisits = useCallback(async () => {
+    if (!selected) return
+    setVisitsLoading(true)
+    try {
+      const data = await adminVisitApi.getChannelVisits(selected.code, {
+        ...query(),
+        page: visitsPage,
+        page_size: CHANNEL_PAGE_SIZE,
+      })
+      setVisits(data.list)
+      setVisitsTotal(data.pagination.total)
+    } catch (err) {
+      setVisits([])
+      setVisitsTotal(0)
+      toast.error(err instanceof Error ? err.message : "加载渠道访问明细失败")
+    } finally {
+      setVisitsLoading(false)
+    }
+  }, [selected, query, visitsPage])
+
+  useEffect(() => {
+    if (selected) fetchDetail()
+  }, [selected, fetchDetail])
+
+  useEffect(() => {
+    if (selected && dTab === "visits") fetchVisits()
+  }, [selected, dTab, fetchVisits])
+
+  const openDetail = (link: ChannelLink) => {
+    setSelected(link)
+    setAnalytics(null)
+    setDTab("overview")
+    setVisits([])
+    setVisitsPage(1)
+  }
+
+  const closeDetail = () => {
+    setSelected(null)
+    setAnalytics(null)
+    setVisits([])
+    setVisitsPage(1)
+  }
+
+  const openCreate = () => {
+    setEditing(null)
+    setForm(EMPTY_CHANNEL_FORM)
+    setFormOpen(true)
+  }
+
+  const openEdit = (link: ChannelLink) => {
+    setEditing(link)
+    setForm({
+      code: link.code,
+      name: link.name ?? "",
+      channel: link.channel ?? "",
+      target_path: link.target_path || "/",
+      remark: link.remark ?? "",
+      enabled: link.enabled,
+    })
+    setFormOpen(true)
+  }
+
+  const submitForm = async () => {
+    if (saving) return
+    const name = form.name.trim()
+    if (!name) {
+      toast.error("请填写渠道名称")
+      return
+    }
+    setSaving(true)
+    try {
+      const payload: Partial<{
+        code: string
+        name: string
+        channel: string
+        target_path: string
+        remark: string
+        enabled: boolean
+      }> = {
+        name,
+        channel: form.channel.trim(),
+        target_path: form.target_path.trim() || "/",
+        remark: form.remark.trim(),
+        enabled: form.enabled,
+      }
+      if (editing) {
+        const updated = await adminVisitApi.updateChannel(editing.id, payload)
+        toast.success("渠道已更新")
+        setList((prev) => prev.map((it) => (it.id === editing.id ? { ...it, ...updated } : it)))
+        if (selected && selected.id === editing.id) setSelected({ ...selected, ...updated })
+      } else {
+        const code = form.code.trim()
+        if (code) payload.code = code
+        await adminVisitApi.createChannel(payload)
+        toast.success("渠道已创建")
+      }
+      setFormOpen(false)
+      fetchList(true)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggleEnabled = async (link: ChannelLink) => {
+    try {
+      const updated = await adminVisitApi.updateChannel(link.id, { enabled: !link.enabled })
+      setList((prev) => prev.map((it) => (it.id === link.id ? { ...it, ...updated } : it)))
+      if (selected && selected.id === link.id) setSelected({ ...selected, ...updated })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    }
+  }
+
+  const removeChannel = async (link: ChannelLink) => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`确认删除渠道「${link.name || link.code}」？此操作不可恢复。`)
+    ) {
+      return
+    }
+    setDeletingId(link.id)
+    try {
+      await adminVisitApi.deleteChannel(link.id)
+      toast.success("渠道已删除")
+      if (selected && selected.id === link.id) closeDetail()
+      fetchList(true)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "删除失败")
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const copyLink = async (link: ChannelLink) => {
+    try {
+      await copyToClipboard(link.url)
+      toast.success("短链已复制")
+    } catch {
+      toast.error("复制失败，请手动复制")
+    }
+  }
+
+  const listPages = Math.max(1, Math.ceil(total / CHANNEL_PAGE_SIZE))
+  const visitPages = Math.max(1, Math.ceil(visitsTotal / CHANNEL_PAGE_SIZE))
+
+  const trendData = analytics
+    ? analytics.trend.dates.map((d, i) => ({
+        date: d,
+        pv: analytics.trend.pv[i] ?? 0,
+        uv: analytics.trend.uv[i] ?? 0,
+      }))
+    : []
+  const hourData = analytics
+    ? analytics.hours.labels.map((l, i) => ({ hour: l, pv: analytics.hours.pv[i] ?? 0 }))
+    : []
+  const deviceData = analytics ? analytics.devices.map((d) => ({ name: d.name, value: d.pv })) : []
+  const regionData = analytics
+    ? analytics.regions.slice(0, 10).map((r) => ({ name: r.name, value: r.pv }))
+    : []
+  const peakHour = hourData.reduce((best, cur, idx) => (cur.pv > (hourData[best]?.pv ?? 0) ? idx : best), 0)
+
+  const trafficStats: { icon: ComponentType<{ className?: string }>; label: string; value: string; sub?: string }[] =
+    analytics
+      ? [
+          {
+            icon: MousePointerClick,
+            label: "链接点击",
+            value: fmtNum(analytics.traffic.clicks),
+            sub: `独立点击 ${fmtNum(analytics.traffic.unique_clicks)}`,
+          },
+          {
+            icon: Eye,
+            label: "引流访问 (PV)",
+            value: fmtNum(analytics.traffic.pv),
+            sub: `人均 ${fmtNum(analytics.traffic.pv_per_visitor)} 次`,
+          },
+          {
+            icon: Users,
+            label: "访客 (UV)",
+            value: fmtNum(analytics.traffic.uv),
+            sub: `独立 IP ${fmtNum(analytics.traffic.ips)}`,
+          },
+          {
+            icon: Activity,
+            label: "会话数",
+            value: fmtNum(analytics.traffic.sessions),
+            sub: `新访客 ${fmtNum(analytics.traffic.new_uv)}`,
+          },
+          {
+            icon: TrendingUp,
+            label: "跳出率",
+            value: `${fmtNum(analytics.traffic.bounce_rate)}%`,
+            sub: `跳出 ${fmtNum(analytics.traffic.bounces)}`,
+          },
+          {
+            icon: Clock,
+            label: "平均停留",
+            value: fmtDuration(analytics.traffic.avg_duration_sec),
+            sub: `人均 ${fmtNum(analytics.traffic.avg_page_count)} 页`,
+          },
+          {
+            icon: ShoppingCart,
+            label: "转化率",
+            value: `${fmtNum(analytics.conversion.conversion_rate)}%`,
+            sub: `订单 ${fmtNum(analytics.conversion.orders)}`,
+          },
+          {
+            icon: ContactRound,
+            label: "支付订单",
+            value: fmtNum(analytics.conversion.paid_orders),
+            sub: `客单价 ${fmtNum(analytics.conversion.aov)}`,
+          },
+        ]
+      : []
+
+  // ── 渠道详情视图 ──
+  if (selected) {
+    return (
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={closeDetail}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              返回
+            </button>
+            <div>
+              <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+                {selected.name || selected.code}
+                <span className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                  {selected.code}
+                </span>
+                {!selected.enabled ? (
+                  <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">
+                    已停用
+                  </span>
+                ) : null}
+              </h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                短链：{selected.url} · 目标路径：{selected.target_path || "/"}
+                {selected.remark ? ` · 备注：${selected.remark}` : ""}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => copyLink(selected)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Copy className="h-4 w-4" />
+            复制短链
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1 border-b border-border">
+          {[
+            { key: "overview" as const, label: "渠道流量分析" },
+            { key: "visits" as const, label: "渠道访问明细" },
+          ].map((tItem) => (
+            <button
+              key={tItem.key}
+              type="button"
+              onClick={() => setDTab(tItem.key)}
+              className={cn(
+                "-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
+                dTab === tItem.key
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {tItem.label}
+            </button>
+          ))}
+        </div>
+
+        {dTab === "overview" ? (
+          detailLoading && !analytics ? (
+            <div className="flex items-center justify-center py-24">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          ) : !analytics ? (
+            <ChartCard title="渠道流量分析">
+              <Empty text="暂无渠道数据" />
+            </ChartCard>
+          ) : (
+            <div className="flex flex-col gap-5">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+                {trafficStats.map((s) => (
+                  <StatTile key={s.label} icon={s.icon} label={s.label} value={s.value} sub={s.sub} />
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+                <ChartCard
+                  title="引流趋势"
+                  sub={`${analytics.range.days} 天 · PV / UV`}
+                  className="xl:col-span-2"
+                  action={
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#3A7AFE" }} />
+                        PV
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#22C55E" }} />
+                        UV
+                      </span>
+                    </div>
+                  }
+                >
+                  <TrendChart data={trendData} />
+                </ChartCard>
+                <ChartCard title="转化概览">
+                  <div className="grid grid-cols-2 gap-3">
+                    <MiniStat label="订单数" value={fmtNum(analytics.conversion.orders)} />
+                    <MiniStat label="支付订单" value={fmtNum(analytics.conversion.paid_orders)} />
+                    <MiniStat label="销售额" value={fmtNum(analytics.conversion.sales)} />
+                    <MiniStat label="客单价" value={fmtNum(analytics.conversion.aov)} />
+                    <MiniStat
+                      label="转化率"
+                      value={`${fmtNum(analytics.conversion.conversion_rate)}%`}
+                      sub="订单 / 访客"
+                    />
+                    <MiniStat label="独立点击" value={fmtNum(analytics.traffic.unique_clicks)} />
+                  </div>
+                </ChartCard>
+              </div>
+
+              <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+                <ChartCard title="时段分布（0-23 时）" className="xl:col-span-2">
+                  <HoursChart data={hourData} peakHour={peakHour} />
+                </ChartCard>
+                <ChartCard title="设备类型">
+                  <DonutChart data={deviceData} />
+                </ChartCard>
+              </div>
+
+              <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                <ChartCard title="访问转化漏斗">
+                  <FunnelBars stages={analytics.funnel} />
+                </ChartCard>
+                <ChartCard title="地域分布 Top 10">
+                  <HBarChart data={regionData} gradId="channelHbarRegion" />
+                </ChartCard>
+              </div>
+
+              <ChartCard title="热门页面 Top 10">
+                {analytics.pages.length === 0 ? (
+                  <Empty />
+                ) : (
+                  <div className="max-h-[330px] overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 z-10 bg-card text-xs text-muted-foreground">
+                        <tr className="border-b border-border">
+                          <th className="w-10 py-2 text-left font-medium">#</th>
+                          <th className="py-2 text-left font-medium">页面路径</th>
+                          <th className="w-16 py-2 text-right font-medium">PV</th>
+                          <th className="w-16 py-2 text-right font-medium">UV</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {analytics.pages.slice(0, 10).map((p, idx) => (
+                          <tr
+                            key={`${p.path}-${idx}`}
+                            className="border-b border-border/60 last:border-0 hover:bg-accent/40"
+                          >
+                            <td className="py-2 text-muted-foreground">{idx + 1}</td>
+                            <td className="max-w-0 truncate py-2 text-foreground" title={p.path}>
+                              {p.path}
+                            </td>
+                            <td className="py-2 text-right font-medium tabular-nums text-foreground">
+                              {fmtNum(p.pv)}
+                            </td>
+                            <td className="py-2 text-right tabular-nums text-muted-foreground">{fmtNum(p.uv)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </ChartCard>
+            </div>
+          )
+        ) : (
+          <ChartCard title="渠道访问明细" sub={`共 ${fmtNum(visitsTotal)} 条`}>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1000px] text-sm">
+                <thead className="text-xs text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-2 py-3 text-left font-medium">访问时间</th>
+                    <th className="px-2 py-3 text-left font-medium">IP</th>
+                    <th className="px-2 py-3 text-left font-medium">归属地</th>
+                    <th className="px-2 py-3 text-left font-medium">运营商</th>
+                    <th className="px-2 py-3 text-left font-medium">设备 / 系统 / 浏览器</th>
+                    <th className="px-2 py-3 text-left font-medium">来源</th>
+                    <th className="px-2 py-3 text-left font-medium">访问路径</th>
+                    <th className="px-2 py-3 text-left font-medium">访客标识</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visitsLoading ? (
+                    <tr>
+                      <td colSpan={8} className="py-16 text-center">
+                        <div className="mx-auto h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      </td>
+                    </tr>
+                  ) : visits.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-16 text-center text-sm text-muted-foreground">
+                        暂无该渠道的访问明细
+                      </td>
+                    </tr>
+                  ) : (
+                    visits.map((v) => (
+                      <tr key={v.id} className="border-b border-border/60 last:border-0 hover:bg-accent/40">
+                        <td className="whitespace-nowrap px-2 py-3 text-xs text-muted-foreground">
+                          {v.visit_time || "-"}
+                        </td>
+                        <td className="px-2 py-3 font-mono text-xs text-foreground">{v.ip}</td>
+                        <td className="px-2 py-3 text-muted-foreground">
+                          {[v.country, v.province, v.city]
+                            .filter((x) => x && x !== "0" && x !== "中国")
+                            .join(" ") || "未知"}
+                        </td>
+                        <td className="px-2 py-3 text-muted-foreground">{v.isp || "未知"}</td>
+                        <td className="px-2 py-3">
+                          <span className="mr-1.5 inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                            {v.device_label}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {[v.os, v.browser].filter(Boolean).join(" · ") || "-"}
+                          </span>
+                        </td>
+                        <td className="px-2 py-3">
+                          <span className="text-foreground">{v.source_label}</span>
+                          {v.referer ? (
+                            <span className="block text-xs text-muted-foreground">{v.referer}</span>
+                          ) : null}
+                        </td>
+                        <td className="max-w-[220px] truncate px-2 py-3 text-foreground" title={v.path}>
+                          {v.path}
+                        </td>
+                        <td className="px-2 py-3 font-mono text-xs text-muted-foreground">
+                          {v.visitor_id ? v.visitor_id.slice(0, 12) : "-"}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">共 {fmtNum(visitsTotal)} 条记录</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={visitsPage <= 1 || visitsLoading}
+                  onClick={() => setVisitsPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  上一页
+                </button>
+                <span className="text-sm text-foreground">
+                  {visitsPage} / {visitPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={visitsPage >= visitPages || visitsLoading}
+                  onClick={() => setVisitsPage((p) => Math.min(visitPages, p + 1))}
+                  className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  下一页
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </ChartCard>
+        )}
+      </div>
+    )
+  }
+
+  // ── 渠道列表视图 ──
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-3 shadow-sm">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={keyword}
+            onChange={(e) => {
+              setKeyword(e.target.value)
+              setPage(1)
+            }}
+            placeholder="搜索名称 / 编码 / 渠道"
+            className="w-64 rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm text-foreground outline-none focus:border-primary"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          <Plus className="h-4 w-4" />
+          新建渠道链接
+        </button>
+      </div>
+
+      <div className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        <Link2 className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>
+          渠道短链格式为 <span className="font-mono text-foreground">/c/&lt;编码&gt;</span>
+          ，把它挂到官网按钮或任意外部站点即可。用户点击后会自动记录点击并写入来源标识，后续访问与下单都会精准归因到该渠道。
+          也支持带参数的普通链接（<span className="font-mono">?ch=</span> 或 <span className="font-mono">?utm_source=</span>）。
+        </span>
+      </div>
+
+      <ChartCard title="渠道链接" sub={`共 ${fmtNum(total)} 个`}>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1040px] text-sm">
+            <thead className="text-xs text-muted-foreground">
+              <tr className="border-b border-border">
+                <th className="px-2 py-3 text-left font-medium">渠道名称</th>
+                <th className="px-2 py-3 text-left font-medium">渠道标识</th>
+                <th className="px-2 py-3 text-left font-medium">短链</th>
+                <th className="px-2 py-3 text-left font-medium">目标路径</th>
+                <th className="px-2 py-3 text-right font-medium">点击 / 独立</th>
+                <th className="px-2 py-3 text-left font-medium">状态</th>
+                <th className="px-2 py-3 text-left font-medium">备注</th>
+                <th className="px-2 py-3 text-right font-medium">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="py-16 text-center">
+                    <div className="mx-auto h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  </td>
+                </tr>
+              ) : list.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-16 text-center text-sm text-muted-foreground">
+                    暂无渠道链接，点击右上角「新建渠道链接」开始
+                  </td>
+                </tr>
+              ) : (
+                list.map((link) => (
+                  <tr key={link.id} className="border-b border-border/60 last:border-0 hover:bg-accent/40">
+                    <td className="px-2 py-3">
+                      <button
+                        type="button"
+                        onClick={() => openDetail(link)}
+                        className="text-left font-medium text-primary hover:underline"
+                      >
+                        {link.name || link.code}
+                      </button>
+                    </td>
+                    <td className="px-2 py-3 text-muted-foreground">{link.channel || "-"}</td>
+                    <td className="px-2 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="max-w-[200px] truncate font-mono text-xs text-foreground" title={link.url}>
+                          {link.url}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => copyLink(link)}
+                          title="复制短链"
+                          className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                    <td className="max-w-[160px] truncate px-2 py-3 text-muted-foreground" title={link.target_path}>
+                      {link.target_path || "/"}
+                    </td>
+                    <td className="px-2 py-3 text-right tabular-nums">
+                      <span className="font-medium text-foreground">{fmtNum(link.click_count)}</span>
+                      <span className="text-muted-foreground"> / {fmtNum(link.unique_click_count)}</span>
+                    </td>
+                    <td className="px-2 py-3">
+                      <button
+                        type="button"
+                        onClick={() => toggleEnabled(link)}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors",
+                          link.enabled
+                            ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
+                            : "bg-muted text-muted-foreground hover:bg-accent"
+                        )}
+                      >
+                        <Power className="h-3 w-3" />
+                        {link.enabled ? "启用" : "停用"}
+                      </button>
+                    </td>
+                    <td className="max-w-[160px] truncate px-2 py-3 text-muted-foreground" title={link.remark ?? ""}>
+                      {link.remark || "-"}
+                    </td>
+                    <td className="px-2 py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openDetail(link)}
+                          className="rounded px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          分析
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEdit(link)}
+                          title="编辑"
+                          className="rounded p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeChannel(link)}
+                          disabled={deletingId === link.id}
+                          title="删除"
+                          className="rounded p-1.5 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {listPages > 1 ? (
+          <div className="mt-4 flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">共 {fmtNum(total)} 个渠道</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                上一页
+              </button>
+              <span className="text-sm text-foreground">
+                {page} / {listPages}
+              </span>
+              <button
+                type="button"
+                disabled={page >= listPages || loading}
+                onClick={() => setPage((p) => Math.min(listPages, p + 1))}
+                className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                下一页
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </ChartCard>
+
+      {formOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setFormOpen(false)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground">{editing ? "编辑渠道链接" : "新建渠道链接"}</h2>
+              <button
+                type="button"
+                onClick={() => setFormOpen(false)}
+                className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-foreground">
+                  渠道名称 <span className="text-destructive">*</span>
+                </span>
+                <input
+                  value={form.name}
+                  maxLength={128}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="如：官网首页购买按钮"
+                  className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-foreground">渠道标识</span>
+                <input
+                  value={form.channel}
+                  maxLength={64}
+                  onChange={(e) => setForm({ ...form, channel: e.target.value })}
+                  placeholder="如：官网 / 公众号 / 抖音（用于分组统计）"
+                  className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-foreground">
+                  渠道编码 <span className="text-xs font-normal text-muted-foreground">（短链标识，留空自动生成）</span>
+                </span>
+                <input
+                  value={form.code}
+                  maxLength={32}
+                  disabled={!!editing}
+                  onChange={(e) => setForm({ ...form, code: e.target.value.toLowerCase() })}
+                  placeholder="小写字母 / 数字 / - / _，长度 1-32"
+                  className="rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm text-foreground outline-none focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
+                />
+                {editing ? (
+                  <span className="text-xs text-muted-foreground">编码创建后不可修改</span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    短链形如 {`/c/${form.code || "<编码>"}`}
+                  </span>
+                )}
+              </label>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-foreground">目标路径</span>
+                <input
+                  value={form.target_path}
+                  maxLength={255}
+                  onChange={(e) => setForm({ ...form, target_path: e.target.value })}
+                  placeholder="默认跳转到首页 /，如 /products/xxx"
+                  className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-foreground">备注</span>
+                <textarea
+                  rows={2}
+                  maxLength={512}
+                  value={form.remark}
+                  onChange={(e) => setForm({ ...form, remark: e.target.value })}
+                  placeholder="记录该链接的投放位置、用途等"
+                  className="resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+                />
+              </label>
+
+              <Toggle
+                checked={form.enabled}
+                onChange={(v) => setForm({ ...form, enabled: v })}
+                label="启用该渠道"
+                desc="停用后短链不再记录点击，但仍保留历史数据"
+              />
+
+              <div className="flex items-center justify-end gap-2 border-t border-border pt-4">
+                <button
+                  type="button"
+                  onClick={() => setFormOpen(false)}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={submitForm}
+                  disabled={saving}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {saving ? "保存中..." : editing ? "保存修改" : "创建"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function AdminVisitPage() {
-  const [tab, setTab] = useState<"overview" | "detail">("overview")
+  const [tab, setTab] = useState<"overview" | "detail" | "channels">("overview")
 
   // 日期筛选
   const [range, setRange] = useState("7d")
@@ -976,6 +1885,7 @@ export default function AdminVisitPage() {
         {[
           { key: "overview" as const, label: "流量分析" },
           { key: "detail" as const, label: "访问明细" },
+          { key: "channels" as const, label: "渠道链接" },
         ].map((tItem) => (
           <button
             key={tItem.key}
@@ -1198,7 +2108,7 @@ export default function AdminVisitPage() {
             </div>
           </div>
         )
-      ) : (
+      ) : tab === "detail" ? (
         /* Detail tab */
         <ChartCard title="访问明细" sub={`共 ${fmtNum(total)} 条`}>
           <div className="overflow-x-auto">
@@ -1290,6 +2200,8 @@ export default function AdminVisitPage() {
             </div>
           </div>
         </ChartCard>
+      ) : (
+        <ChannelsPanel range={range} startDate={startDate} endDate={endDate} />
       )}
 
       {/* Config modal */}

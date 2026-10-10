@@ -143,4 +143,10 @@ public class Order extends BaseEntity {
 
     /** 推广链接 ID */
     private UUID promotionLinkId;
+
+    // ── 渠道归因字段 ──
+
+    /** 渠道码（来自渠道链接 /c/{code} 或 ?ch= / ?utm_source=，用于渠道转化归因） */
+    @Column(name = "channel_code", length = 32)
+    private String channelCode;
 }

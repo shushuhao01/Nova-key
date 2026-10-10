@@ -35,10 +35,55 @@ function getExternalReferer(): string | null {
   }
 }
 
+const CHANNEL_COOKIE = "ch_ref"
+
+/** 读取指定 Cookie 值 */
+function readCookie(name: string): string | null {
+  try {
+    const match = document.cookie.match(
+      new RegExp("(?:^|; )" + name.replace(/([.$?*|{}()[\]\\/+^])/g, "\\$1") + "=([^;]*)")
+    )
+    return match ? decodeURIComponent(match[1]) : null
+  } catch {
+    return null
+  }
+}
+
+/** 渠道码归一化：去空白、转小写、限长 32（与后端一致） */
+function normalizeChannel(value: string | null): string | null {
+  if (!value) return null
+  const v = value.trim().toLowerCase()
+  if (!v) return null
+  return v.length <= 32 ? v : v.slice(0, 32)
+}
+
+/**
+ * 解析渠道码：
+ * 1. URL 参数 ?ch= / ?utm_source=（新进入，优先并回写 Cookie）
+ * 2. Cookie ch_ref（由 /c/{code} 跳转页写入，30 天有效）
+ */
+function resolveChannelCode(): string | null {
+  try {
+    const sp = new URLSearchParams(window.location.search)
+    const fromUrl = normalizeChannel(sp.get("ch") || sp.get("utm_source"))
+    if (fromUrl) {
+      const maxAge = 30 * 24 * 60 * 60
+      document.cookie = `${CHANNEL_COOKIE}=${encodeURIComponent(fromUrl)}; path=/; max-age=${maxAge}; SameSite=Lax`
+      return fromUrl
+    }
+  } catch {
+    // 忽略：URL 解析失败
+  }
+  return normalizeChannel(readCookie(CHANNEL_COOKIE))
+}
+
 export function VisitTracker() {
   const pathname = usePathname()
 
   useEffect(() => {
+    // 渠道短链跳转页（/c/{code}）不计入访问统计：点击已由服务端 resolve 记录，此页仅做跳转
+    if (typeof window !== "undefined" && window.location.pathname.startsWith("/c/")) return
+
     // 用 window.location 读取完整路径，避免 useSearchParams 触发 Suspense 边界要求
     const path =
       typeof window !== "undefined" && window.location.search
@@ -51,6 +96,7 @@ export function VisitTracker() {
       visitor_id: getVisitorId(),
       screen: `${window.screen.width}x${window.screen.height}`,
       lang: navigator.language || null,
+      channel_code: resolveChannelCode(),
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" }

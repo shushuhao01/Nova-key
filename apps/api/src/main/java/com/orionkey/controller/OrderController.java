@@ -40,7 +40,8 @@ public class OrderController {
         return ApiResponse.success(orderService.createDirectOrder(
                 request, RequestContext.getUserId(), httpRequest.getRemoteAddr(),
                 UserAgentUtil.parseDevice(httpRequest.getHeader("User-Agent")), sessionToken,
-                resolveReferralDistributorId(request, httpRequest), resolvePromotionLinkId(request, httpRequest)));
+                resolveReferralDistributorId(request, httpRequest), resolvePromotionLinkId(request, httpRequest),
+                resolveChannelCode(request, httpRequest)));
     }
 
     @PostMapping("/from-cart")
@@ -50,7 +51,8 @@ public class OrderController {
         return ApiResponse.success(orderService.createCartOrder(
                 request, RequestContext.getUserId(), httpRequest.getRemoteAddr(),
                 UserAgentUtil.parseDevice(httpRequest.getHeader("User-Agent")), sessionToken,
-                resolveReferralDistributorId(request, httpRequest), resolvePromotionLinkId(request, httpRequest)));
+                resolveReferralDistributorId(request, httpRequest), resolvePromotionLinkId(request, httpRequest),
+                resolveChannelCode(request, httpRequest)));
     }
 
     /**
@@ -106,6 +108,31 @@ public class OrderController {
         } catch (IllegalArgumentException e) {
             return null;
         }
+    }
+
+    /**
+     * 解析渠道码（用于渠道转化归因）：
+     * 1. 请求体 channel_code（前端显式传参优先）
+     * 2. Cookie ch_ref（渠道短链跳转页设置的渠道 Cookie）
+     * 空值/无效值返回 null，由 Service 兜底忽略。
+     */
+    private String resolveChannelCode(Map<String, Object> request, HttpServletRequest httpRequest) {
+        String raw = null;
+        if (request.get("channel_code") != null) {
+            raw = request.get("channel_code").toString();
+        } else if (httpRequest.getCookies() != null) {
+            for (var cookie : httpRequest.getCookies()) {
+                if ("ch_ref".equals(cookie.getName()) && cookie.getValue() != null && !cookie.getValue().isBlank()) {
+                    raw = cookie.getValue();
+                    break;
+                }
+            }
+        }
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String v = raw.trim().toLowerCase();
+        return v.isEmpty() ? null : (v.length() <= 32 ? v : v.substring(0, 32));
     }
 
     @GetMapping("/{id}/status")

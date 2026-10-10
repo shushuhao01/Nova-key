@@ -188,6 +188,27 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     long count();
 
+    // ══════════════════════ 渠道归因 ══════════════════════
+
+    /** 渠道区间下单数（按创建时间） */
+    @Query("SELECT COUNT(o) FROM Order o WHERE o.channelCode = :channel AND o.createdAt >= :from AND o.createdAt < :to")
+    long countChannelOrdersBetween(@Param("channel") String channel,
+                                   @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** 渠道区间已支付订单数（按支付时间） */
+    @Query("SELECT COUNT(o) FROM Order o WHERE o.channelCode = :channel " +
+            "AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) " +
+            "AND o.paidAt >= :from AND o.paidAt < :to")
+    long countChannelPaidBetween(@Param("channel") String channel,
+                                 @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** 渠道区间销售额（按支付时间） */
+    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE o.channelCode = :channel " +
+            "AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) " +
+            "AND o.paidAt >= :from AND o.paidAt < :to")
+    BigDecimal sumChannelSalesBetween(@Param("channel") String channel,
+                                      @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
     // 管理后台订单列表 — 无搜索词
     // statuses 支持多选（逗号分隔解析为 List，空筛选传 null）；包含 REFUNDED 时同时匹配全额退款（REFUNDED）与部分退款（PARTIALLY_REFUNDED）
     @Query("SELECT o FROM Order o WHERE " +

@@ -86,6 +86,7 @@ public class VisitServiceImpl implements VisitService {
             visitLog.setUserAgent(truncate(userAgent, 512));
             visitLog.setScreen(truncate(request != null ? request.getScreen() : null, 16));
             visitLog.setLang(truncate(request != null ? request.getLang() : null, 16));
+            visitLog.setChannelCode(normalizeChannel(request != null ? request.getChannelCode() : null));
 
             if (visitConfigService.geolocationEnabled() && !bot) {
                 IpLocationResolver.Location location = ipLocationResolver.resolve(ip, visitConfigService.xdbPath());
@@ -129,12 +130,16 @@ public class VisitServiceImpl implements VisitService {
             s.setStartTime(now);
             s.setLastActiveAt(now);
             s.setDurationSec(0);
+            s.setChannelCode(visitLog.getChannelCode());
             visitSessionRepository.save(s);
         } else {
             session.setPageCount(session.getPageCount() + 1);
             session.setBounce(false);
             session.setExitPath(visitLog.getPath());
             session.setLastActiveAt(now);
+            if (session.getChannelCode() == null && visitLog.getChannelCode() != null) {
+                session.setChannelCode(visitLog.getChannelCode());
+            }
             if (session.getStartTime() != null) {
                 long seconds = Duration.between(session.getStartTime(), now).getSeconds();
                 session.setDurationSec((int) Math.max(0, Math.min(seconds, Integer.MAX_VALUE)));
@@ -209,5 +214,17 @@ public class VisitServiceImpl implements VisitService {
             return null;
         }
         return v.length() <= max ? v : v.substring(0, max);
+    }
+
+    /** 渠道码归一化：去空白、转小写、限长 32。 */
+    private static String normalizeChannel(String value) {
+        if (value == null) {
+            return null;
+        }
+        String v = value.trim().toLowerCase();
+        if (v.isEmpty()) {
+            return null;
+        }
+        return v.length() <= 32 ? v : v.substring(0, 32);
     }
 }

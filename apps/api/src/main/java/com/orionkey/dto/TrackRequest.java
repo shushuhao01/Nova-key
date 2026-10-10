@@ -24,4 +24,7 @@ public class TrackRequest {
 
     /** 浏览器语言，如 zh-CN */
     private String lang;
+
+    /** 渠道码（来自渠道链接 /c/{code} 或 ?ch= / ?utm_source= 归一化） */
+    private String channelCode;
 }

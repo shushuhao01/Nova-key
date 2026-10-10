@@ -24,7 +24,8 @@ import java.time.LocalDateTime;
 @Table(name = "visit_sessions", indexes = {
         @Index(name = "idx_visit_sessions_visitor_id", columnList = "visitor_id"),
         @Index(name = "idx_visit_sessions_start_time", columnList = "start_time"),
-        @Index(name = "idx_visit_sessions_last_active_at", columnList = "last_active_at")
+        @Index(name = "idx_visit_sessions_last_active_at", columnList = "last_active_at"),
+        @Index(name = "idx_visit_sessions_channel", columnList = "channel_code")
 })
 public class VisitSession extends BaseEntity {
 
@@ -71,4 +72,8 @@ public class VisitSession extends BaseEntity {
     /** 最后活动时间 */
     @Column(name = "last_active_at")
     private LocalDateTime lastActiveAt;
+
+    /** 渠道码（会话入口携带的渠道） */
+    @Column(name = "channel_code", length = 32)
+    private String channelCode;
 }

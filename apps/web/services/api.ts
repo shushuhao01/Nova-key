@@ -24,6 +24,9 @@ import type {
   VisitLogItem,
   VisitOptions,
   VisitConfig,
+  ChannelLink,
+  ChannelAnalytics,
+  ChannelResolveResult,
   CardKeyStockSummary,
   CardKeyListItem,
   SoldCardKeyRecord,
@@ -573,6 +576,35 @@ export const adminVisitApi = {
     const pad = (n: number) => String(n).padStart(2, "0")
     const filename = `访问明细_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.csv`
     return downloadFile("/admin/visit/export", query, filename)
+  },
+  // ── 渠道链接（引流归因）──
+  /** 渠道链接列表 */
+  getChannels: (params: { keyword?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<ChannelLink>>(`/admin/visit/channels?${qs}`)
+  },
+  /** 创建渠道链接 */
+  createChannel: (data: Partial<{
+    code: string; name: string; channel: string; target_path: string; remark: string; enabled: boolean
+  }>) =>
+    request<ChannelLink>("/admin/visit/channels", { method: "POST", body: JSON.stringify(data) }),
+  /** 更新渠道链接 */
+  updateChannel: (id: string, data: Partial<{
+    name: string; channel: string; target_path: string; remark: string; enabled: boolean
+  }>) =>
+    request<ChannelLink>(`/admin/visit/channels/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  /** 删除渠道链接 */
+  deleteChannel: (id: string) =>
+    request<null>(`/admin/visit/channels/${id}`, { method: "DELETE" }),
+  /** 渠道维度综合分析 */
+  getChannelAnalytics: (code: string, params: VisitQueryParams) => {
+    const qs = buildQuery(params)
+    return request<ChannelAnalytics>(`/admin/visit/channels/${code}/analytics?${qs}`)
+  },
+  /** 渠道维度访问明细 */
+  getChannelVisits: (code: string, params: VisitQueryParams & { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<VisitLogItem>>(`/admin/visit/channels/${code}/visits?${qs}`)
   },
 }
 
@@ -1134,6 +1166,15 @@ export const distributionApi = {
       method: "POST",
       body: JSON.stringify({ link_id: linkId, product_id: productId }),
     }),
+}
+
+// ============================================================
+// Channel Links — Public (渠道短链解析)
+// ============================================================
+
+export const channelApi = {
+  /** 解析渠道短链并记录点击，返回渠道信息与落地页 */
+  resolve: (code: string) => request<ChannelResolveResult>(`/channel/resolve/${encodeURIComponent(code)}`),
 }
 
 // ============================================================

@@ -936,6 +936,92 @@ export interface VisitConfig {
 }
 
 // ============================================================
+// Channel Links (渠道链接 / 引流归因)
+// ============================================================
+
+/** 渠道链接 */
+export interface ChannelLink {
+  id: string
+  code: string
+  name: string | null
+  channel: string | null
+  target_path: string
+  remark: string | null
+  enabled: boolean
+  click_count: number
+  unique_click_count: number
+  url: string
+  created_at: string | null
+}
+
+/** 渠道短链公开解析结果 */
+export interface ChannelResolveResult {
+  channel_code: string
+  code: string
+  name: string | null
+  target_path: string
+}
+
+/** 渠道趋势（PV / UV / 点击） */
+export interface ChannelTrend {
+  dates: string[]
+  pv: number[]
+  uv: number[]
+  clicks: number[]
+}
+
+/** 渠道流量指标 */
+export interface ChannelTraffic {
+  clicks: number
+  unique_clicks: number
+  pv: number
+  uv: number
+  ips: number
+  new_uv: number
+  sessions: number
+  bounces: number
+  bounce_rate: number
+  avg_duration_sec: number
+  avg_page_count: number
+  pv_per_visitor: number
+}
+
+/** 渠道转化指标 */
+export interface ChannelConversion {
+  orders: number
+  paid_orders: number
+  sales: number
+  aov: number
+  conversion_rate: number
+}
+
+/** 渠道基础信息 */
+export interface ChannelInfo {
+  code: string
+  id?: string
+  name?: string | null
+  channel?: string | null
+  target_path?: string
+  remark?: string | null
+  enabled?: boolean
+  url?: string
+}
+
+/** 渠道综合分析结果 */
+export interface ChannelAnalytics {
+  range: { start: string; end: string; days: number }
+  channel: ChannelInfo
+  traffic: ChannelTraffic
+  conversion: ChannelConversion
+  trend: ChannelTrend
+  hours: VisitHours
+  devices: VisitRatioItem[]
+  regions: VisitSimpleItem[]
+  pages: VisitPageItem[]
+  funnel: VisitFunnelStage[]
+}
+
+// ============================================================
 // Admin Card Keys
 // ============================================================
 

@@ -145,4 +145,95 @@ public interface VisitLogRepository extends JpaRepository<VisitLog, UUID> {
 
     /** 删除指定日期之前的明细（数据保留策略） */
     long deleteByVisitDateBefore(LocalDate date);
+
+    // ══════════════════════ 渠道维度（channel_code 过滤）══════════════════════
+
+    /** 渠道明细列表（带筛选，分页） */
+    @Query(value = "SELECT * FROM visit_logs l WHERE l.channel_code = CAST(:channel AS text) " +
+            "AND l.visit_date >= CAST(:from AS date) AND l.visit_date <= CAST(:to AS date) " +
+            "AND (CAST(:device AS text) IS NULL OR l.device = CAST(:device AS text)) " +
+            "AND (CAST(:keyword AS text) IS NULL OR l.path LIKE '%' || CAST(:keyword AS text) || '%' " +
+            "     OR l.ip LIKE '%' || CAST(:keyword AS text) || '%') " +
+            "ORDER BY l.created_at DESC",
+            countQuery = "SELECT COUNT(*) FROM visit_logs l WHERE l.channel_code = CAST(:channel AS text) " +
+            "AND l.visit_date >= CAST(:from AS date) AND l.visit_date <= CAST(:to AS date) " +
+            "AND (CAST(:device AS text) IS NULL OR l.device = CAST(:device AS text)) " +
+            "AND (CAST(:keyword AS text) IS NULL OR l.path LIKE '%' || CAST(:keyword AS text) || '%' " +
+            "     OR l.ip LIKE '%' || CAST(:keyword AS text) || '%')",
+            nativeQuery = true)
+    Page<VisitLog> findByChannelFilters(@Param("channel") String channel,
+                                        @Param("from") LocalDate from,
+                                        @Param("to") LocalDate to,
+                                        @Param("device") String device,
+                                        @Param("keyword") String keyword,
+                                        Pageable pageable);
+
+    /** 渠道区间 PV */
+    @Query(value = "SELECT COUNT(*) FROM visit_logs l WHERE l.channel_code = :channel " +
+            "AND l.visit_date >= :from AND l.visit_date <= :to", nativeQuery = true)
+    long countChannelPv(@Param("channel") String channel, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** 渠道区间去重 IP */
+    @Query(value = "SELECT COUNT(DISTINCT l.ip) FROM visit_logs l WHERE l.channel_code = :channel " +
+            "AND l.visit_date >= :from AND l.visit_date <= :to", nativeQuery = true)
+    long countChannelDistinctIp(@Param("channel") String channel, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** 渠道区间去重访客 */
+    @Query(value = "SELECT COUNT(DISTINCT l.visitor_id) FROM visit_logs l WHERE l.channel_code = :channel " +
+            "AND l.visit_date >= :from AND l.visit_date <= :to", nativeQuery = true)
+    long countChannelDistinctVisitor(@Param("channel") String channel, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** 渠道区间新增访客（首访落在区间内） */
+    @Query(value = "SELECT COUNT(*) FROM (" +
+            "SELECT l.visitor_id FROM visit_logs l WHERE l.channel_code = :channel " +
+            "AND l.visit_date >= :from AND l.visit_date <= :to " +
+            "GROUP BY l.visitor_id HAVING MIN(l.visit_date) >= :from) t", nativeQuery = true)
+    long countChannelNewVisitors(@Param("channel") String channel, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** 渠道按天趋势 [date, pv, uv] */
+    @Query(value = "SELECT l.visit_date, COUNT(*), COUNT(DISTINCT l.visitor_id) FROM visit_logs l " +
+            "WHERE l.channel_code = :channel AND l.visit_date >= :from AND l.visit_date <= :to " +
+            "GROUP BY l.visit_date ORDER BY l.visit_date", nativeQuery = true)
+    List<Object[]> aggregateChannelDaily(@Param("channel") String channel,
+                                         @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** 渠道时段分布 [hour, pv] */
+    @Query(value = "SELECT l.visit_hour, COUNT(*) FROM visit_logs l WHERE l.channel_code = :channel " +
+            "AND l.visit_date >= :from AND l.visit_date <= :to " +
+            "GROUP BY l.visit_hour ORDER BY l.visit_hour", nativeQuery = true)
+    List<Object[]> aggregateChannelByHour(@Param("channel") String channel,
+                                          @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** 渠道按设备聚合 [device, pv, uv] */
+    @Query(value = "SELECT l.device, COUNT(*), COUNT(DISTINCT l.visitor_id) FROM visit_logs l " +
+            "WHERE l.channel_code = :channel AND l.visit_date >= :from AND l.visit_date <= :to " +
+            "GROUP BY l.device ORDER BY 2 DESC", nativeQuery = true)
+    List<Object[]> aggregateChannelByDevice(@Param("channel") String channel,
+                                            @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** 渠道按省份聚合 [province, pv, uv] */
+    @Query(value = "SELECT l.province, COUNT(*), COUNT(DISTINCT l.visitor_id) FROM visit_logs l " +
+            "WHERE l.channel_code = :channel AND l.visit_date >= :from AND l.visit_date <= :to " +
+            "GROUP BY l.province ORDER BY 2 DESC", nativeQuery = true)
+    List<Object[]> aggregateChannelByProvince(@Param("channel") String channel,
+                                              @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** 渠道按页面聚合 [path, pv, uv] */
+    @Query(value = "SELECT l.path, COUNT(*), COUNT(DISTINCT l.visitor_id) FROM visit_logs l " +
+            "WHERE l.channel_code = :channel AND l.visit_date >= :from AND l.visit_date <= :to " +
+            "GROUP BY l.path ORDER BY 2 DESC LIMIT 50", nativeQuery = true)
+    List<Object[]> aggregateChannelByPage(@Param("channel") String channel,
+                                          @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** 渠道漏斗各阶段去重访客数 [all, product, cart, checkout, pay] */
+    @Query(value = "SELECT " +
+            "COUNT(DISTINCT l.visitor_id), " +
+            "COUNT(DISTINCT CASE WHEN l.path LIKE '/product%' THEN l.visitor_id END), " +
+            "COUNT(DISTINCT CASE WHEN l.path LIKE '/cart%' THEN l.visitor_id END), " +
+            "COUNT(DISTINCT CASE WHEN l.path LIKE '/checkout%' THEN l.visitor_id END), " +
+            "COUNT(DISTINCT CASE WHEN l.path LIKE '/pay%' THEN l.visitor_id END) " +
+            "FROM visit_logs l WHERE l.channel_code = :channel " +
+            "AND l.visit_date >= :from AND l.visit_date <= :to", nativeQuery = true)
+    List<Object[]> funnelByChannel(@Param("channel") String channel,
+                                   @Param("from") LocalDate from, @Param("to") LocalDate to);
 }

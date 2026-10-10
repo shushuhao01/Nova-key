@@ -44,4 +44,30 @@ public interface VisitSessionRepository extends JpaRepository<VisitSession, UUID
 
     /** 删除指定时间之前的会话（数据保留策略） */
     long deleteByStartTimeBefore(LocalDateTime time);
+
+    // ══════════════════════ 渠道维度 ══════════════════════
+
+    /** 渠道区间会话数 */
+    @Query(value = "SELECT COUNT(*) FROM visit_sessions s WHERE s.channel_code = :channel " +
+            "AND s.start_time >= :from AND s.start_time < :to", nativeQuery = true)
+    long countChannelBetween(@Param("channel") String channel,
+                             @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** 渠道区间跳出会话数 */
+    @Query(value = "SELECT COUNT(*) FROM visit_sessions s WHERE s.channel_code = :channel " +
+            "AND s.start_time >= :from AND s.start_time < :to AND s.is_bounce = true", nativeQuery = true)
+    long countChannelBounceBetween(@Param("channel") String channel,
+                                   @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** 渠道区间平均会话时长（秒） */
+    @Query(value = "SELECT COALESCE(AVG(s.duration_sec), 0) FROM visit_sessions s WHERE s.channel_code = :channel " +
+            "AND s.start_time >= :from AND s.start_time < :to", nativeQuery = true)
+    double avgChannelDurationBetween(@Param("channel") String channel,
+                                     @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** 渠道区间平均会话页数 */
+    @Query(value = "SELECT COALESCE(AVG(s.page_count), 0) FROM visit_sessions s WHERE s.channel_code = :channel " +
+            "AND s.start_time >= :from AND s.start_time < :to", nativeQuery = true)
+    double avgChannelPageCountBetween(@Param("channel") String channel,
+                                      @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 }

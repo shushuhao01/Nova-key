@@ -2,6 +2,7 @@ package com.orionkey.controller;
 
 import com.orionkey.annotation.LogOperation;
 import com.orionkey.common.ApiResponse;
+import com.orionkey.service.ChannelService;
 import com.orionkey.service.VisitAnalyticsService;
 import com.orionkey.service.VisitConfigService;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/admin/visit")
@@ -23,6 +25,7 @@ public class AdminVisitController {
 
     private final VisitAnalyticsService visitAnalyticsService;
     private final VisitConfigService visitConfigService;
+    private final ChannelService channelService;
 
     /** 访问数据综合分析 */
     @GetMapping("/analytics")
@@ -112,6 +115,62 @@ public class AdminVisitController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename + ".csv")
                 .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
                 .body(bytes);
+    }
+
+    // ══════════════════════ 渠道链接管理 ══════════════════════
+
+    /** 渠道链接列表 */
+    @GetMapping("/channels")
+    public ApiResponse<?> channels(@RequestParam(required = false) String keyword,
+                                   @RequestParam(defaultValue = "1") int page,
+                                   @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        return ApiResponse.success(channelService.list(page, pageSize, keyword));
+    }
+
+    /** 创建渠道链接 */
+    @LogOperation(action = "visit.channel.create", targetType = "CHANNEL", detail = "'创建渠道链接'")
+    @PostMapping("/channels")
+    public ApiResponse<?> createChannel(@RequestBody Map<String, Object> body) {
+        return ApiResponse.success(channelService.create(body));
+    }
+
+    /** 更新渠道链接 */
+    @LogOperation(action = "visit.channel.update", targetType = "CHANNEL", detail = "'更新渠道链接'")
+    @PutMapping("/channels/{id}")
+    public ApiResponse<?> updateChannel(@PathVariable UUID id, @RequestBody Map<String, Object> body) {
+        return ApiResponse.success(channelService.update(id, body));
+    }
+
+    /** 删除渠道链接 */
+    @LogOperation(action = "visit.channel.delete", targetType = "CHANNEL", detail = "'删除渠道链接'")
+    @DeleteMapping("/channels/{id}")
+    public ApiResponse<Void> deleteChannel(@PathVariable UUID id) {
+        channelService.delete(id);
+        return ApiResponse.success();
+    }
+
+    /** 渠道维度综合分析 */
+    @GetMapping("/channels/{code}/analytics")
+    public ApiResponse<?> channelAnalytics(@PathVariable String code,
+                                           @RequestParam(required = false) String range,
+                                           @RequestParam(value = "start_date", required = false) String startDate,
+                                           @RequestParam(value = "end_date", required = false) String endDate) {
+        LocalDate[] r = resolveRange(range, startDate, endDate);
+        return ApiResponse.success(channelService.analytics(code, r[0], r[1]));
+    }
+
+    /** 渠道维度访问明细 */
+    @GetMapping("/channels/{code}/visits")
+    public ApiResponse<?> channelVisits(@PathVariable String code,
+                                        @RequestParam(required = false) String range,
+                                        @RequestParam(value = "start_date", required = false) String startDate,
+                                        @RequestParam(value = "end_date", required = false) String endDate,
+                                        @RequestParam(required = false) String device,
+                                        @RequestParam(required = false) String keyword,
+                                        @RequestParam(defaultValue = "1") int page,
+                                        @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
+        LocalDate[] r = resolveRange(range, startDate, endDate);
+        return ApiResponse.success(channelService.listVisits(code, r[0], r[1], device, keyword, page, pageSize));
     }
 
     private static void appendCsv(StringBuilder sb, Object value) {
