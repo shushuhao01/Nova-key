@@ -74,6 +74,15 @@ export function SalesChart({ trends, period, onPeriodChange }: { trends: SalesTr
               tickLine={false}
             />
             <YAxis
+              yAxisId="left"
+              tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              allowDecimals={false}
               tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
               axisLine={false}
               tickLine={false}
@@ -89,6 +98,7 @@ export function SalesChart({ trends, period, onPeriodChange }: { trends: SalesTr
             <Area
               type="monotone"
               dataKey="sales_amount"
+              yAxisId="left"
               stroke="hsl(217, 91%, 60%)"
               strokeWidth={2}
               fill="url(#salesGradient)"
@@ -97,6 +107,7 @@ export function SalesChart({ trends, period, onPeriodChange }: { trends: SalesTr
             <Area
               type="monotone"
               dataKey="order_count"
+              yAxisId="right"
               stroke="hsl(160, 84%, 39%)"
               strokeWidth={2}
               fill="url(#ordersGradient)"
