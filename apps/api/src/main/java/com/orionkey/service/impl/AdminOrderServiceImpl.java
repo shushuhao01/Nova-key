@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
@@ -58,38 +59,23 @@ public class AdminOrderServiceImpl implements AdminOrderService {
 
     @Override
     public PageResult<?> listOrders(String status, String orderType, String paymentMethod,
-                                     Boolean isRiskFlagged, String keyword, int page, int pageSize) {
+                                     Boolean isRiskFlagged, String keyword,
+                                     LocalDate startDate, LocalDate endDate, int page, int pageSize) {
         var pageable = PageRequest.of(page - 1, pageSize);
         // status 支持多选：逗号分隔（如 "PENDING,PAID"），空/null 表示全部
-        List<OrderStatus> statuses = new java.util.ArrayList<>();
-        boolean containsRefunded = false;
-        if (status != null && !status.isBlank()) {
-            for (String s : status.split(",")) {
-                try {
-                    OrderStatus os = OrderStatus.valueOf(s.trim());
-                    statuses.add(os);
-                    if (os == OrderStatus.REFUNDED) {
-                        containsRefunded = true;
-                    }
-                } catch (IllegalArgumentException e) {
-                    throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的筛选参数: " + s);
-                }
-            }
-        }
-        OrderType ot = null;
-        try {
-            if (orderType != null) ot = OrderType.valueOf(orderType);
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的筛选参数: " + e.getMessage());
-        }
+        List<OrderStatus> statuses = parseStatuses(status);
+        boolean containsRefunded = statuses.contains(OrderStatus.REFUNDED);
+        OrderType ot = parseOrderType(orderType);
         Page<Order> orderPage;
         String pm = paymentMethod != null && !paymentMethod.isBlank() ? paymentMethod.trim() : "";
         // 未选任何状态时传 null（空列表会使 IN 子句生成非法 SQL，且 IS EMPTY 在 Hibernate 6 对参数不支持）
         List<OrderStatus> statusParam = statuses.isEmpty() ? null : statuses;
+        LocalDateTime from = rangeStart(startDate);
+        LocalDateTime to = rangeEnd(endDate);
         if (keyword != null && !keyword.isBlank()) {
-            orderPage = orderRepository.findAdminOrdersByKeyword(statusParam, containsRefunded, ot, pm, isRiskFlagged, "%" + keyword + "%", pageable);
+            orderPage = orderRepository.findAdminOrdersByKeyword(statusParam, containsRefunded, ot, pm, isRiskFlagged, "%" + keyword + "%", from, to, pageable);
         } else {
-            orderPage = orderRepository.findAdminOrders(statusParam, containsRefunded, ot, pm, isRiskFlagged, pageable);
+            orderPage = orderRepository.findAdminOrders(statusParam, containsRefunded, ot, pm, isRiskFlagged, from, to, pageable);
         }
 
         // 批量解析推广员（订单 referral_distributor_id → 分销员账号/用户名），避免 N+1
@@ -97,6 +83,176 @@ public class AdminOrderServiceImpl implements AdminOrderService {
                 .map(Order::getReferralDistributorId).filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet()));
         var list = orderPage.getContent().stream().map(o -> toAdminOrder(o, promoterMap)).toList();
         return PageResult.of(orderPage, list);
+    }
+
+    @Override
+    public Map<String, Object> getOrderStats(String status, String orderType, String paymentMethod,
+                                             Boolean isRiskFlagged, String keyword,
+                                             LocalDate startDate, LocalDate endDate) {
+        List<OrderStatus> statuses = parseStatuses(status);
+        OrderType ot = parseOrderType(orderType);
+        String pm = paymentMethod != null && !paymentMethod.isBlank() ? paymentMethod.trim() : "";
+        boolean hasKeyword = keyword != null && !keyword.isBlank();
+        List<Object[]> rows = orderRepository.statAdminOrders(
+                statuses.isEmpty() ? null : statuses,
+                statuses.contains(OrderStatus.REFUNDED),
+                ot, pm, isRiskFlagged,
+                hasKeyword, hasKeyword ? "%" + keyword + "%" : "",
+                rangeStart(startDate), rangeEnd(endDate));
+        Object[] row = rows.isEmpty() ? null : rows.get(0);
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("total_orders", row != null && row[0] != null ? ((Number) row[0]).longValue() : 0L);
+        stats.put("total_amount", row != null && row[1] != null ? row[1] : BigDecimal.ZERO);
+        stats.put("effective_amount", row != null && row[2] != null ? row[2] : BigDecimal.ZERO);
+        stats.put("valid_orders", row != null && row[3] != null ? ((Number) row[3]).longValue() : 0L);
+        stats.put("invalid_orders", row != null && row[4] != null ? ((Number) row[4]).longValue() : 0L);
+        stats.put("total_customers", row != null && row[5] != null ? ((Number) row[5]).longValue() : 0L);
+        return stats;
+    }
+
+    @Override
+    public Map<String, Object> getSettlementReport(LocalDate startDate, LocalDate endDate) {
+        LocalDateTime from = rangeStart(startDate);
+        LocalDateTime to = rangeEnd(endDate);
+
+        // ── 汇总卡片 ──
+        List<Object[]> rows = orderRepository.statSettlement(from, to);
+        Object[] row = rows.isEmpty() ? null : rows.get(0);
+        BigDecimal gross = toDecimal(row != null ? row[0] : null);
+        BigDecimal refunded = toDecimal(row != null ? row[1] : null);
+        BigDecimal effective = toDecimal(row != null ? row[2] : null);
+        long validOrders = toLong(row != null ? row[3] : null);
+        long refundedOrders = toLong(row != null ? row[4] : null);
+        long totalOrders = toLong(row != null ? row[5] : null);
+        long customers = toLong(row != null ? row[6] : null);
+        BigDecimal commission = toDecimal(orderRepository.sumSettlementCommission(from, to));
+        BigDecimal profit = effective.subtract(commission);
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("gross_amount", money(gross));
+        summary.put("effective_amount", money(effective));
+        summary.put("refunded_amount", money(refunded));
+        summary.put("commission_amount", money(commission));
+        summary.put("profit_amount", money(profit));
+        summary.put("valid_orders", validOrders);
+        summary.put("refunded_orders", refundedOrders);
+        summary.put("total_orders", totalOrders);
+        summary.put("total_customers", customers);
+
+        // 区间超过 62 天或未指定日期时按月聚合，否则按日
+        boolean monthly = startDate == null || endDate == null
+                || java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate) > 62;
+        String fmt = monthly ? "YYYY-MM" : "YYYY-MM-DD";
+
+        // ── 业绩趋势 ──
+        List<Map<String, Object>> trend = new ArrayList<>();
+        for (Object[] r : orderRepository.settlementTrend(fmt, from, to)) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("date", r[0]);
+            item.put("gross_amount", money(toDecimal(r[1])));
+            item.put("net_amount", money(toDecimal(r[2])));
+            item.put("orders", toLong(r[3]));
+            item.put("refund_amount", money(toDecimal(r[4])));
+            trend.add(item);
+        }
+
+        // ── 支付方式分布 ──
+        List<Map<String, Object>> paymentMethods = new ArrayList<>();
+        for (Object[] r : orderRepository.settlementPaymentMethods(from, to)) {
+            BigDecimal amount = money(toDecimal(r[1]));
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("payment_method", r[0] != null ? r[0].toString() : "unknown");
+            item.put("amount", amount);
+            item.put("orders", toLong(r[2]));
+            item.put("ratio", percent(amount, effective));
+            paymentMethods.add(item);
+        }
+
+        // ── 订单类型分布 ──
+        List<Map<String, Object>> orderTypes = new ArrayList<>();
+        for (Object[] r : orderRepository.settlementOrderTypes(from, to)) {
+            BigDecimal amount = money(toDecimal(r[1]));
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("order_type", r[0] != null ? r[0].toString() : "UNKNOWN");
+            item.put("amount", amount);
+            item.put("orders", toLong(r[2]));
+            item.put("ratio", percent(amount, effective));
+            orderTypes.add(item);
+        }
+
+        // ── 分销佣金 Top10 ──
+        List<Map<String, Object>> distributors = new ArrayList<>();
+        for (Object[] r : orderRepository.findSettlementTopDistributors(from, to)) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("distributor_code", r[0] != null ? r[0].toString() : "");
+            item.put("name", r[1] != null ? r[1].toString() : "-");
+            item.put("amount", money(toDecimal(r[2])));
+            item.put("orders", toLong(r[3]));
+            distributors.add(item);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("summary", summary);
+        result.put("trend_granularity", monthly ? "month" : "day");
+        result.put("trend", trend);
+        result.put("payment_methods", paymentMethods);
+        result.put("order_types", orderTypes);
+        result.put("distributors", distributors);
+        return result;
+    }
+
+    /** 金额统一保留 2 位小数 */
+    private static BigDecimal money(BigDecimal value) {
+        return (value != null ? value : BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /** 占比（百分比，保留 1 位小数）；分母为 0 时返回 0 */
+    private static BigDecimal percent(BigDecimal part, BigDecimal total) {
+        if (total == null || total.compareTo(BigDecimal.ZERO) <= 0) return BigDecimal.ZERO.setScale(1);
+        return part.multiply(BigDecimal.valueOf(100)).divide(total, 1, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal toDecimal(Object v) {
+        if (v == null) return BigDecimal.ZERO;
+        if (v instanceof BigDecimal bd) return bd;
+        return new BigDecimal(v.toString());
+    }
+
+    private static long toLong(Object v) {
+        return v instanceof Number n ? n.longValue() : 0L;
+    }
+
+    /** 解析多选状态（逗号分隔），非法值抛业务异常 */
+    private List<OrderStatus> parseStatuses(String status) {
+        List<OrderStatus> statuses = new ArrayList<>();
+        if (status == null || status.isBlank()) return statuses;
+        for (String s : status.split(",")) {
+            try {
+                statuses.add(OrderStatus.valueOf(s.trim()));
+            } catch (IllegalArgumentException e) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的筛选参数: " + s);
+            }
+        }
+        return statuses;
+    }
+
+    private OrderType parseOrderType(String orderType) {
+        if (orderType == null) return null;
+        try {
+            return OrderType.valueOf(orderType);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的筛选参数: " + e.getMessage());
+        }
+    }
+
+    /** 日期下限（含）：未指定时用固定哨兵值，避免 null 参数参与比较 */
+    private static LocalDateTime rangeStart(LocalDate startDate) {
+        return startDate != null ? startDate.atStartOfDay() : LocalDateTime.of(1970, 1, 1, 0, 0);
+    }
+
+    /** 日期上限（不含）：endDate 次日 00:00；未指定时用固定哨兵值 */
+    private static LocalDateTime rangeEnd(LocalDate endDate) {
+        return endDate != null ? endDate.plusDays(1).atStartOfDay() : LocalDateTime.of(2999, 12, 31, 23, 59);
     }
 
     @Override

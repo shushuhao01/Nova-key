@@ -1103,6 +1103,78 @@ export interface AdminOrderItem extends OrderDetail {
   refunded_at?: string | null
 }
 
+/** 订单管理页顶部统计卡片（随筛选条件动态变化） */
+export interface AdminOrderStats {
+  total_orders: number
+  total_amount: number
+  /** 有效金额：已支付且未退款的订单实付金额合计 */
+  effective_amount: number
+  valid_orders: number
+  invalid_orders: number
+  total_customers: number
+}
+
+// ============================================================
+// 业绩结算（支付管理 - 业绩结算 Tab）
+// ============================================================
+
+/** 业绩结算汇总卡片 */
+export interface SettlementSummary {
+  /** 总业绩：已支付订单实付合计（含退款） */
+  gross_amount: number
+  /** 有效金额：总业绩 - 退款金额 */
+  effective_amount: number
+  /** 退款金额 */
+  refunded_amount: number
+  /** 分销佣金（一级 + 二级） */
+  commission_amount: number
+  /** 剩余利润：有效金额 - 分销佣金 */
+  profit_amount: number
+  valid_orders: number
+  refunded_orders: number
+  total_orders: number
+  total_customers: number
+}
+
+export interface SettlementTrendPoint {
+  date: string
+  gross_amount: number
+  net_amount: number
+  orders: number
+  refund_amount: number
+}
+
+export interface SettlementPaymentMethod {
+  payment_method: string
+  amount: number
+  orders: number
+  /** 占有效金额百分比 */
+  ratio: number
+}
+
+export interface SettlementOrderType {
+  order_type: string
+  amount: number
+  orders: number
+  ratio: number
+}
+
+export interface SettlementDistributor {
+  distributor_code: string
+  name: string
+  amount: number
+  orders: number
+}
+
+export interface SettlementReport {
+  summary: SettlementSummary
+  trend_granularity: 'day' | 'month'
+  trend: SettlementTrendPoint[]
+  payment_methods: SettlementPaymentMethod[]
+  order_types: SettlementOrderType[]
+  distributors: SettlementDistributor[]
+}
+
 // ============================================================
 // Admin System (RBAC：内部员工 + 角色权限)
 // ============================================================

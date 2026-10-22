@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { adminPaymentApi, withMockFallback } from "@/services/api"
 import { mockPaymentChannels } from "@/lib/mock-data"
 import { Modal } from "@/components/ui/modal"
+import { SettlementReportPanel } from "@/components/admin/settlement-report"
 import type { PaymentChannelItem, PaymentChannelConfig, ProviderType, PaymentTestResult } from "@/types"
 
 // ============================================================
@@ -141,6 +142,7 @@ function getProviderLabel(type: string): string {
 
 export default function AdminPaymentChannelsPage() {
   const { t } = useLocale()
+  const [activeTab, setActiveTab] = useState<"channels" | "settlement">("channels")
   const [channels, setChannels] = useState<PaymentChannelItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -479,13 +481,63 @@ export default function AdminPaymentChannelsPage() {
     return Object.values(config).some(v => v != null && String(v).trim() !== "")
   }
 
+  const header = (
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">{t("admin.payment")}</h1>
+        <p className="text-sm text-muted-foreground">{t("admin.paymentDesc")}</p>
+      </div>
+      {activeTab === "channels" && (
+        <button
+          type="button"
+          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          onClick={handleOpenCreate}
+        >
+          <Plus className="h-4 w-4" />
+          {t("admin.addChannel")}
+        </button>
+      )}
+    </div>
+  )
+
+  const tabs = (
+    <div className="inline-flex rounded-lg bg-muted p-1">
+      {([
+        { key: "channels" as const, label: t("admin.paymentTabChannels") },
+        { key: "settlement" as const, label: t("admin.paymentTabSettlement") },
+      ]).map((tab) => (
+        <button
+          key={tab.key}
+          type="button"
+          onClick={() => setActiveTab(tab.key)}
+          className={cn(
+            "rounded-md px-5 py-2 text-sm font-medium transition-colors",
+            activeTab === tab.key
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  )
+
+  if (activeTab === "settlement") {
+    return (
+      <div className="flex flex-col gap-6">
+        {header}
+        {tabs}
+        <SettlementReportPanel />
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col gap-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">{t("admin.payment")}</h1>
-          <p className="text-sm text-muted-foreground">{t("admin.paymentDesc")}</p>
-        </div>
+        {header}
+        {tabs}
         <div className="flex items-center justify-center py-24">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
@@ -496,20 +548,8 @@ export default function AdminPaymentChannelsPage() {
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">{t("admin.payment")}</h1>
-          <p className="text-sm text-muted-foreground">{t("admin.paymentDesc")}</p>
-        </div>
-        <button
-          type="button"
-          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
-          onClick={handleOpenCreate}
-        >
-          <Plus className="h-4 w-4" />
-          {t("admin.addChannel")}
-        </button>
-      </div>
+      {header}
+      {tabs}
 
       {/* Channel Cards */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

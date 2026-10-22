@@ -1,19 +1,71 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Search, ChevronDown, Eye, Download, ChevronLeft, ChevronRight, X, CheckCircle, Undo2, Loader2 } from "lucide-react"
+import { Search, ChevronDown, Eye, Download, ChevronLeft, ChevronRight, X, Check, CheckCircle, Undo2, Loader2, CalendarDays, ShoppingBag, Wallet, CircleDollarSign, Users, Ban, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
 import { toast } from "sonner"
 import { adminOrderApi, withMockFallback } from "@/services/api"
-import { mockAdminOrderList } from "@/lib/mock-data"
+import { mockAdminOrderList, mockAdminOrderStats } from "@/lib/mock-data"
 import { OrderStatusBadge } from "@/components/shared/order-status-badge"
 import { PaymentIcon, getPaymentLabel } from "@/components/shared/payment-icon"
 import { OrderDetailModal } from "@/components/admin/order-detail-modal"
 import { Modal } from "@/components/ui/modal"
-import type { AdminOrderItem } from "@/types"
+import type { AdminOrderItem, AdminOrderStats } from "@/types"
 
 const ITEMS_PER_PAGE = 10
+
+// ── 快捷日期筛选 ──
+type DatePreset = "today" | "yesterday" | "week" | "month" | "last_month" | "year" | "all" | "custom"
+
+const DATE_PRESETS: { value: DatePreset; label: string }[] = [
+  { value: "today", label: "今日" },
+  { value: "yesterday", label: "昨日" },
+  { value: "week", label: "本周" },
+  { value: "month", label: "本月" },
+  { value: "last_month", label: "上月" },
+  { value: "year", label: "今年" },
+  { value: "all", label: "全部" },
+  { value: "custom", label: "自定义" },
+]
+
+/** 格式化为 YYYY-MM-DD（本地时区） */
+function formatDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+
+/** 根据快捷选项解析出 [start, end] 日期（含首尾），全部则返回空 */
+function resolveDateRange(preset: DatePreset, customStart: string, customEnd: string): { start?: string; end?: string } {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  switch (preset) {
+    case "today":
+      return { start: formatDate(now), end: formatDate(now) }
+    case "yesterday": {
+      const d = new Date(y, m, now.getDate() - 1)
+      return { start: formatDate(d), end: formatDate(d) }
+    }
+    case "week": {
+      const day = now.getDay() === 0 ? 7 : now.getDay()
+      const monday = new Date(y, m, now.getDate() - (day - 1))
+      return { start: formatDate(monday), end: formatDate(now) }
+    }
+    case "month":
+      return { start: formatDate(new Date(y, m, 1)), end: formatDate(new Date(y, m + 1, 0)) }
+    case "last_month":
+      return { start: formatDate(new Date(y, m - 1, 1)), end: formatDate(new Date(y, m, 0)) }
+    case "year":
+      return { start: formatDate(new Date(y, 0, 1)), end: formatDate(new Date(y, 11, 31)) }
+    case "custom":
+      return { start: customStart || undefined, end: customEnd || undefined }
+    default:
+      return {}
+  }
+}
 
 export default function AdminOrdersPage() {
   const { t } = useLocale()
@@ -52,6 +104,18 @@ export default function AdminOrdersPage() {
 
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [markPaidConfirm, setMarkPaidConfirm] = useState<string | null>(null)
+
+  // ── 日期筛选 ──
+  const [datePreset, setDatePreset] = useState<DatePreset>("month")
+  const [customStart, setCustomStart] = useState("")
+  const [customEnd, setCustomEnd] = useState("")
+  const [dateMenuOpen, setDateMenuOpen] = useState(false)
+  const dateMenuRef = useRef<HTMLDivElement>(null)
+  const dateRange = resolveDateRange(datePreset, customStart, customEnd)
+
+  // ── 顶部统计 ──
+  const [stats, setStats] = useState<AdminOrderStats | null>(null)
+  const [statsLoading, setStatsLoading] = useState(true)
 
   // ── 退款状态 ──
   const [refundTarget, setRefundTarget] = useState<AdminOrderItem | null>(null)
@@ -99,7 +163,7 @@ export default function AdminOrdersPage() {
       )
       toast.success(res ? `退款成功，已退 ¥${res.refunded_amount.toFixed(2)}` : "退款成功")
       closeRefund()
-      await fetchOrders()
+      await Promise.all([fetchOrders(), fetchStats()])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "退款失败")
     } finally {
@@ -118,6 +182,8 @@ export default function AdminOrdersPage() {
           order_type: orderTypeFilter || undefined,
           payment_method: paymentFilter || undefined,
           keyword: debouncedSearch || undefined,
+          start_date: dateRange.start,
+          end_date: dateRange.end,
         }),
         () => mockAdminOrderList({
           status: statusFilter.length > 0 ? statusFilter.join(",") : undefined,
@@ -135,6 +201,29 @@ export default function AdminOrdersPage() {
     }
   }
 
+  const fetchStats = async () => {
+    setStatsLoading(true)
+    const statusParam = statusFilter.length > 0 ? statusFilter.join(",") : undefined
+    try {
+      const data = await withMockFallback(
+        () => adminOrderApi.getStats({
+          status: statusParam,
+          order_type: orderTypeFilter || undefined,
+          payment_method: paymentFilter || undefined,
+          keyword: debouncedSearch || undefined,
+          start_date: dateRange.start,
+          end_date: dateRange.end,
+        }),
+        () => mockAdminOrderStats({ status: statusParam })
+      )
+      setStats(data)
+    } catch {
+      setStats(null)
+    } finally {
+      setStatsLoading(false)
+    }
+  }
+
   // Debounce search input → reset page + commit debounced value
   useEffect(() => {
     if (search === debouncedSearch) return
@@ -146,7 +235,33 @@ export default function AdminOrdersPage() {
   }, [search])
 
   // Single fetch effect for all filter/page/search dependencies
-  useEffect(() => { fetchOrders() }, [currentPage, statusFilter, paymentFilter, orderTypeFilter, debouncedSearch])
+  useEffect(() => { fetchOrders() }, [currentPage, statusFilter, paymentFilter, orderTypeFilter, debouncedSearch, dateRange.start, dateRange.end])
+
+  // 统计卡片跟随筛选条件变化（与分页无关）
+  useEffect(() => { fetchStats() }, [statusFilter, paymentFilter, orderTypeFilter, debouncedSearch, dateRange.start, dateRange.end])
+
+  // 点击外部关闭日期下拉
+  useEffect(() => {
+    if (!dateMenuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (!dateMenuRef.current?.contains(e.target as Node)) setDateMenuOpen(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [dateMenuOpen])
+
+  const handleSelectPreset = (preset: DatePreset) => {
+    setDatePreset(preset)
+    setDateMenuOpen(false)
+    if (preset === "custom" && (!customStart || !customEnd)) {
+      const now = new Date()
+      setCustomStart(formatDate(new Date(now.getFullYear(), now.getMonth(), 1)))
+      setCustomEnd(formatDate(now))
+    }
+    setCurrentPage(1)
+  }
+
+  const datePresetLabel = DATE_PRESETS.find(p => p.value === datePreset)?.label ?? "本月"
 
   const totalPages = Math.ceil(total / ITEMS_PER_PAGE)
 
@@ -163,7 +278,7 @@ export default function AdminOrdersPage() {
       toast.success("已标记为已支付")
       setMarkPaidConfirm(null)
       setShowDetail(null)
-      await fetchOrders()
+      await Promise.all([fetchOrders(), fetchStats()])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "操作失败")
     }
@@ -187,8 +302,102 @@ export default function AdminOrdersPage() {
         </button>
       </div>
 
+      {/* Stats */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <StatCard
+          label="总订单"
+          value={statsLoading && !stats ? "..." : (stats?.total_orders ?? 0).toLocaleString()}
+          hint={datePresetLabel}
+          icon={ShoppingBag}
+          color="blue"
+        />
+        <StatCard
+          label="总金额"
+          value={statsLoading && !stats ? "..." : `¥${Number(stats?.total_amount ?? 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          hint="全部订单实付金额"
+          icon={Wallet}
+          color="emerald"
+        />
+        <StatCard
+          label="有效金额"
+          value={statsLoading && !stats ? "..." : `¥${Number(stats?.effective_amount ?? 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          hint="已支付且未退款"
+          icon={CircleDollarSign}
+          color="sky"
+        />
+        <StatCard
+          label="有效订单"
+          value={statsLoading && !stats ? "..." : (stats?.valid_orders ?? 0).toLocaleString()}
+          hint="已支付 / 已发货 / 已完成"
+          icon={CheckCircle}
+          color="violet"
+        />
+        <StatCard
+          label="无效订单"
+          value={statsLoading && !stats ? "..." : (stats?.invalid_orders ?? 0).toLocaleString()}
+          hint="待支付 / 已过期 / 已退款"
+          icon={Ban}
+          color="amber"
+        />
+        <StatCard
+          label="总客户数"
+          value={statsLoading && !stats ? "..." : (stats?.total_customers ?? 0).toLocaleString()}
+          hint="按邮箱去重"
+          icon={Users}
+          color="blue"
+        />
+      </div>
+
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
+        <div ref={dateMenuRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setDateMenuOpen(o => !o)}
+            className="flex h-10 items-center gap-2 rounded-lg border border-input bg-background pl-3 pr-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <CalendarDays className="h-4 w-4 text-muted-foreground" />
+            <span className="min-w-[2.5em] text-left">{datePresetLabel}</span>
+            <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", dateMenuOpen && "rotate-180")} />
+          </button>
+          {dateMenuOpen && (
+            <div className="absolute left-0 z-30 mt-1 w-36 rounded-lg border border-border bg-background p-1 shadow-lg">
+              {DATE_PRESETS.map(preset => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  onClick={() => handleSelectPreset(preset.value)}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-sm transition-colors hover:bg-accent",
+                    datePreset === preset.value ? "font-medium text-primary" : "text-foreground"
+                  )}
+                >
+                  {preset.label}
+                  {datePreset === preset.value && <Check className="h-3.5 w-3.5" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {datePreset === "custom" && (
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => { setCustomStart(e.target.value); setCurrentPage(1) }}
+              className="h-10 rounded-lg border border-input bg-background px-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <span className="text-sm text-muted-foreground">至</span>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => { setCustomEnd(e.target.value); setCurrentPage(1) }}
+              className="h-10 rounded-lg border border-input bg-background px-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+        )}
+
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -599,6 +808,37 @@ export default function AdminOrdersPage() {
           </>
         )}
       </Modal>
+    </div>
+  )
+}
+
+const STAT_COLORS = {
+  blue: "bg-blue-500",
+  sky: "bg-sky-500",
+  emerald: "bg-emerald-500",
+  violet: "bg-violet-500",
+  amber: "bg-amber-500",
+} as const
+
+function StatCard({ label, value, hint, icon: Icon, color }: {
+  label: string
+  value: string
+  hint?: string
+  icon: LucideIcon
+  color: keyof typeof STAT_COLORS
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="mt-2 truncate text-2xl font-bold text-foreground">{value}</p>
+          {hint && <p className="mt-1 truncate text-xs text-muted-foreground">{hint}</p>}
+        </div>
+        <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white", STAT_COLORS[color])}>
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
     </div>
   )
 }

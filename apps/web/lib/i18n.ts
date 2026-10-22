@@ -440,7 +440,7 @@ const zh = {
   "admin.cardKeys": "卡密管理",
   "admin.orders": "订单管理",
   "admin.system": "系统管理",
-  "admin.payment": "支付渠道",
+  "admin.payment": "支付管理",
   "admin.siteConfig": "网站设置",
   "admin.logs": "操作日志",
   "admin.risk": "风控管理",
@@ -869,7 +869,9 @@ const zh = {
   "admin.customerBack": "返回列表",
 
   // Admin Payment Channels
-  "admin.paymentDesc": "配置支付方式",
+  "admin.paymentDesc": "渠道配置与业绩结算",
+  "admin.paymentTabChannels": "支付渠道",
+  "admin.paymentTabSettlement": "业绩结算",
   "admin.addChannel": "添加渠道",
   "admin.editChannelTitle": "编辑支付渠道",
   "admin.addChannelTitle": "添加支付渠道",
@@ -1435,7 +1437,7 @@ const en: Record<keyof typeof zh, string> = {
   "admin.cardKeys": "Card Keys",
   "admin.orders": "Orders",
   "admin.system": "System",
-  "admin.payment": "Payment",
+  "admin.payment": "Payment Management",
   "admin.siteConfig": "Site Config",
   "admin.logs": "Operation Logs",
   "admin.risk": "Risk Control",
@@ -1864,7 +1866,9 @@ const en: Record<keyof typeof zh, string> = {
   "admin.customerBack": "Back to list",
 
   // Admin Payment Channels
-  "admin.paymentDesc": "Configure payment methods",
+  "admin.paymentDesc": "Channel configuration & performance settlement",
+  "admin.paymentTabChannels": "Payment Channels",
+  "admin.paymentTabSettlement": "Settlement",
   "admin.addChannel": "Add Channel",
   "admin.editChannelTitle": "Edit Payment Channel",
   "admin.addChannelTitle": "Add Payment Channel",

@@ -16,6 +16,8 @@ import type {
   SiteConfig,
   RiskConfig,
   AdminOrderItem,
+  AdminOrderStats,
+  SettlementReport,
   PointRecord,
   PointsData,
   PaginatedData,
@@ -755,6 +757,126 @@ export function mockAdminOrderList(params?: { status?: string; page?: number; pa
   return {
     list: filtered.slice((page - 1) * pageSize, page * pageSize),
     pagination: { page, page_size: pageSize, total: filtered.length },
+  }
+}
+
+export function mockAdminOrderStats(params?: { status?: string }): AdminOrderStats {
+  let filtered = [...mockAdminOrders]
+  if (params?.status) {
+    const statuses = params.status.split(",")
+    const expanded = statuses.flatMap(s => s === "REFUNDED" ? [s, "PARTIALLY_REFUNDED"] : [s])
+    filtered = filtered.filter(o => expanded.includes(o.status))
+  }
+  const validStatuses = ["PAID", "DELIVERED", "COMPLETED"]
+  const valid = filtered.filter(o => validStatuses.includes(o.status))
+  return {
+    total_orders: filtered.length,
+    total_amount: filtered.reduce((sum, o) => sum + (o.actual_amount || 0), 0),
+    effective_amount: valid.reduce((sum, o) => sum + (o.actual_amount || 0), 0),
+    valid_orders: valid.length,
+    invalid_orders: filtered.length - valid.length,
+    total_customers: new Set(filtered.map(o => o.email)).size,
+  }
+}
+
+/** 业绩结算报表 mock（按请求日期区间生成趋势，用于后端不可用时的本地预览） */
+export function mockSettlementReport(params?: { start_date?: string; end_date?: string }): SettlementReport {
+  const endDate = params?.end_date ? new Date(`${params.end_date}T00:00:00`) : new Date()
+  const startDate = params?.start_date
+    ? new Date(`${params.start_date}T00:00:00`)
+    : new Date(endDate.getFullYear(), endDate.getMonth(), 1)
+  const dayCount = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1)
+  const monthly = dayCount > 62
+
+  const buckets: string[] = []
+  if (monthly) {
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1)
+    while (cursor <= endDate && buckets.length < 24) {
+      buckets.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`)
+      cursor.setMonth(cursor.getMonth() + 1)
+    }
+  } else {
+    const n = Math.min(dayCount, 31)
+    for (let i = 0; i < n; i++) {
+      const d = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() - (n - 1 - i))
+      buckets.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`)
+    }
+  }
+
+  const rand = (i: number) => {
+    const v = Math.sin(i * 12.9898 + 78.233) * 43758.5453
+    return v - Math.floor(v)
+  }
+
+  const trend = buckets.map((date, i) => {
+    const orders = 6 + Math.round(rand(i + 1) * 26)
+    const gross = Number((orders * (58 + rand(i + 7) * 120)).toFixed(2))
+    const refund = Number((gross * rand(i + 13) * 0.08).toFixed(2))
+    return {
+      date,
+      gross_amount: gross,
+      net_amount: Number((gross - refund).toFixed(2)),
+      orders,
+      refund_amount: refund,
+    }
+  })
+
+  const gross = Number(trend.reduce((s, p) => s + p.gross_amount, 0).toFixed(2))
+  const refunded = Number(trend.reduce((s, p) => s + p.refund_amount, 0).toFixed(2))
+  const effective = Number((gross - refunded).toFixed(2))
+  const validOrders = trend.reduce((s, p) => s + p.orders, 0)
+  const commission = Number((effective * 0.128).toFixed(2))
+  const profit = Number((effective - commission).toFixed(2))
+  const refundedOrders = Math.max(1, Math.round(validOrders * 0.04))
+
+  const methodWeights = [
+    { payment_method: "alipay", weight: 0.46 },
+    { payment_method: "wechat", weight: 0.36 },
+    { payment_method: "usdt_trc20", weight: 0.12 },
+    { payment_method: "usdt_bep20", weight: 0.06 },
+  ]
+
+  return {
+    summary: {
+      gross_amount: gross,
+      effective_amount: effective,
+      refunded_amount: refunded,
+      commission_amount: commission,
+      profit_amount: profit,
+      valid_orders: validOrders,
+      refunded_orders: refundedOrders,
+      total_orders: validOrders + refundedOrders + Math.round(validOrders * 0.1),
+      total_customers: Math.round(validOrders * 0.82),
+    },
+    trend_granularity: monthly ? "month" : "day",
+    trend,
+    payment_methods: methodWeights.map(m => ({
+      payment_method: m.payment_method,
+      amount: Number((effective * m.weight).toFixed(2)),
+      orders: Math.round(validOrders * m.weight),
+      ratio: Number((m.weight * 100).toFixed(1)),
+    })),
+    order_types: [
+      {
+        order_type: "DIRECT",
+        amount: Number((effective * 0.62).toFixed(2)),
+        orders: Math.round(validOrders * 0.62),
+        ratio: 62,
+      },
+      {
+        order_type: "CART",
+        amount: Number((effective * 0.38).toFixed(2)),
+        orders: validOrders - Math.round(validOrders * 0.62),
+        ratio: 38,
+      },
+    ],
+    distributors: [
+      { distributor_code: "D20260001", name: "alice", amount: Number((commission * 0.3).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.12)) },
+      { distributor_code: "D20260002", name: "bob", amount: Number((commission * 0.24).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.1)) },
+      { distributor_code: "D20260003", name: "carol", amount: Number((commission * 0.18).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.08)) },
+      { distributor_code: "D20260004", name: "david", amount: Number((commission * 0.12).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.06)) },
+      { distributor_code: "D20260005", name: "eric", amount: Number((commission * 0.07).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.04)) },
+    ],
   }
 }
 

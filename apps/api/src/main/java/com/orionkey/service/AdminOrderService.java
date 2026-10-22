@@ -3,13 +3,29 @@ package com.orionkey.service;
 import com.orionkey.common.PageResult;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
 
 public interface AdminOrderService {
 
     PageResult<?> listOrders(String status, String orderType, String paymentMethod,
-                             Boolean isRiskFlagged, String keyword, int page, int pageSize);
+                             Boolean isRiskFlagged, String keyword,
+                             LocalDate startDate, LocalDate endDate, int page, int pageSize);
+
+    /**
+     * 订单统计卡片（与列表同一套筛选条件）：总订单、总金额、有效订单、无效订单、总客户数。
+     * 日期按订单创建时间 [startDate 00:00, endDate+1 00:00) 过滤，传 null 表示不限。
+     */
+    Map<String, Object> getOrderStats(String status, String orderType, String paymentMethod,
+                                      Boolean isRiskFlagged, String keyword,
+                                      LocalDate startDate, LocalDate endDate);
+
+    /**
+     * 业绩结算报表：汇总卡片 + 业绩趋势 + 支付方式/订单类型分布 + 分销佣金。
+     * 日期按订单创建时间 [startDate 00:00, endDate+1 00:00) 过滤，传 null 表示不限。
+     */
+    Map<String, Object> getSettlementReport(LocalDate startDate, LocalDate endDate);
 
     Object getOrderDetail(UUID id);
 

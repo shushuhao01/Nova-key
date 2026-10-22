@@ -33,6 +33,8 @@ import type {
   CardImportBatch,
   OrderCardKey,
   AdminOrderItem,
+  AdminOrderStats,
+  SettlementReport,
   PaymentChannelItem,
   PaymentTestResult,
   NotificationTemplateItem,
@@ -716,10 +718,23 @@ export const adminCardKeyApi = {
 export const adminOrderApi = {
   getList: (params: {
     page?: number; page_size?: number; status?: string; order_type?: string;
-    payment_method?: string; is_risk_flagged?: number; keyword?: string
+    payment_method?: string; is_risk_flagged?: number; keyword?: string;
+    start_date?: string; end_date?: string
   }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<AdminOrderItem>>(`/admin/orders?${qs}`)
+  },
+  getStats: (params: {
+    status?: string; order_type?: string; payment_method?: string;
+    is_risk_flagged?: number; keyword?: string; start_date?: string; end_date?: string
+  }) => {
+    const qs = buildQuery(params)
+    return request<AdminOrderStats>(`/admin/orders/stats?${qs}`)
+  },
+  /** 业绩结算报表（支付管理 - 业绩结算 Tab） */
+  getSettlement: (params: { start_date?: string; end_date?: string }) => {
+    const qs = buildQuery(params)
+    return request<SettlementReport>(`/admin/orders/settlement?${qs}`)
   },
   getDetail: (id: string) =>
     request<AdminOrderItem>(`/admin/orders/${id}`),

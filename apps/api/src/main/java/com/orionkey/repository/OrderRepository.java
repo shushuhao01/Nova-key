@@ -224,12 +224,15 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             "AND (:orderType IS NULL OR o.orderType = :orderType) " +
             "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o.paymentMethod = :paymentMethod) " +
             "AND (:isRiskFlagged IS NULL OR o.riskFlagged = :isRiskFlagged) " +
+            "AND o.createdAt >= :from AND o.createdAt < :to " +
             "ORDER BY o.createdAt DESC")
     Page<Order> findAdminOrders(@Param("statuses") List<OrderStatus> statuses,
                                 @Param("containsRefunded") boolean containsRefunded,
                                 @Param("orderType") OrderType orderType,
                                 @Param("paymentMethod") String paymentMethod,
                                 @Param("isRiskFlagged") Boolean isRiskFlagged,
+                                @Param("from") LocalDateTime from,
+                                @Param("to") LocalDateTime to,
                                 Pageable pageable);
 
     // 管理后台订单列表 — 带搜索词（按订单ID、邮箱、商品名称或推广员搜索，keyword 保证非 null）
@@ -242,6 +245,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             "AND (str(o.id) LIKE :keywordPattern OR o.email LIKE :keywordPattern OR oi.productTitle LIKE :keywordPattern " +
             " OR o.referralDistributorId IN (SELECT d.id FROM Distributor d WHERE d.distributorCode LIKE :keywordPattern " +
             "   OR d.userId IN (SELECT u.id FROM User u WHERE u.username LIKE :keywordPattern OR u.email LIKE :keywordPattern))) " +
+            "AND o.createdAt >= :from AND o.createdAt < :to " +
             "ORDER BY o.createdAt DESC")
     Page<Order> findAdminOrdersByKeyword(@Param("statuses") List<OrderStatus> statuses,
                                          @Param("containsRefunded") boolean containsRefunded,
@@ -249,5 +253,123 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
                                          @Param("paymentMethod") String paymentMethod,
                                          @Param("isRiskFlagged") Boolean isRiskFlagged,
                                          @Param("keywordPattern") String keywordPattern,
+                                         @Param("from") LocalDateTime from,
+                                         @Param("to") LocalDateTime to,
                                          Pageable pageable);
+
+    // 管理后台订单统计（与列表完全相同的筛选条件；日期按创建时间 [from, to)）
+    // 返回单行：[总订单数, 总金额(全部订单), 有效金额(已支付且未退款), 有效订单数, 无效订单数, 总客户数]
+    @Query("SELECT COUNT(o), " +
+            "SUM(o.actualAmount), " +
+            "SUM(CASE WHEN o.status IN (com.orionkey.constant.OrderStatus.PAID, com.orionkey.constant.OrderStatus.DELIVERED, com.orionkey.constant.OrderStatus.COMPLETED) THEN o.actualAmount END), " +
+            "COUNT(CASE WHEN o.status IN (com.orionkey.constant.OrderStatus.PAID, com.orionkey.constant.OrderStatus.DELIVERED, com.orionkey.constant.OrderStatus.COMPLETED) THEN 1 END), " +
+            "COUNT(CASE WHEN o.status IN (com.orionkey.constant.OrderStatus.PENDING, com.orionkey.constant.OrderStatus.EXPIRED, com.orionkey.constant.OrderStatus.REFUNDED, com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED) THEN 1 END), " +
+            "COUNT(DISTINCT o.email) " +
+            "FROM Order o WHERE o.id IN (" +
+            "SELECT o2.id FROM Order o2 LEFT JOIN OrderItem oi ON oi.orderId = o2.id WHERE " +
+            "(:statuses IS NULL OR o2.status IN :statuses " +
+            " OR (:containsRefunded = TRUE AND o2.status = com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED)) " +
+            "AND (:orderType IS NULL OR o2.orderType = :orderType) " +
+            "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o2.paymentMethod = :paymentMethod) " +
+            "AND (:isRiskFlagged IS NULL OR o2.riskFlagged = :isRiskFlagged) " +
+            "AND (:hasKeyword = FALSE OR str(o2.id) LIKE :keywordPattern OR o2.email LIKE :keywordPattern " +
+            " OR oi.productTitle LIKE :keywordPattern " +
+            " OR o2.referralDistributorId IN (SELECT d.id FROM Distributor d WHERE d.distributorCode LIKE :keywordPattern " +
+            "   OR d.userId IN (SELECT u.id FROM User u WHERE u.username LIKE :keywordPattern OR u.email LIKE :keywordPattern))) " +
+            ") AND o.createdAt >= :from AND o.createdAt < :to")
+    List<Object[]> statAdminOrders(@Param("statuses") List<OrderStatus> statuses,
+                                   @Param("containsRefunded") boolean containsRefunded,
+                                   @Param("orderType") OrderType orderType,
+                                   @Param("paymentMethod") String paymentMethod,
+                                   @Param("isRiskFlagged") Boolean isRiskFlagged,
+                                   @Param("hasKeyword") boolean hasKeyword,
+                                   @Param("keywordPattern") String keywordPattern,
+                                   @Param("from") LocalDateTime from,
+                                   @Param("to") LocalDateTime to);
+
+    // ============================================================
+    // 业绩结算（原生 SQL，PostgreSQL）
+    // 有效订单口径：PAID / DELIVERED / COMPLETED（未退款）
+    // ============================================================
+
+    /**
+     * 业绩结算汇总（按订单创建时间 [from, to)）。
+     * 返回单行：[总业绩(含退款), 退款金额, 有效金额, 有效订单数, 退款单数, 总订单数, 客户数]
+     */
+    @Query(value = "SELECT " +
+            "COALESCE(SUM(CASE WHEN o.status IN ('PAID','DELIVERED','COMPLETED','REFUNDED','PARTIALLY_REFUNDED') " +
+            "THEN COALESCE(o.actual_amount, 0) ELSE 0 END), 0), " +
+            "COALESCE(SUM(COALESCE(o.refunded_amount, 0)), 0), " +
+            "COALESCE(SUM(CASE WHEN o.status IN ('PAID','DELIVERED','COMPLETED') " +
+            "THEN COALESCE(o.actual_amount, 0) ELSE 0 END), 0), " +
+            "COUNT(CASE WHEN o.status IN ('PAID','DELIVERED','COMPLETED') THEN 1 END), " +
+            "COUNT(CASE WHEN COALESCE(o.refunded_amount, 0) > 0 THEN 1 END), " +
+            "COUNT(*), " +
+            "COUNT(DISTINCT o.email) " +
+            "FROM orders o WHERE o.created_at >= :from AND o.created_at < :to",
+            nativeQuery = true)
+    List<Object[]> statSettlement(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * 业绩趋势（按 fmt 分桶：YYYY-MM-DD 按日 / YYYY-MM 按月）。
+     * 返回：[bucket, 总业绩, 有效金额, 有效订单数, 退款金额]
+     */
+    @Query(value = "SELECT to_char(o.created_at, :fmt) AS bucket, " +
+            "COALESCE(SUM(CASE WHEN o.status IN ('PAID','DELIVERED','COMPLETED','REFUNDED','PARTIALLY_REFUNDED') " +
+            "THEN COALESCE(o.actual_amount, 0) ELSE 0 END), 0), " +
+            "COALESCE(SUM(CASE WHEN o.status IN ('PAID','DELIVERED','COMPLETED') " +
+            "THEN COALESCE(o.actual_amount, 0) ELSE 0 END), 0), " +
+            "COUNT(CASE WHEN o.status IN ('PAID','DELIVERED','COMPLETED') THEN 1 END), " +
+            "COALESCE(SUM(COALESCE(o.refunded_amount, 0)), 0) " +
+            "FROM orders o WHERE o.created_at >= :from AND o.created_at < :to " +
+            "GROUP BY bucket ORDER BY bucket",
+            nativeQuery = true)
+    List<Object[]> settlementTrend(@Param("fmt") String fmt,
+                                   @Param("from") LocalDateTime from,
+                                   @Param("to") LocalDateTime to);
+
+    /** 支付方式分布（仅有效订单）：[payment_method, 金额, 订单数] */
+    @Query(value = "SELECT COALESCE(NULLIF(o.payment_method, ''), 'unknown') AS pm, " +
+            "COALESCE(SUM(COALESCE(o.actual_amount, 0)), 0), COUNT(*) " +
+            "FROM orders o WHERE o.created_at >= :from AND o.created_at < :to " +
+            "AND o.status IN ('PAID','DELIVERED','COMPLETED') " +
+            "GROUP BY pm ORDER BY 2 DESC",
+            nativeQuery = true)
+    List<Object[]> settlementPaymentMethods(@Param("from") LocalDateTime from,
+                                            @Param("to") LocalDateTime to);
+
+    /** 订单类型分布（仅有效订单）：[order_type, 金额, 订单数] */
+    @Query(value = "SELECT CAST(o.order_type AS text) AS ot, " +
+            "COALESCE(SUM(COALESCE(o.actual_amount, 0)), 0), COUNT(*) " +
+            "FROM orders o WHERE o.created_at >= :from AND o.created_at < :to " +
+            "AND o.status IN ('PAID','DELIVERED','COMPLETED') " +
+            "GROUP BY ot ORDER BY 2 DESC",
+            nativeQuery = true)
+    List<Object[]> settlementOrderTypes(@Param("from") LocalDateTime from,
+                                        @Param("to") LocalDateTime to);
+
+    /** 分销佣金合计（一级 + 二级，按有效订单统计） */
+    @Query(value = "SELECT COALESCE(SUM(COALESCE(cr.commission_amount, 0) + COALESCE(cr.parent_commission_amount, 0)), 0) " +
+            "FROM commission_records cr JOIN orders o ON o.id = cr.order_id " +
+            "WHERE o.created_at >= :from AND o.created_at < :to " +
+            "AND o.status IN ('PAID','DELIVERED','COMPLETED')",
+            nativeQuery = true)
+    BigDecimal sumSettlementCommission(@Param("from") LocalDateTime from,
+                                       @Param("to") LocalDateTime to);
+
+    /** 分销佣金 Top10：[分销编号, 名称, 佣金合计, 订单数] */
+    @Query(value = "SELECT COALESCE(d.distributor_code, ''), " +
+            "COALESCE(u.username, u.email, d.distributor_code), " +
+            "COALESCE(SUM(COALESCE(cr.commission_amount, 0) + COALESCE(cr.parent_commission_amount, 0)), 0), " +
+            "COUNT(DISTINCT cr.order_id) " +
+            "FROM commission_records cr " +
+            "JOIN orders o ON o.id = cr.order_id " +
+            "JOIN distributors d ON d.id = cr.distributor_id " +
+            "LEFT JOIN users u ON u.id = d.user_id " +
+            "WHERE o.created_at >= :from AND o.created_at < :to " +
+            "AND o.status IN ('PAID','DELIVERED','COMPLETED') " +
+            "GROUP BY d.distributor_code, u.username, u.email ORDER BY 3 DESC LIMIT 10",
+            nativeQuery = true)
+    List<Object[]> findSettlementTopDistributors(@Param("from") LocalDateTime from,
+                                                 @Param("to") LocalDateTime to);
 }

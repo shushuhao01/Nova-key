@@ -4,9 +4,11 @@ import com.orionkey.annotation.LogOperation;
 import com.orionkey.common.ApiResponse;
 import com.orionkey.service.AdminOrderService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
 
@@ -24,10 +26,40 @@ public class AdminOrderController {
             @RequestParam(value = "payment_method", required = false) String paymentMethod,
             @RequestParam(value = "is_risk_flagged", required = false) Boolean isRiskFlagged,
             @RequestParam(required = false) String keyword,
+            @RequestParam(value = "start_date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(value = "end_date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
         return ApiResponse.success(adminOrderService.listOrders(status, orderType, paymentMethod,
-                isRiskFlagged, keyword, page, pageSize));
+                isRiskFlagged, keyword, startDate, endDate, page, pageSize));
+    }
+
+    /** 订单统计卡片：与列表同一套筛选条件（日期按创建时间） */
+    @GetMapping("/stats")
+    public ApiResponse<?> orderStats(
+            @RequestParam(required = false) String status,
+            @RequestParam(value = "order_type", required = false) String orderType,
+            @RequestParam(value = "payment_method", required = false) String paymentMethod,
+            @RequestParam(value = "is_risk_flagged", required = false) Boolean isRiskFlagged,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(value = "start_date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(value = "end_date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        return ApiResponse.success(adminOrderService.getOrderStats(status, orderType, paymentMethod,
+                isRiskFlagged, keyword, startDate, endDate));
+    }
+
+    /** 业绩结算报表：汇总卡片 + 趋势 + 支付方式/订单类型分布 + 分销佣金 */
+    @GetMapping("/settlement")
+    public ApiResponse<?> settlementReport(
+            @RequestParam(value = "start_date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(value = "end_date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        return ApiResponse.success(adminOrderService.getSettlementReport(startDate, endDate));
     }
 
     @GetMapping("/{id}")
