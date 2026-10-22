@@ -33,7 +33,7 @@ function StatCard({ title, value, icon: Icon, iconBg, monthLabel, monthValue, de
           <Icon className="h-5 w-5 text-white" />
         </div>
       </div>
-      <div className="mt-3 flex flex-col gap-1 border-t border-border/60 pt-2.5 text-xs leading-tight">
+      <div className="mt-3 flex flex-col gap-1 border-t border-border/60 pt-2.5 text-sm leading-tight">
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">{monthLabel}</span>
           <span className="font-medium text-foreground">{monthValue}</span>
