@@ -338,15 +338,14 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     List<Object[]> settlementPaymentMethods(@Param("from") LocalDateTime from,
                                             @Param("to") LocalDateTime to);
 
-    /** 订单类型分布（仅有效订单）：[order_type, 金额, 订单数] */
-    @Query(value = "SELECT CAST(o.order_type AS text) AS ot, " +
+    /** 订单状态分布：[status, 金额, 订单数] */
+    @Query(value = "SELECT CAST(o.status AS text) AS st, " +
             "COALESCE(SUM(COALESCE(o.actual_amount, 0)), 0), COUNT(*) " +
             "FROM orders o WHERE o.created_at >= :from AND o.created_at < :to " +
-            "AND o.status IN ('PAID','DELIVERED','COMPLETED') " +
-            "GROUP BY ot ORDER BY 2 DESC",
+            "GROUP BY st ORDER BY 2 DESC",
             nativeQuery = true)
-    List<Object[]> settlementOrderTypes(@Param("from") LocalDateTime from,
-                                        @Param("to") LocalDateTime to);
+    List<Object[]> settlementStatuses(@Param("from") LocalDateTime from,
+                                      @Param("to") LocalDateTime to);
 
     /** 分销佣金合计（一级 + 二级，按有效订单统计） */
     @Query(value = "SELECT COALESCE(SUM(COALESCE(cr.commission_amount, 0) + COALESCE(cr.parent_commission_amount, 0)), 0) " +
@@ -357,11 +356,12 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     BigDecimal sumSettlementCommission(@Param("from") LocalDateTime from,
                                        @Param("to") LocalDateTime to);
 
-    /** 分销佣金 Top10：[分销编号, 名称, 佣金合计, 订单数] */
+    /** 分销佣金 Top10：[分销编号, 名称, 佣金合计, 订单数, 销售金额] */
     @Query(value = "SELECT COALESCE(d.distributor_code, ''), " +
             "COALESCE(u.username, u.email, d.distributor_code), " +
             "COALESCE(SUM(COALESCE(cr.commission_amount, 0) + COALESCE(cr.parent_commission_amount, 0)), 0), " +
-            "COUNT(DISTINCT cr.order_id) " +
+            "COUNT(DISTINCT cr.order_id), " +
+            "COALESCE(SUM(COALESCE(o.actual_amount, 0)), 0) " +
             "FROM commission_records cr " +
             "JOIN orders o ON o.id = cr.order_id " +
             "JOIN distributors d ON d.id = cr.distributor_id " +

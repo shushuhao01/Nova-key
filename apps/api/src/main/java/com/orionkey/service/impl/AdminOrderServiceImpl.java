@@ -168,26 +168,35 @@ public class AdminOrderServiceImpl implements AdminOrderService {
             paymentMethods.add(item);
         }
 
-        // ── 订单类型分布 ──
-        List<Map<String, Object>> orderTypes = new ArrayList<>();
-        for (Object[] r : orderRepository.settlementOrderTypes(from, to)) {
+        // ── 订单状态分布（占比以区间内全部订单金额为分母）──
+        List<Object[]> statusRows = orderRepository.settlementStatuses(from, to);
+        BigDecimal statusTotal = BigDecimal.ZERO;
+        for (Object[] r : statusRows) {
+            statusTotal = statusTotal.add(toDecimal(r[1]));
+        }
+        List<Map<String, Object>> statuses = new ArrayList<>();
+        for (Object[] r : statusRows) {
             BigDecimal amount = money(toDecimal(r[1]));
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("order_type", r[0] != null ? r[0].toString() : "UNKNOWN");
+            item.put("status", r[0] != null ? r[0].toString() : "UNKNOWN");
             item.put("amount", amount);
             item.put("orders", toLong(r[2]));
-            item.put("ratio", percent(amount, effective));
-            orderTypes.add(item);
+            item.put("ratio", percent(amount, statusTotal));
+            statuses.add(item);
         }
 
-        // ── 分销佣金 Top10 ──
+        // ── 分销佣金 Top10（佣金比例 = 佣金 / 该成员销售金额）──
         List<Map<String, Object>> distributors = new ArrayList<>();
         for (Object[] r : orderRepository.findSettlementTopDistributors(from, to)) {
+            BigDecimal amount = money(toDecimal(r[2]));
+            BigDecimal sales = money(toDecimal(r[4]));
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("distributor_code", r[0] != null ? r[0].toString() : "");
             item.put("name", r[1] != null ? r[1].toString() : "-");
-            item.put("amount", money(toDecimal(r[2])));
+            item.put("amount", amount);
             item.put("orders", toLong(r[3]));
+            item.put("sales_amount", sales);
+            item.put("ratio", percent(amount, sales));
             distributors.add(item);
         }
 
@@ -196,7 +205,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         result.put("trend_granularity", monthly ? "month" : "day");
         result.put("trend", trend);
         result.put("payment_methods", paymentMethods);
-        result.put("order_types", orderTypes);
+        result.put("statuses", statuses);
         result.put("distributors", distributors);
         return result;
     }

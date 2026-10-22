@@ -856,26 +856,25 @@ export function mockSettlementReport(params?: { start_date?: string; end_date?: 
       orders: Math.round(validOrders * m.weight),
       ratio: Number((m.weight * 100).toFixed(1)),
     })),
-    order_types: [
-      {
-        order_type: "DIRECT",
-        amount: Number((effective * 0.62).toFixed(2)),
-        orders: Math.round(validOrders * 0.62),
-        ratio: 62,
-      },
-      {
-        order_type: "CART",
-        amount: Number((effective * 0.38).toFixed(2)),
-        orders: validOrders - Math.round(validOrders * 0.62),
-        ratio: 38,
-      },
-    ],
+    statuses: (() => {
+      const refundPending = Math.max(1, Math.round(validOrders * 0.06))
+      const rows = [
+        { status: "COMPLETED", amount: Number((effective * 0.44).toFixed(2)), orders: Math.round(validOrders * 0.44) },
+        { status: "PAID", amount: Number((effective * 0.34).toFixed(2)), orders: Math.round(validOrders * 0.34) },
+        { status: "DELIVERED", amount: Number((effective * 0.22).toFixed(2)), orders: validOrders - Math.round(validOrders * 0.44) - Math.round(validOrders * 0.34) },
+        { status: "REFUNDED", amount: refunded, orders: refundedOrders },
+        { status: "EXPIRED", amount: 0, orders: refundPending },
+        { status: "PENDING", amount: 0, orders: refundPending },
+      ]
+      const total = rows.reduce((s, r) => s + r.amount, 0) || 1
+      return rows.map(r => ({ ...r, ratio: Number(((r.amount / total) * 100).toFixed(1)) }))
+    })(),
     distributors: [
-      { distributor_code: "D20260001", name: "alice", amount: Number((commission * 0.3).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.12)) },
-      { distributor_code: "D20260002", name: "bob", amount: Number((commission * 0.24).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.1)) },
-      { distributor_code: "D20260003", name: "carol", amount: Number((commission * 0.18).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.08)) },
-      { distributor_code: "D20260004", name: "david", amount: Number((commission * 0.12).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.06)) },
-      { distributor_code: "D20260005", name: "eric", amount: Number((commission * 0.07).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.04)) },
+      { distributor_code: "D20260001", name: "alice", amount: Number((commission * 0.3).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.12)), sales_amount: Number((effective * 0.34).toFixed(2)), ratio: 11.3 },
+      { distributor_code: "D20260002", name: "bob", amount: Number((commission * 0.24).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.1)), sales_amount: Number((effective * 0.26).toFixed(2)), ratio: 12.1 },
+      { distributor_code: "D20260003", name: "carol", amount: Number((commission * 0.18).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.08)), sales_amount: Number((effective * 0.19).toFixed(2)), ratio: 12.8 },
+      { distributor_code: "D20260004", name: "david", amount: Number((commission * 0.12).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.06)), sales_amount: Number((effective * 0.12).toFixed(2)), ratio: 13.2 },
+      { distributor_code: "D20260005", name: "eric", amount: Number((commission * 0.07).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.04)), sales_amount: Number((effective * 0.07).toFixed(2)), ratio: 13.5 },
     ],
   }
 }

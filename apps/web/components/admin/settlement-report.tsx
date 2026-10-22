@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react"
+import { useState, useEffect, useCallback, type ReactNode } from "react"
 import {
   Area,
   ComposedChart,
@@ -22,18 +22,19 @@ import {
   TrendingUp,
   CheckCircle,
   CalendarDays,
-  ChevronDown,
-  Check,
   RefreshCw,
   Loader2,
+  ChevronLeft,
+  ChevronRight,
   type LucideIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { adminOrderApi, withMockFallback } from "@/services/api"
-import { mockSettlementReport } from "@/lib/mock-data"
+import { mockAdminOrderList, mockSettlementReport } from "@/lib/mock-data"
 import { PaymentIcon, getPaymentLabel } from "@/components/shared/payment-icon"
-import type { SettlementReport } from "@/types"
+import { OrderStatusBadge } from "@/components/shared/order-status-badge"
+import type { AdminOrderItem, SettlementReport } from "@/types"
 
 // ── 快捷日期筛选 ──
 type DatePreset = "today" | "yesterday" | "week" | "month" | "last_month" | "year" | "all" | "custom"
@@ -48,6 +49,9 @@ const DATE_PRESETS: { value: DatePreset; label: string }[] = [
   { value: "all", label: "全部" },
   { value: "custom", label: "自定义" },
 ]
+
+/** 有效订单明细每页条数 */
+const DETAIL_PAGE_SIZE = 10
 
 /** 格式化为 YYYY-MM-DD（本地时区） */
 function formatDate(d: Date): string {
@@ -90,6 +94,26 @@ function resolveDateRange(preset: DatePreset, customStart: string, customEnd: st
 // ── 展示辅助 ──
 const PIE_COLORS = ["#6366f1", "#10b981", "#0ea5e9", "#f59e0b", "#8b5cf6", "#ef4444"]
 
+const ORDER_STATUS_LABELS: Record<string, string> = {
+  PENDING: "待支付",
+  PAID: "已支付",
+  DELIVERED: "已发货",
+  COMPLETED: "已完成",
+  EXPIRED: "已过期",
+  REFUNDED: "已退款",
+  PARTIALLY_REFUNDED: "部分退款",
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  PENDING: "#f59e0b",
+  PAID: "#3b82f6",
+  DELIVERED: "#8b5cf6",
+  COMPLETED: "#10b981",
+  EXPIRED: "#94a3b8",
+  REFUNDED: "#ef4444",
+  PARTIALLY_REFUNDED: "#f97316",
+}
+
 function money(value: number | null | undefined): string {
   return `¥${Number(value ?? 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
@@ -101,16 +125,34 @@ function compactMoney(value: number): string {
   return `¥${v.toFixed(0)}`
 }
 
+/** 悬浮提示使用前景色作背景、背景色作文字，形成强反差 */
 const TOOLTIP_STYLE = {
-  background: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
+  background: "hsl(var(--foreground))",
+  border: "none",
   borderRadius: "8px",
   fontSize: "12px",
+  color: "hsl(var(--background))",
+  boxShadow: "0 6px 18px rgba(0, 0, 0, 0.28)",
+  padding: "8px 10px",
 } as const
 
-const ORDER_TYPE_LABELS: Record<string, string> = {
-  DIRECT: "直接购买",
-  CART: "购物车结算",
+const TOOLTIP_LABEL_STYLE = {
+  color: "hsl(var(--background))",
+  fontWeight: 600,
+  marginBottom: 2,
+} as const
+
+const TOOLTIP_ITEM_STYLE = {
+  color: "hsl(var(--background))",
+} as const
+
+/** 计算分页按钮展示的页码（最多 5 个） */
+function pageNumbers(current: number, total: number): number[] {
+  const span = 5
+  let start = Math.max(1, current - Math.floor(span / 2))
+  const end = Math.min(total, start + span - 1)
+  start = Math.max(1, end - span + 1)
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i)
 }
 
 const CARD_TONES = {
@@ -170,17 +212,6 @@ function SectionCard({ title, subtitle, action, className, children }: {
   )
 }
 
-function RatioBar({ ratio, className }: { ratio: number; className?: string }) {
-  return (
-    <div className={cn("h-1.5 w-full overflow-hidden rounded-full bg-muted", className)}>
-      <div
-        className="h-full rounded-full bg-primary transition-all duration-500"
-        style={{ width: `${Math.min(100, Math.max(0, ratio))}%` }}
-      />
-    </div>
-  )
-}
-
 export function SettlementReportPanel() {
   const [report, setReport] = useState<SettlementReport | null>(null)
   const [loading, setLoading] = useState(true)
@@ -191,8 +222,12 @@ export function SettlementReportPanel() {
   const [datePreset, setDatePreset] = useState<DatePreset>("month")
   const [customStart, setCustomStart] = useState("")
   const [customEnd, setCustomEnd] = useState("")
-  const [dateMenuOpen, setDateMenuOpen] = useState(false)
-  const dateMenuRef = useRef<HTMLDivElement>(null)
+
+  // ── 有效订单明细（分页，默认 10 条）──
+  const [detailOrders, setDetailOrders] = useState<AdminOrderItem[]>([])
+  const [detailTotal, setDetailTotal] = useState(0)
+  const [detailLoading, setDetailLoading] = useState(true)
+  const [detailPage, setDetailPage] = useState(1)
 
   const datePresetLabel = DATE_PRESETS.find(p => p.value === datePreset)?.label ?? "本月"
 
@@ -225,19 +260,48 @@ export function SettlementReportPanel() {
     return () => { cancelled = true }
   }, [getParams])
 
-  // 点击外部关闭日期下拉
+  // 筛选条件变化 → 有效订单明细回到第一页
   useEffect(() => {
-    if (!dateMenuOpen) return
-    const handler = (e: MouseEvent) => {
-      if (!dateMenuRef.current?.contains(e.target as Node)) setDateMenuOpen(false)
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [dateMenuOpen])
+    setDetailPage(1)
+  }, [getParams])
+
+  // 有效订单明细分页加载
+  useEffect(() => {
+    let cancelled = false
+    setDetailLoading(true)
+    const params = getParams()
+    withMockFallback(
+      () => adminOrderApi.getList({
+        status: "PAID,DELIVERED,COMPLETED",
+        start_date: params.start_date,
+        end_date: params.end_date,
+        page: detailPage,
+        page_size: DETAIL_PAGE_SIZE,
+      }),
+      () => mockAdminOrderList({
+        status: "PAID,DELIVERED,COMPLETED",
+        page: detailPage,
+        page_size: DETAIL_PAGE_SIZE,
+      })
+    )
+      .then(data => {
+        if (cancelled) return
+        setDetailOrders(data.list)
+        setDetailTotal(data.pagination.total)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        toast.error(err instanceof Error ? err.message : "加载有效订单明细失败")
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [getParams, detailPage])
 
   const handleSelectPreset = (preset: DatePreset) => {
+    if (preset === datePreset) return
     setDatePreset(preset)
-    setDateMenuOpen(false)
     if (preset === "custom" && (!customStart || !customEnd)) {
       const now = new Date()
       setCustomStart(formatDate(new Date(now.getFullYear(), now.getMonth(), 1)))
@@ -266,7 +330,7 @@ export function SettlementReportPanel() {
   const summary = report?.summary
   const trend = report?.trend ?? []
   const paymentMethods = report?.payment_methods ?? []
-  const orderTypes = report?.order_types ?? []
+  const statuses = report?.statuses ?? []
   const distributors = report?.distributors ?? []
   const granularityLabel = report?.trend_granularity === "month" ? "按月" : "按日"
 
@@ -276,6 +340,15 @@ export function SettlementReportPanel() {
   const profitRatio = summary && summary.effective_amount > 0
     ? (summary.profit_amount / summary.effective_amount) * 100
     : 0
+
+  const profitData = [
+    { name: "分销佣金", value: summary?.commission_amount ?? 0, color: "#f59e0b" },
+    { name: "剩余利润", value: summary?.profit_amount ?? 0, color: "#10b981" },
+  ]
+  const hasProfitData = profitData.some(d => d.value > 0)
+
+  const detailTotalPages = Math.max(1, Math.ceil(detailTotal / DETAIL_PAGE_SIZE))
+  const detailPages = pageNumbers(detailPage, detailTotalPages)
 
   return (
     <div className="flex flex-col gap-6">
@@ -325,36 +398,25 @@ export function SettlementReportPanel() {
         />
       </div>
 
-      {/* 筛选 + 刷新 */}
+      {/* 快捷筛选（按钮）+ 刷新 */}
       <div className="flex flex-wrap items-center gap-3">
-        <div ref={dateMenuRef} className="relative">
-          <button
-            type="button"
-            onClick={() => setDateMenuOpen(o => !o)}
-            className="flex h-10 items-center gap-2 rounded-lg border border-input bg-background pl-3 pr-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            <CalendarDays className="h-4 w-4 text-muted-foreground" />
-            <span className="min-w-[2.5em] text-left">{datePresetLabel}</span>
-            <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", dateMenuOpen && "rotate-180")} />
-          </button>
-          {dateMenuOpen && (
-            <div className="absolute left-0 z-30 mt-1 w-36 rounded-lg border border-border bg-background p-1 shadow-lg">
-              {DATE_PRESETS.map(preset => (
-                <button
-                  key={preset.value}
-                  type="button"
-                  onClick={() => handleSelectPreset(preset.value)}
-                  className={cn(
-                    "flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-sm transition-colors hover:bg-accent",
-                    datePreset === preset.value ? "font-medium text-primary" : "text-foreground"
-                  )}
-                >
-                  {preset.label}
-                  {datePreset === preset.value && <Check className="h-3.5 w-3.5" />}
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="flex flex-wrap items-center gap-1 rounded-lg bg-muted p-1">
+          <CalendarDays className="ml-1.5 mr-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          {DATE_PRESETS.map(preset => (
+            <button
+              key={preset.value}
+              type="button"
+              onClick={() => handleSelectPreset(preset.value)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                datePreset === preset.value
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {preset.label}
+            </button>
+          ))}
         </div>
 
         {datePreset === "custom" && (
@@ -457,7 +519,8 @@ export function SettlementReportPanel() {
                   />
                   <Tooltip
                     contentStyle={TOOLTIP_STYLE}
-                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                    labelStyle={TOOLTIP_LABEL_STYLE}
+                    itemStyle={TOOLTIP_ITEM_STYLE}
                     formatter={(value, name) => (
                       name === "订单数"
                         ? [`${Number(value).toLocaleString()} 单`, name]
@@ -524,6 +587,8 @@ export function SettlementReportPanel() {
                       </Pie>
                       <Tooltip
                         contentStyle={TOOLTIP_STYLE}
+                        labelStyle={TOOLTIP_LABEL_STYLE}
+                        itemStyle={TOOLTIP_ITEM_STYLE}
                         formatter={(value, name) => [money(Number(value)), getPaymentLabel(String(name))]}
                       />
                     </PieChart>
@@ -554,84 +619,124 @@ export function SettlementReportPanel() {
         </SectionCard>
       </div>
 
-      {/* 利润构成 + 订单类型 + 分销佣金 */}
+      {/* 利润构成 + 订单状态分布 + 分销佣金 */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <SectionCard title="利润构成" subtitle="有效金额 → 分销佣金 → 剩余利润">
-          <div className="space-y-5">
-            <div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-sm text-muted-foreground">有效金额</span>
-                <span className="text-base font-semibold text-foreground">{money(summary?.effective_amount)}</span>
-              </div>
-              <RatioBar ratio={100} className="mt-2" />
-            </div>
-            <div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-sm text-muted-foreground">分销佣金</span>
-                <span className="text-base font-semibold text-amber-600 dark:text-amber-400">
-                  − {money(summary?.commission_amount)}
-                </span>
-              </div>
-              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-amber-500 transition-all duration-500"
-                  style={{ width: `${Math.min(100, commissionRatio)}%` }}
-                />
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">占有效金额 {commissionRatio.toFixed(1)}%</p>
-            </div>
-            <div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-sm text-muted-foreground">剩余利润</span>
-                <span className="text-base font-semibold text-emerald-600 dark:text-emerald-400">
-                  {money(summary?.profit_amount)}
-                </span>
-              </div>
-              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-                  style={{ width: `${Math.min(100, profitRatio)}%` }}
-                />
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">利润率 {profitRatio.toFixed(1)}%</p>
-            </div>
-            <div className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">
-              退款金额 {money(summary?.refunded_amount)}，已从总业绩中扣除，不计入利润。
-            </div>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="订单类型分布" subtitle="按有效金额占比">
-          {orderTypes.length === 0 ? (
+        <SectionCard title="利润构成" subtitle="有效金额 = 分销佣金 + 剩余利润">
+          {!hasProfitData ? (
             <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
               {loading ? "加载中..." : "暂无数据"}
             </div>
           ) : (
-            <div className="space-y-4">
-              {orderTypes.map((item, i) => (
-                <div key={item.order_type} className="rounded-lg border border-border/70 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 rounded-full"
-                        style={{ background: PIE_COLORS[i % PIE_COLORS.length] }}
-                      />
-                      <span className="text-sm font-medium text-foreground">
-                        {ORDER_TYPE_LABELS[item.order_type] ?? item.order_type}
-                      </span>
-                    </div>
-                    <span className="text-sm font-semibold text-foreground">{item.ratio.toFixed(1)}%</span>
-                  </div>
-                  <RatioBar ratio={item.ratio} className="mt-2.5" />
-                  <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{item.orders.toLocaleString()} 单</span>
-                    <span>{money(item.amount)}</span>
-                  </div>
+            <div className="flex flex-col">
+              <div className="relative h-44">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={profitData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={52}
+                      outerRadius={76}
+                      paddingAngle={2}
+                      strokeWidth={0}
+                      startAngle={90}
+                      endAngle={-270}
+                    >
+                      {profitData.map(item => (
+                        <Cell key={item.name} fill={item.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={TOOLTIP_STYLE}
+                      labelStyle={TOOLTIP_LABEL_STYLE}
+                      itemStyle={TOOLTIP_ITEM_STYLE}
+                      formatter={(value, name) => [money(Number(value)), String(name)]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-[11px] text-muted-foreground">利润率</span>
+                  <span className="text-xl font-bold text-foreground">{profitRatio.toFixed(1)}%</span>
                 </div>
-              ))}
-              <div className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
-                <span>有效订单合计</span>
-                <span className="font-medium text-foreground">{money(summary?.effective_amount)}</span>
+              </div>
+              <div className="mt-2 space-y-2">
+                {profitData.map(item => {
+                  const ratio = summary && summary.effective_amount > 0
+                    ? (item.value / summary.effective_amount) * 100
+                    : 0
+                  return (
+                    <div key={item.name} className="flex items-center gap-2 text-xs">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: item.color }} />
+                      <span className="flex-1 text-muted-foreground">{item.name}</span>
+                      <span className="text-muted-foreground">{ratio.toFixed(1)}%</span>
+                      <span className="w-24 text-right font-medium text-foreground">{money(item.value)}</span>
+                    </div>
+                  )
+                })}
+                <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  <Undo2 className="h-3.5 w-3.5 shrink-0" />
+                  退款 {money(summary?.refunded_amount)} 已从总业绩中扣除，不计入利润
+                </div>
+              </div>
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title="订单状态分布" subtitle="按区间内订单金额占比">
+          {statuses.length === 0 ? (
+            <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+              {loading ? "加载中..." : "暂无数据"}
+            </div>
+          ) : (
+            <div className="flex flex-col">
+              <div className="relative h-44">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={statuses}
+                      dataKey="amount"
+                      nameKey="status"
+                      innerRadius={52}
+                      outerRadius={76}
+                      paddingAngle={2}
+                      strokeWidth={0}
+                    >
+                      {statuses.map(item => (
+                        <Cell key={item.status} fill={STATUS_COLORS[item.status] ?? "#94a3b8"} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={TOOLTIP_STYLE}
+                      labelStyle={TOOLTIP_LABEL_STYLE}
+                      itemStyle={TOOLTIP_ITEM_STYLE}
+                      formatter={(value, name) => [
+                        `${money(Number(value))} · ${(statuses.find(s => s.status === String(name))?.orders ?? 0).toLocaleString()} 单`,
+                        ORDER_STATUS_LABELS[String(name)] ?? String(name),
+                      ]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-[11px] text-muted-foreground">订单总数</span>
+                  <span className="text-xl font-bold text-foreground">
+                    {(summary?.total_orders ?? 0).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+              <div className="mt-2 max-h-28 space-y-2 overflow-y-auto pr-1">
+                {statuses.map(item => (
+                  <div key={item.status} className="flex items-center gap-2 text-xs">
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ background: STATUS_COLORS[item.status] ?? "#94a3b8" }}
+                    />
+                    <span className="flex-1 text-muted-foreground">
+                      {ORDER_STATUS_LABELS[item.status] ?? item.status}
+                    </span>
+                    <span className="text-muted-foreground">{item.orders.toLocaleString()} 单</span>
+                    <span className="w-12 text-right font-medium text-foreground">{item.ratio.toFixed(1)}%</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -643,7 +748,7 @@ export function SettlementReportPanel() {
               {loading ? "加载中..." : "暂无分销数据"}
             </div>
           ) : (
-            <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+            <div className="max-h-[19rem] space-y-1 overflow-y-auto pr-1">
               {distributors.map((d, i) => (
                 <div key={d.distributor_code} className="flex items-center gap-3 rounded-lg px-1.5 py-2 hover:bg-accent/50">
                   <span
@@ -663,10 +768,15 @@ export function SettlementReportPanel() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-foreground">{d.name || d.distributor_code}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {d.distributor_code} · {d.orders} 单
+                      {d.distributor_code} · {d.orders} 单 · 佣金比例 {d.ratio.toFixed(1)}%
                     </p>
                   </div>
-                  <span className="shrink-0 text-sm font-semibold text-foreground">{money(d.amount)}</span>
+                  <div className="shrink-0 text-right">
+                    <p className="whitespace-nowrap text-xs text-muted-foreground">销售 {money(d.sales_amount)}</p>
+                    <p className="whitespace-nowrap text-sm font-semibold text-amber-600 dark:text-amber-400">
+                      佣金 {money(d.amount)}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -674,48 +784,125 @@ export function SettlementReportPanel() {
         </SectionCard>
       </div>
 
-      {/* 支付方式明细 */}
-      <SectionCard title="支付方式明细" subtitle="仅统计有效订单（已支付 / 已发货 / 已完成）">
-        {paymentMethods.length === 0 ? (
-          <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-            {loading ? "加载中..." : "暂无数据"}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="pb-3 font-medium">支付方式</th>
-                  <th className="pb-3 text-right font-medium">订单数</th>
-                  <th className="pb-3 text-right font-medium">有效金额</th>
-                  <th className="pb-3 pl-6 font-medium">金额占比</th>
+      {/* 有效订单明细 */}
+      <SectionCard title="有效订单明细" subtitle="已支付 / 已发货 / 已完成订单，每页 10 条">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[960px] text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                <th className="pb-3 pr-4 font-medium">订单号</th>
+                <th className="pb-3 pr-4 font-medium">商品</th>
+                <th className="pb-3 pr-4 font-medium">数量</th>
+                <th className="pb-3 pr-4 font-medium">客户</th>
+                <th className="pb-3 pr-4 font-medium">支付方式</th>
+                <th className="pb-3 pr-4 text-right font-medium">金额</th>
+                <th className="pb-3 pr-4 font-medium">状态</th>
+                <th className="pb-3 font-medium">下单时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detailLoading ? (
+                <tr>
+                  <td colSpan={8} className="py-12">
+                    <div className="flex items-center justify-center">
+                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {paymentMethods.map((item, i) => (
-                  <tr key={item.payment_method} className="border-b border-border/60 last:border-0">
-                    <td className="py-3">
-                      <div className="flex items-center gap-2.5">
-                        <PaymentIcon method={item.payment_method} className="h-6 w-6" />
-                        <span className="font-medium text-foreground">{getPaymentLabel(item.payment_method)}</span>
-                        <span
-                          className="h-1.5 w-1.5 rounded-full"
-                          style={{ background: PIE_COLORS[i % PIE_COLORS.length] }}
-                        />
+              ) : detailOrders.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">当前筛选区间暂无有效订单</td>
+                </tr>
+              ) : (
+                detailOrders.map(order => (
+                  <tr key={order.id} className="border-b border-border/60 transition-colors last:border-0 hover:bg-muted/20">
+                    <td className="py-3 pr-4">
+                      <span className="font-mono text-sm font-medium text-foreground" title={order.id}>
+                        {order.id.length > 16 ? `${order.id.slice(0, 8)}...${order.id.slice(-4)}` : order.id}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4">
+                      <span className="text-sm text-foreground">
+                        {order.items?.[0]?.product_title || "-"}
+                        {order.items?.[0]?.spec_name && (
+                          <span className="text-muted-foreground"> - {order.items[0].spec_name}</span>
+                        )}
+                        {(order.items?.length ?? 0) > 1 && (
+                          <span className="ml-1 text-xs text-muted-foreground">等{order.items.length}件</span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4 text-foreground">
+                      {order.items?.reduce((sum, item) => sum + item.quantity, 0) || 0}
+                    </td>
+                    <td className="py-3 pr-4">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs text-foreground">{order.username || "游客"}</span>
+                        <span className="text-xs text-muted-foreground">{order.email}</span>
                       </div>
                     </td>
-                    <td className="py-3 text-right text-muted-foreground">{item.orders.toLocaleString()}</td>
-                    <td className="py-3 text-right font-medium text-foreground">{money(item.amount)}</td>
-                    <td className="py-3 pl-6">
-                      <div className="flex items-center gap-3">
-                        <RatioBar ratio={item.ratio} className="w-28" />
-                        <span className="w-12 text-right text-xs text-muted-foreground">{item.ratio.toFixed(1)}%</span>
-                      </div>
+                    <td className="py-3 pr-4">
+                      <span className="inline-flex items-center gap-1.5 text-foreground">
+                        <PaymentIcon method={order.payment_method} className="h-4 w-4" />
+                        {getPaymentLabel(order.payment_method)}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4 text-right">
+                      <span className="font-medium text-foreground">¥{order.actual_amount.toFixed(2)}</span>
+                    </td>
+                    <td className="py-3 pr-4">
+                      <OrderStatusBadge status={order.status} />
+                    </td>
+                    <td className="whitespace-nowrap py-3 text-sm text-muted-foreground">
+                      {new Date(order.created_at).toLocaleString("zh-CN", { hour12: false })}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* 分页 */}
+        {detailTotal > 0 && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              共 {detailTotal.toLocaleString()} 条 · 第 {detailPage} / {detailTotalPages} 页
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setDetailPage(p => Math.max(1, p - 1))}
+                disabled={detailPage === 1 || detailLoading}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-input text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              {detailPages.map(page => (
+                <button
+                  key={page}
+                  type="button"
+                  onClick={() => setDetailPage(page)}
+                  disabled={detailLoading}
+                  className={cn(
+                    "flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                    page === detailPage
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-input text-muted-foreground hover:bg-accent hover:text-foreground"
+                  )}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setDetailPage(p => Math.min(detailTotalPages, p + 1))}
+                disabled={detailPage >= detailTotalPages || detailLoading}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-input text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
       </SectionCard>

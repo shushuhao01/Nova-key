@@ -142,7 +142,7 @@ function getProviderLabel(type: string): string {
 
 export default function AdminPaymentChannelsPage() {
   const { t } = useLocale()
-  const [activeTab, setActiveTab] = useState<"channels" | "settlement">("channels")
+  const [activeTab, setActiveTab] = useState<"channels" | "settlement">("settlement")
   const [channels, setChannels] = useState<PaymentChannelItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -503,8 +503,8 @@ export default function AdminPaymentChannelsPage() {
   const tabs = (
     <div className="inline-flex rounded-lg bg-muted p-1">
       {([
-        { key: "channels" as const, label: t("admin.paymentTabChannels") },
         { key: "settlement" as const, label: t("admin.paymentTabSettlement") },
+        { key: "channels" as const, label: t("admin.paymentTabChannels") },
       ]).map((tab) => (
         <button
           key={tab.key}

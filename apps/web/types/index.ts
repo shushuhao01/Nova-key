@@ -1152,18 +1152,24 @@ export interface SettlementPaymentMethod {
   ratio: number
 }
 
-export interface SettlementOrderType {
-  order_type: string
+export interface SettlementStatus {
+  status: string
   amount: number
   orders: number
+  /** 占区间全部订单金额百分比 */
   ratio: number
 }
 
 export interface SettlementDistributor {
   distributor_code: string
   name: string
+  /** 佣金金额（一级 + 二级） */
   amount: number
   orders: number
+  /** 该成员带来的销售金额 */
+  sales_amount: number
+  /** 佣金比例 = 佣金 / 销售金额 */
+  ratio: number
 }
 
 export interface SettlementReport {
@@ -1171,7 +1177,7 @@ export interface SettlementReport {
   trend_granularity: 'day' | 'month'
   trend: SettlementTrendPoint[]
   payment_methods: SettlementPaymentMethod[]
-  order_types: SettlementOrderType[]
+  statuses: SettlementStatus[]
   distributors: SettlementDistributor[]
 }
 
