@@ -1172,6 +1172,14 @@ export interface SettlementDistributor {
   ratio: number
 }
 
+/** 推广员排行明细（业绩结算「查看更多」），包含一级/二级佣金拆分 */
+export interface SettlementDistributorDetail extends SettlementDistributor {
+  /** 一级佣金 */
+  commission_amount: number
+  /** 二级佣金 */
+  parent_commission_amount: number
+}
+
 export interface SettlementReport {
   summary: SettlementSummary
   trend_granularity: 'day' | 'month'

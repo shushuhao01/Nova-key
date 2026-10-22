@@ -210,6 +210,34 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         return result;
     }
 
+    @Override
+    public PageResult<?> listSettlementDistributors(LocalDate startDate, LocalDate endDate, int page, int pageSize) {
+        LocalDateTime from = rangeStart(startDate);
+        LocalDateTime to = rangeEnd(endDate);
+        int safePage = Math.max(1, page);
+        int safeSize = pageSize > 0 ? Math.min(pageSize, 100) : 10;
+        long total = orderRepository.countSettlementDistributors(from, to);
+
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (Object[] r : orderRepository.findSettlementDistributors(from, to, safeSize, (safePage - 1) * safeSize)) {
+            BigDecimal level1 = money(toDecimal(r[2]));
+            BigDecimal level2 = money(toDecimal(r[3]));
+            BigDecimal amount = money(level1.add(level2));
+            BigDecimal sales = money(toDecimal(r[5]));
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("distributor_code", r[0] != null ? r[0].toString() : "");
+            item.put("name", r[1] != null ? r[1].toString() : "-");
+            item.put("commission_amount", level1);
+            item.put("parent_commission_amount", level2);
+            item.put("amount", amount);
+            item.put("orders", toLong(r[4]));
+            item.put("sales_amount", sales);
+            item.put("ratio", percent(amount, sales));
+            list.add(item);
+        }
+        return PageResult.of(list, safePage, safeSize, total);
+    }
+
     /** 金额统一保留 2 位小数 */
     private static BigDecimal money(BigDecimal value) {
         return (value != null ? value : BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);

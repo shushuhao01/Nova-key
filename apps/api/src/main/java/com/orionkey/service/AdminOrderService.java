@@ -27,6 +27,12 @@ public interface AdminOrderService {
      */
     Map<String, Object> getSettlementReport(LocalDate startDate, LocalDate endDate);
 
+    /**
+     * 推广员排行（业绩结算「查看更多」）：按佣金合计降序分页，
+     * 返回销售金额、一级/二级佣金、订单数与佣金比例。
+     */
+    PageResult<?> listSettlementDistributors(LocalDate startDate, LocalDate endDate, int page, int pageSize);
+
     Object getOrderDetail(UUID id);
 
     void markPaid(UUID id);

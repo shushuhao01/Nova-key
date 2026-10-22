@@ -26,15 +26,19 @@ import {
   Loader2,
   ChevronLeft,
   ChevronRight,
+  Eye,
+  X,
   type LucideIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { adminOrderApi, withMockFallback } from "@/services/api"
-import { mockAdminOrderList, mockSettlementReport } from "@/lib/mock-data"
+import { mockAdminOrderList, mockSettlementDistributors, mockSettlementReport } from "@/lib/mock-data"
 import { PaymentIcon, getPaymentLabel } from "@/components/shared/payment-icon"
 import { OrderStatusBadge } from "@/components/shared/order-status-badge"
-import type { AdminOrderItem, SettlementReport } from "@/types"
+import { Modal } from "@/components/ui/modal"
+import { OrderDetailModal } from "@/components/admin/order-detail-modal"
+import type { AdminOrderItem, SettlementDistributorDetail, SettlementReport } from "@/types"
 
 // ── 快捷日期筛选 ──
 type DatePreset = "today" | "yesterday" | "week" | "month" | "last_month" | "year" | "all" | "custom"
@@ -52,6 +56,8 @@ const DATE_PRESETS: { value: DatePreset; label: string }[] = [
 
 /** 有效订单明细每页条数 */
 const DETAIL_PAGE_SIZE = 10
+/** 推广员排行每页条数 */
+const RANK_PAGE_SIZE = 10
 
 /** 格式化为 YYYY-MM-DD（本地时区） */
 function formatDate(d: Date): string {
@@ -229,6 +235,16 @@ export function SettlementReportPanel() {
   const [detailLoading, setDetailLoading] = useState(true)
   const [detailPage, setDetailPage] = useState(1)
 
+  // ── 订单详情弹窗（复用订单管理）──
+  const [showDetail, setShowDetail] = useState<AdminOrderItem | null>(null)
+
+  // ── 推广员排行弹窗（查看更多，分页，默认 10 条）──
+  const [rankOpen, setRankOpen] = useState(false)
+  const [rankRows, setRankRows] = useState<SettlementDistributorDetail[]>([])
+  const [rankTotal, setRankTotal] = useState(0)
+  const [rankLoading, setRankLoading] = useState(false)
+  const [rankPage, setRankPage] = useState(1)
+
   const datePresetLabel = DATE_PRESETS.find(p => p.value === datePreset)?.label ?? "本月"
 
   const getParams = useCallback(() => {
@@ -299,6 +315,46 @@ export function SettlementReportPanel() {
     return () => { cancelled = true }
   }, [getParams, detailPage])
 
+  // 推广员排行：弹窗打开或翻页时加载
+  useEffect(() => {
+    if (!rankOpen) return
+    let cancelled = false
+    setRankLoading(true)
+    const params = getParams()
+    withMockFallback(
+      () => adminOrderApi.getSettlementDistributors({
+        start_date: params.start_date,
+        end_date: params.end_date,
+        page: rankPage,
+        page_size: RANK_PAGE_SIZE,
+      }),
+      () => mockSettlementDistributors({
+        start_date: params.start_date,
+        end_date: params.end_date,
+        page: rankPage,
+        page_size: RANK_PAGE_SIZE,
+      })
+    )
+      .then(data => {
+        if (cancelled) return
+        setRankRows(data.list)
+        setRankTotal(data.pagination.total)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        toast.error(err instanceof Error ? err.message : "加载推广员排行失败")
+      })
+      .finally(() => {
+        if (!cancelled) setRankLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [rankOpen, rankPage, getParams])
+
+  const openRank = () => {
+    setRankPage(1)
+    setRankOpen(true)
+  }
+
   const handleSelectPreset = (preset: DatePreset) => {
     if (preset === datePreset) return
     setDatePreset(preset)
@@ -349,6 +405,9 @@ export function SettlementReportPanel() {
 
   const detailTotalPages = Math.max(1, Math.ceil(detailTotal / DETAIL_PAGE_SIZE))
   const detailPages = pageNumbers(detailPage, detailTotalPages)
+
+  const rankTotalPages = Math.max(1, Math.ceil(rankTotal / RANK_PAGE_SIZE))
+  const rankPages = pageNumbers(rankPage, rankTotalPages)
 
   return (
     <div className="flex flex-col gap-6">
@@ -586,6 +645,7 @@ export function SettlementReportPanel() {
                         ))}
                       </Pie>
                       <Tooltip
+                        wrapperStyle={{ zIndex: 20 }}
                         contentStyle={TOOLTIP_STYLE}
                         labelStyle={TOOLTIP_LABEL_STYLE}
                         itemStyle={TOOLTIP_ITEM_STYLE}
@@ -647,6 +707,7 @@ export function SettlementReportPanel() {
                       ))}
                     </Pie>
                     <Tooltip
+                      wrapperStyle={{ zIndex: 20 }}
                       contentStyle={TOOLTIP_STYLE}
                       labelStyle={TOOLTIP_LABEL_STYLE}
                       itemStyle={TOOLTIP_ITEM_STYLE}
@@ -706,13 +767,11 @@ export function SettlementReportPanel() {
                       ))}
                     </Pie>
                     <Tooltip
+                      wrapperStyle={{ zIndex: 20 }}
                       contentStyle={TOOLTIP_STYLE}
                       labelStyle={TOOLTIP_LABEL_STYLE}
                       itemStyle={TOOLTIP_ITEM_STYLE}
-                      formatter={(value, name) => [
-                        `${money(Number(value))} · ${(statuses.find(s => s.status === String(name))?.orders ?? 0).toLocaleString()} 单`,
-                        ORDER_STATUS_LABELS[String(name)] ?? String(name),
-                      ]}
+                      formatter={(value, name) => [money(Number(value)), ORDER_STATUS_LABELS[String(name)] ?? String(name)]}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -742,7 +801,20 @@ export function SettlementReportPanel() {
           )}
         </SectionCard>
 
-        <SectionCard title="分销佣金 Top 10" subtitle="一级 + 二级佣金合计">
+        <SectionCard
+          title="分销佣金 Top 10"
+          subtitle="一级 + 二级佣金合计"
+          action={
+            <button
+              type="button"
+              onClick={openRank}
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-input px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              查看更多
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          }
+        >
           {distributors.length === 0 ? (
             <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
               {loading ? "加载中..." : "暂无分销数据"}
@@ -787,23 +859,26 @@ export function SettlementReportPanel() {
       {/* 有效订单明细 */}
       <SectionCard title="有效订单明细" subtitle="已支付 / 已发货 / 已完成订单，每页 10 条">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] text-sm">
+          <table className="w-full min-w-[1180px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted-foreground">
                 <th className="pb-3 pr-4 font-medium">订单号</th>
                 <th className="pb-3 pr-4 font-medium">商品</th>
                 <th className="pb-3 pr-4 font-medium">数量</th>
                 <th className="pb-3 pr-4 font-medium">客户</th>
+                <th className="pb-3 pr-4 font-medium">推广员</th>
                 <th className="pb-3 pr-4 font-medium">支付方式</th>
+                <th className="pb-3 pr-4 font-medium">设备</th>
                 <th className="pb-3 pr-4 text-right font-medium">金额</th>
                 <th className="pb-3 pr-4 font-medium">状态</th>
-                <th className="pb-3 font-medium">下单时间</th>
+                <th className="pb-3 pr-4 font-medium">下单时间</th>
+                <th className="pb-3 text-right font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
               {detailLoading ? (
                 <tr>
-                  <td colSpan={8} className="py-12">
+                  <td colSpan={11} className="py-12">
                     <div className="flex items-center justify-center">
                       <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     </div>
@@ -811,7 +886,7 @@ export function SettlementReportPanel() {
                 </tr>
               ) : detailOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">当前筛选区间暂无有效订单</td>
+                  <td colSpan={11} className="py-8 text-center text-sm text-muted-foreground">当前筛选区间暂无有效订单</td>
                 </tr>
               ) : (
                 detailOrders.map(order => (
@@ -842,10 +917,16 @@ export function SettlementReportPanel() {
                       </div>
                     </td>
                     <td className="py-3 pr-4">
+                      <span className="text-xs text-foreground">{order.promoter || "-"}</span>
+                    </td>
+                    <td className="py-3 pr-4">
                       <span className="inline-flex items-center gap-1.5 text-foreground">
                         <PaymentIcon method={order.payment_method} className="h-4 w-4" />
                         {getPaymentLabel(order.payment_method)}
                       </span>
+                    </td>
+                    <td className="max-w-[120px] truncate py-3 pr-4 text-xs text-muted-foreground" title={order.device ?? ""}>
+                      {order.device || "-"}
                     </td>
                     <td className="py-3 pr-4 text-right">
                       <span className="font-medium text-foreground">¥{order.actual_amount.toFixed(2)}</span>
@@ -853,8 +934,18 @@ export function SettlementReportPanel() {
                     <td className="py-3 pr-4">
                       <OrderStatusBadge status={order.status} />
                     </td>
-                    <td className="whitespace-nowrap py-3 text-sm text-muted-foreground">
+                    <td className="whitespace-nowrap py-3 pr-4 text-sm text-muted-foreground">
                       {new Date(order.created_at).toLocaleString("zh-CN", { hour12: false })}
+                    </td>
+                    <td className="py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setShowDetail(order)}
+                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-input px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        查看详情
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -906,6 +997,140 @@ export function SettlementReportPanel() {
           </div>
         )}
       </SectionCard>
+
+      {/* 订单详情弹窗（复用订单管理样式与内容） */}
+      <OrderDetailModal order={showDetail} onClose={() => setShowDetail(null)} />
+
+      {/* 推广员排行弹窗 */}
+      <Modal open={rankOpen} onClose={() => setRankOpen(false)} className="max-w-5xl">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
+          <div>
+            <h3 className="text-base font-semibold text-foreground">推广员排行</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {datePresetLabel} · 按佣金合计降序 · 共 {rankTotal.toLocaleString()} 位推广员
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRankOpen(false)}
+            className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="max-h-[60vh] overflow-auto px-6 py-4">
+          <table className="w-full min-w-[860px] text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                <th className="pb-3 pr-4 font-medium">排名</th>
+                <th className="pb-3 pr-4 font-medium">推广员</th>
+                <th className="pb-3 pr-4 text-right font-medium">销售金额</th>
+                <th className="pb-3 pr-4 text-right font-medium">订单数</th>
+                <th className="pb-3 pr-4 text-right font-medium">一级佣金</th>
+                <th className="pb-3 pr-4 text-right font-medium">二级佣金</th>
+                <th className="pb-3 pr-4 text-right font-medium">佣金合计</th>
+                <th className="pb-3 text-right font-medium">佣金比例</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rankLoading ? (
+                <tr>
+                  <td colSpan={8} className="py-12">
+                    <div className="flex items-center justify-center">
+                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    </div>
+                  </td>
+                </tr>
+              ) : rankRows.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-10 text-center text-sm text-muted-foreground">当前筛选区间暂无推广员数据</td>
+                </tr>
+              ) : (
+                rankRows.map((row, i) => {
+                  const rank = (rankPage - 1) * RANK_PAGE_SIZE + i + 1
+                  return (
+                    <tr key={`${row.distributor_code}-${rank}`} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
+                      <td className="py-3 pr-4">
+                        <span
+                          className={cn(
+                            "inline-flex h-6 w-6 items-center justify-center rounded-md text-xs font-semibold",
+                            rank === 1
+                              ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                              : rank === 2
+                                ? "bg-slate-400/15 text-slate-600 dark:text-slate-300"
+                                : rank === 3
+                                  ? "bg-orange-500/15 text-orange-600 dark:text-orange-400"
+                                  : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          {rank}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-sm font-medium text-foreground">{row.name || "-"}</span>
+                          <span className="font-mono text-xs text-muted-foreground">{row.distributor_code || "-"}</span>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap py-3 pr-4 text-right text-foreground">{money(row.sales_amount)}</td>
+                      <td className="py-3 pr-4 text-right text-foreground">{row.orders.toLocaleString()}</td>
+                      <td className="whitespace-nowrap py-3 pr-4 text-right text-muted-foreground">{money(row.commission_amount)}</td>
+                      <td className="whitespace-nowrap py-3 pr-4 text-right text-muted-foreground">{money(row.parent_commission_amount)}</td>
+                      <td className="whitespace-nowrap py-3 pr-4 text-right font-semibold text-amber-600 dark:text-amber-400">
+                        {money(row.amount)}
+                      </td>
+                      <td className="whitespace-nowrap py-3 text-right text-foreground">{row.ratio.toFixed(1)}%</td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {rankTotal > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-3">
+            <p className="text-xs text-muted-foreground">
+              共 {rankTotal.toLocaleString()} 条 · 第 {rankPage} / {rankTotalPages} 页
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setRankPage(p => Math.max(1, p - 1))}
+                disabled={rankPage === 1 || rankLoading}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-input text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              {rankPages.map(page => (
+                <button
+                  key={page}
+                  type="button"
+                  onClick={() => setRankPage(page)}
+                  disabled={rankLoading}
+                  className={cn(
+                    "flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                    page === rankPage
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-input text-muted-foreground hover:bg-accent hover:text-foreground"
+                  )}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setRankPage(p => Math.min(rankTotalPages, p + 1))}
+                disabled={rankPage >= rankTotalPages || rankLoading}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-input text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

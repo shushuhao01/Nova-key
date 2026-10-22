@@ -18,6 +18,7 @@ import type {
   AdminOrderItem,
   AdminOrderStats,
   SettlementReport,
+  SettlementDistributorDetail,
   PointRecord,
   PointsData,
   PaginatedData,
@@ -876,6 +877,55 @@ export function mockSettlementReport(params?: { start_date?: string; end_date?: 
       { distributor_code: "D20260004", name: "david", amount: Number((commission * 0.12).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.06)), sales_amount: Number((effective * 0.12).toFixed(2)), ratio: 13.2 },
       { distributor_code: "D20260005", name: "eric", amount: Number((commission * 0.07).toFixed(2)), orders: Math.max(1, Math.round(validOrders * 0.04)), sales_amount: Number((effective * 0.07).toFixed(2)), ratio: 13.5 },
     ],
+  }
+}
+
+/** 推广员排行 mock（业绩结算「查看更多」，分页，默认 10 条） */
+export function mockSettlementDistributors(params?: {
+  start_date?: string
+  end_date?: string
+  page?: number
+  page_size?: number
+}): PaginatedData<SettlementDistributorDetail> {
+  const report = mockSettlementReport({ start_date: params?.start_date, end_date: params?.end_date })
+  const totalCommission = report.summary.commission_amount
+  const totalOrders = report.summary.valid_orders
+  const totalSales = totalCommission > 0 ? Number((totalCommission / 0.128).toFixed(2)) : 0
+
+  const names = [
+    "alice", "bob", "carol", "david", "eric", "frank", "grace", "henry", "ivy", "jack",
+    "karen", "leo", "mia", "nina", "oscar", "paul", "queen", "rose", "sam", "tina",
+    "uma", "victor", "wendy", "xavier", "yuki", "zoe",
+  ]
+
+  const weights = names.map((_, i) => 1 / Math.pow(i + 1, 1.15))
+  const weightSum = weights.reduce((s, w) => s + w, 0)
+
+  const rows: SettlementDistributorDetail[] = names.map((name, i) => {
+    const share = weights[i] / weightSum
+    const amount = Number((totalCommission * share).toFixed(2))
+    const level2Ratio = 0.18 + (i % 5) * 0.04
+    const parentCommission = Number((amount * level2Ratio).toFixed(2))
+    const commission = Number((amount - parentCommission).toFixed(2))
+    const sales = Number((totalSales * share).toFixed(2))
+    const orders = Math.max(1, Math.round(totalOrders * share))
+    return {
+      distributor_code: `D2026${String(i + 1).padStart(4, "0")}`,
+      name,
+      amount,
+      orders,
+      sales_amount: sales,
+      ratio: sales > 0 ? Number(((amount / sales) * 100).toFixed(1)) : 0,
+      commission_amount: commission,
+      parent_commission_amount: parentCommission,
+    }
+  })
+
+  const page = Math.max(1, params?.page ?? 1)
+  const pageSize = params?.page_size && params.page_size > 0 ? params.page_size : 10
+  return {
+    list: rows.slice((page - 1) * pageSize, page * pageSize),
+    pagination: { page, page_size: pageSize, total: rows.length },
   }
 }
 

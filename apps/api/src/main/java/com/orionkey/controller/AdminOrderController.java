@@ -62,6 +62,18 @@ public class AdminOrderController {
         return ApiResponse.success(adminOrderService.getSettlementReport(startDate, endDate));
     }
 
+    /** 推广员排行（业绩结算「查看更多」）：分页返回完整排行数据 */
+    @GetMapping("/settlement/distributors")
+    public ApiResponse<?> settlementDistributors(
+            @RequestParam(value = "start_date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(value = "end_date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "10") int pageSize) {
+        return ApiResponse.success(adminOrderService.listSettlementDistributors(startDate, endDate, page, pageSize));
+    }
+
     @GetMapping("/{id}")
     public ApiResponse<?> getOrderDetail(@PathVariable UUID id) {
         return ApiResponse.success(adminOrderService.getOrderDetail(id));

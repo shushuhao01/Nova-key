@@ -35,6 +35,7 @@ import type {
   AdminOrderItem,
   AdminOrderStats,
   SettlementReport,
+  SettlementDistributorDetail,
   PaymentChannelItem,
   PaymentTestResult,
   NotificationTemplateItem,
@@ -735,6 +736,11 @@ export const adminOrderApi = {
   getSettlement: (params: { start_date?: string; end_date?: string }) => {
     const qs = buildQuery(params)
     return request<SettlementReport>(`/admin/orders/settlement?${qs}`)
+  },
+  /** 推广员排行（业绩结算 - 分销佣金「查看更多」） */
+  getSettlementDistributors: (params: { start_date?: string; end_date?: string; page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<PaginatedData<SettlementDistributorDetail>>(`/admin/orders/settlement/distributors?${qs}`)
   },
   getDetail: (id: string) =>
     request<AdminOrderItem>(`/admin/orders/${id}`),

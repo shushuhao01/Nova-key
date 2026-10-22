@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Search, ChevronDown, Eye, Download, ChevronLeft, ChevronRight, X, Check, CheckCircle, Undo2, Loader2, CalendarDays, ShoppingBag, Wallet, CircleDollarSign, Users, Ban, type LucideIcon } from "lucide-react"
+import { Search, ChevronDown, Eye, Download, ChevronLeft, ChevronRight, X, CheckCircle, Undo2, Loader2, CalendarDays, ShoppingBag, Wallet, CircleDollarSign, Users, Ban, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
 import { toast } from "sonner"
@@ -109,8 +109,6 @@ export default function AdminOrdersPage() {
   const [datePreset, setDatePreset] = useState<DatePreset>("month")
   const [customStart, setCustomStart] = useState("")
   const [customEnd, setCustomEnd] = useState("")
-  const [dateMenuOpen, setDateMenuOpen] = useState(false)
-  const dateMenuRef = useRef<HTMLDivElement>(null)
   const dateRange = resolveDateRange(datePreset, customStart, customEnd)
 
   // ── 顶部统计 ──
@@ -240,19 +238,9 @@ export default function AdminOrdersPage() {
   // 统计卡片跟随筛选条件变化（与分页无关）
   useEffect(() => { fetchStats() }, [statusFilter, paymentFilter, orderTypeFilter, debouncedSearch, dateRange.start, dateRange.end])
 
-  // 点击外部关闭日期下拉
-  useEffect(() => {
-    if (!dateMenuOpen) return
-    const handler = (e: MouseEvent) => {
-      if (!dateMenuRef.current?.contains(e.target as Node)) setDateMenuOpen(false)
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [dateMenuOpen])
-
   const handleSelectPreset = (preset: DatePreset) => {
+    if (preset === datePreset) return
     setDatePreset(preset)
-    setDateMenuOpen(false)
     if (preset === "custom" && (!customStart || !customEnd)) {
       const now = new Date()
       setCustomStart(formatDate(new Date(now.getFullYear(), now.getMonth(), 1)))
@@ -350,34 +338,23 @@ export default function AdminOrdersPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
-        <div ref={dateMenuRef} className="relative">
-          <button
-            type="button"
-            onClick={() => setDateMenuOpen(o => !o)}
-            className="flex h-10 items-center gap-2 rounded-lg border border-input bg-background pl-3 pr-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            <CalendarDays className="h-4 w-4 text-muted-foreground" />
-            <span className="min-w-[2.5em] text-left">{datePresetLabel}</span>
-            <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", dateMenuOpen && "rotate-180")} />
-          </button>
-          {dateMenuOpen && (
-            <div className="absolute left-0 z-30 mt-1 w-36 rounded-lg border border-border bg-background p-1 shadow-lg">
-              {DATE_PRESETS.map(preset => (
-                <button
-                  key={preset.value}
-                  type="button"
-                  onClick={() => handleSelectPreset(preset.value)}
-                  className={cn(
-                    "flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-sm transition-colors hover:bg-accent",
-                    datePreset === preset.value ? "font-medium text-primary" : "text-foreground"
-                  )}
-                >
-                  {preset.label}
-                  {datePreset === preset.value && <Check className="h-3.5 w-3.5" />}
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="flex flex-wrap items-center gap-1 rounded-lg bg-muted p-1">
+          <CalendarDays className="ml-1 mr-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          {DATE_PRESETS.map(preset => (
+            <button
+              key={preset.value}
+              type="button"
+              onClick={() => handleSelectPreset(preset.value)}
+              className={cn(
+                "h-8 rounded-md px-2.5 text-sm font-medium transition-colors",
+                datePreset === preset.value
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {preset.label}
+            </button>
+          ))}
         </div>
 
         {datePreset === "custom" && (

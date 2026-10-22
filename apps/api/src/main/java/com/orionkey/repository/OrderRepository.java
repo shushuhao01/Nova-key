@@ -372,4 +372,39 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             nativeQuery = true)
     List<Object[]> findSettlementTopDistributors(@Param("from") LocalDateTime from,
                                                  @Param("to") LocalDateTime to);
+
+    /**
+     * 推广员排行（分页，佣金合计降序）：
+     * [分销编号, 名称, 一级佣金, 二级佣金, 订单数, 销售金额]
+     */
+    @Query(value = "SELECT COALESCE(d.distributor_code, ''), " +
+            "COALESCE(u.username, u.email, d.distributor_code), " +
+            "COALESCE(SUM(COALESCE(cr.commission_amount, 0)), 0), " +
+            "COALESCE(SUM(COALESCE(cr.parent_commission_amount, 0)), 0), " +
+            "COUNT(DISTINCT cr.order_id), " +
+            "COALESCE(SUM(COALESCE(o.actual_amount, 0)), 0) " +
+            "FROM commission_records cr " +
+            "JOIN orders o ON o.id = cr.order_id " +
+            "JOIN distributors d ON d.id = cr.distributor_id " +
+            "LEFT JOIN users u ON u.id = d.user_id " +
+            "WHERE o.created_at >= :from AND o.created_at < :to " +
+            "AND o.status IN ('PAID','DELIVERED','COMPLETED') " +
+            "GROUP BY d.distributor_code, u.username, u.email " +
+            "ORDER BY (COALESCE(SUM(COALESCE(cr.commission_amount, 0)), 0) + " +
+            "COALESCE(SUM(COALESCE(cr.parent_commission_amount, 0)), 0)) DESC, 5 DESC " +
+            "LIMIT :limit OFFSET :offset",
+            nativeQuery = true)
+    List<Object[]> findSettlementDistributors(@Param("from") LocalDateTime from,
+                                              @Param("to") LocalDateTime to,
+                                              @Param("limit") int limit,
+                                              @Param("offset") int offset);
+
+    /** 区间内产生有效订单佣金的分销员总数 */
+    @Query(value = "SELECT COUNT(DISTINCT cr.distributor_id) " +
+            "FROM commission_records cr JOIN orders o ON o.id = cr.order_id " +
+            "WHERE o.created_at >= :from AND o.created_at < :to " +
+            "AND o.status IN ('PAID','DELIVERED','COMPLETED')",
+            nativeQuery = true)
+    long countSettlementDistributors(@Param("from") LocalDateTime from,
+                                     @Param("to") LocalDateTime to);
 }
