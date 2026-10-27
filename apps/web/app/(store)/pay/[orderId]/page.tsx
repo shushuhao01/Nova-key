@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { use } from "react"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useSearchParams, useRouter } from "next/navigation"
 import {
   Clock,
   CheckCircle2,
@@ -19,10 +19,11 @@ import {
   Smartphone,
   KeyRound,
   UserRound,
+  ChevronDown,
 } from "lucide-react"
 import { toast } from "sonner"
-import { useLocale, useCart, useSiteConfig } from "@/lib/context"
-import { orderApi, wechatMpApi } from "@/services/api"
+import { useLocale, useCart, useSiteConfig, useAuth } from "@/lib/context"
+import { orderApi, wechatMpApi, authApi, setToken, getApiErrorMessage } from "@/services/api"
 import type { OrderStatus, JsapiPayParams, DeliverResultGroup } from "@/types"
 import { cn, detectPaymentDevice, isMobileDevice } from "@/lib/utils"
 import { PaymentIcon, getPaymentLabel, getPaymentBrandColor, getPaymentScanHint } from "@/components/shared/payment-icon"
@@ -37,8 +38,10 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
   const { t } = useLocale()
   const { config } = useSiteConfig()
   const searchParams = useSearchParams()
+  const router = useRouter()
 
   const { refreshCart } = useCart()
+  const { setUser } = useAuth()
 
   const [status, setStatus] = useState<OrderStatus>("PENDING")
   const [timeLeft, setTimeLeft] = useState(-1) // -1 = 等待服务端返回真实倒计时，避免闪屏
@@ -55,12 +58,18 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
   const [jsapiPending, setJsapiPending] = useState(false)
   const [jsapiError, setJsapiError] = useState(false)
 
-  // 匿名手机号下单自动建号的一次性登录提示（读取后立即抹除明文密码，刷新只保留脱敏手机号）
+  // 匿名手机号下单自动建号的一次性登录提示（保留明文密码，便于刷新后仍可查看/自动登录）
   const [loginHint, setLoginHint] = useState<{
     auto_registered?: boolean
     login_phone?: string
+    login_phone_full?: string
     initial_password?: string
   } | null>(null)
+  // 账号信息面板默认折叠，避免喧宾夺主（卡密才是重点）
+  const [accountOpen, setAccountOpen] = useState(false)
+  // 缺明文密码时通过登录提示接口兜底获取站点默认密码
+  const [fallbackPassword, setFallbackPassword] = useState("")
+  const [autoLoggingIn, setAutoLoggingIn] = useState(false)
   // 支付成功页展示的卡密（deliver 幂等，PAID 订单会自动分配卡密）
   const [deliverGroups, setDeliverGroups] = useState<DeliverResultGroup[]>([])
 
@@ -195,7 +204,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
     fetchOrderInfo()
   }, [orderId, searchParams])
 
-  // 读取下单时交接的登录提示：明文初始密码仅本次页面加载可用，读取后立即从 sessionStorage 移除
+  // 读取下单时交接的登录提示：保留明文密码，刷新后仍可在账号面板内查看与自动登录
   useEffect(() => {
     const key = `order_hint_${orderId}`
     const raw = sessionStorage.getItem(key)
@@ -204,6 +213,7 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
       const parsed = JSON.parse(raw) as {
         auto_registered?: boolean
         login_phone?: string
+        login_phone_full?: string
         initial_password?: string
       }
       if (!parsed || !parsed.login_phone) {
@@ -211,15 +221,24 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
         return
       }
       setLoginHint(parsed)
-      // 刷新后降级：只保留脱敏手机号，不再保留明文密码
-      sessionStorage.setItem(key, JSON.stringify({
-        auto_registered: parsed.auto_registered,
-        login_phone: parsed.login_phone,
-      }))
     } catch {
       sessionStorage.removeItem(key)
     }
   }, [orderId])
+
+  // 展开账号面板且缺失明文密码时，用站点默认密码兜底（后端限流 10 次/分/IP）
+  useEffect(() => {
+    if (!accountOpen || !loginHint?.auto_registered || loginHint.initial_password || fallbackPassword) return
+    let cancelled = false
+    authApi.loginHint()
+      .then((res) => {
+        if (!cancelled && res.default_password) setFallbackPassword(res.default_password)
+      })
+      .catch(() => {
+        // silent — 拿不到默认密码时引导用户手动登录/找回密码
+      })
+    return () => { cancelled = true }
+  }, [accountOpen, loginHint, fallbackPassword])
 
   // 支付成功：拉取卡密用于成功页展示（接口幂等，PAID 订单会自动分配卡密）
   useEffect(() => {
@@ -433,9 +452,43 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
   }
 
+  // 用自动创建的账号 + 默认密码直接登录，成功后直达个人中心
+  const handleAutoLogin = useCallback(async () => {
+    const account = loginHint?.login_phone_full
+    const password = loginHint?.initial_password || fallbackPassword
+    if (!account || !password) {
+      // 缺少完整手机号或密码（历史订单）：退回登录页手动登录
+      toast.info(t("payment.autoLoginFallback"))
+      router.push("/login?redirect=/profile")
+      return
+    }
+    setAutoLoggingIn(true)
+    try {
+      // 支付成功场景延迟强制改密：本次会话不拦截，用户可先查看卡密/个人中心，下次正常登录仍强制改密
+      const result = await authApi.login({ account, password, defer_force_change: true })
+      setToken(result.token)
+      setUser(result.user)
+      await refreshCart()
+      if (result.must_change_password === true) {
+        toast.success(t("payment.autoLoginDeferred"))
+        router.push("/profile")
+        return
+      }
+      toast.success(t("auth.loginSuccess"))
+      router.push("/profile")
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, t))
+    } finally {
+      setAutoLoggingIn(false)
+    }
+  }, [loginHint, fallbackPassword, refreshCart, setUser, router, t])
+
   if (status === "PAID" || status === "DELIVERED" || status === "COMPLETED") {
     const allKeys = deliverGroups.flatMap((g) => g.card_keys).join("\n")
     const phone = loginHint?.login_phone || ""
+    // 完整手机号仅存在于本页 sessionStorage，用于展示与一键登录
+    const accountDisplay = loginHint?.login_phone_full || phone
+    const loginPassword = loginHint?.initial_password || fallbackPassword
     return (
       <div className="mx-auto flex max-w-lg flex-col items-center gap-5 py-12">
         <div className="flex flex-col items-center">
@@ -492,43 +545,83 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
           </div>
         )}
 
-        {/* 登录提示卡片（匿名手机号下单自动建号 / 归属已有账号） */}
-        {loginHint && phone && (
-          <div className="w-full rounded-xl border border-primary/30 bg-primary/5 p-4">
-            <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
-              <UserRound className="h-4 w-4 text-primary" />
-              {loginHint.auto_registered
-                ? t("payment.accountCreatedTitle").replace("{phone}", phone)
-                : t("payment.accountExistsTitle")}
-            </h2>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {loginHint.auto_registered
-                ? (loginHint.initial_password
-                    ? t("payment.accountCreatedDesc")
-                    : t("payment.accountCreatedDescNoPwd"))
-                : t("payment.accountExistsDesc").replace("{phone}", phone)}
-            </p>
-            {loginHint.initial_password && (
-              <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2">
-                <span className="text-xs text-muted-foreground">{t("payment.initialPassword")}</span>
-                <span className="flex items-center gap-2">
-                  <code className="font-mono text-sm font-semibold text-foreground">{loginHint.initial_password}</code>
-                  <button
-                    type="button"
-                    onClick={() => copyToClipboard(loginHint.initial_password || "")}
-                    className="text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </button>
-                </span>
+        {/* 登录账号（仅本次下单新建账号时展示；老客户二次下单不显示建户提醒，默认折叠） */}
+        {loginHint?.auto_registered && phone && (
+          <div className="w-full overflow-hidden rounded-xl border border-border bg-card">
+            <button
+              type="button"
+              onClick={() => setAccountOpen((v) => !v)}
+              className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+            >
+              <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <UserRound className="h-4 w-4 text-muted-foreground" />
+                {t("payment.accountPanelTitle")}
+              </span>
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                {accountOpen ? t("payment.accountPanelCollapse") : t("payment.accountPanelExpand")}
+                <ChevronDown className={cn("h-4 w-4 transition-transform", accountOpen && "rotate-180")} />
+              </span>
+            </button>
+            {accountOpen && (
+              <div className="space-y-2 border-t border-border px-4 py-3">
+                <p className="text-sm font-medium text-foreground">
+                  {t("payment.accountCreatedTitle").replace("{phone}", phone)}
+                </p>
+                <div className="flex items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2">
+                  <span className="text-xs text-muted-foreground">{t("payment.loginAccountLabel")}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="font-mono text-sm text-foreground">{accountDisplay}</span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(accountDisplay)}
+                      className="text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                </div>
+                {loginHint.auto_registered && (
+                  loginPassword ? (
+                    <>
+                      <div className="flex items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2">
+                        <span className="text-xs text-muted-foreground">{t("payment.loginPasswordLabel")}</span>
+                        <span className="flex items-center gap-2">
+                          <code className="font-mono text-sm font-semibold text-foreground">{loginPassword}</code>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(loginPassword)}
+                            className="text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      </div>
+                      <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        {t("payment.loginPasswordTip")}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-xs leading-relaxed text-muted-foreground">{t("payment.accountCreatedDescNoPwd")}</p>
+                  )
+                )}
+                <button
+                  type="button"
+                  onClick={handleAutoLogin}
+                  disabled={autoLoggingIn}
+                  className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                >
+                  {autoLoggingIn ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      {t("payment.autoLoggingIn")}
+                    </>
+                  ) : (
+                    t("payment.goLogin")
+                  )}
+                </button>
               </div>
             )}
-            <Link
-              href="/login?redirect=/profile"
-              className="mt-3 inline-flex h-9 items-center rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              {t("payment.goLogin")}
-            </Link>
           </div>
         )}
 

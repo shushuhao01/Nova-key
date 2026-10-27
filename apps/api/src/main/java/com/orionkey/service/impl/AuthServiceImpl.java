@@ -295,7 +295,13 @@ public class AuthServiceImpl implements AuthService {
             mergeCart(sessionToken, user.getId());
         }
 
-        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name(), user.getPasswordVersion());
+        // 支付成功页自动登录可选择延迟强制改密：token 带 deferPwd，本次会话放行；数据库标记保持不变
+        boolean defer = request.isDeferForceChange() && user.isMustChangePassword();
+        if (defer) {
+            log.info("Login with deferred force-change: userId={}", user.getId());
+        }
+        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name(),
+                user.getPasswordVersion(), defer);
         return new AuthResponse(token, UserProfileResponse.from(user, permissionResolver.resolve(user)));
     }
 

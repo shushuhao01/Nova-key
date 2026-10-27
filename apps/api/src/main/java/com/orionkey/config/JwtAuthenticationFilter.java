@@ -51,6 +51,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     String username = claims.get("username", String.class);
                     String role = claims.get("role", String.class);
                     Integer pwdVer = claims.get("pwdVer", Integer.class);
+                    // 支付成功页自动登录签发的豁免标记：本次会话不强制改密（数据库标记仍保留）
+                    Boolean deferPwd = claims.get("deferPwd", Boolean.class);
 
                     // 后台请求（ADMIN/STAFF）：必须校验数据库中用户状态和角色，并按角色注入动态权限码（RBAC）
                     // /api/upload 上传接口（商品图/邮件图/支付证书）同样需要 BACKEND_ACCESS 等后台权限
@@ -94,7 +96,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             return;
                         }
                         // 默认密码登录后必须改密：除白名单外一律 403，前端据此弹不可关闭的改密弹窗
-                        if (user.isMustChangePassword() && !isMustChangePasswordAllowed(path)) {
+                        // 支付成功页自动登录已选择"稍后修改"（token 带 deferPwd），本次会话放行
+                        if (user.isMustChangePassword() && !Boolean.TRUE.equals(deferPwd)
+                                && !isMustChangePasswordAllowed(path)) {
                             rejectMustChangePassword(response);
                             return;
                         }

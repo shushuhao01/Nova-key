@@ -84,6 +84,13 @@ export default function LoginPage() {
   const [forceConfirm, setForceConfirm] = useState("")
   const [forceSubmitting, setForceSubmitting] = useState(false)
 
+  // 强制改密校验：旧密码非空、新密码≥6 位、两次新密码一致才允许提交
+  const forceOldFilled = forceOld.trim().length > 0
+  const forceNewTooShort = forceNew.length > 0 && forceNew.length < 6
+  const forceConfirmMismatch = forceConfirm.length > 0 && forceConfirm !== forceNew
+  const forceCanSubmit =
+    forceOldFilled && forceNew.length >= 6 && forceConfirm.length > 0 && forceConfirm === forceNew && !forceSubmitting
+
   // 重发倒计时
   useEffect(() => {
     if (loginCountdown <= 0) return
@@ -341,8 +348,12 @@ export default function LoginPage() {
       toast.error(t("auth.oldPasswordRequired"))
       return
     }
-    if (forceNew.length < 8) {
-      toast.error(t("auth.passwordHint"))
+    if (forceNew.length < 6) {
+      toast.error(t("auth.passwordMinLength"))
+      return
+    }
+    if (!forceConfirm) {
+      toast.error(t("auth.confirmPasswordRequired"))
       return
     }
     if (forceNew !== forceConfirm) {
@@ -857,6 +868,9 @@ export default function LoginPage() {
                 className={INPUT_CLASS}
                 required
               />
+              <p className={`mt-1 text-xs ${forceNewTooShort ? "text-destructive" : "text-muted-foreground"}`}>
+                {forceNewTooShort ? t("auth.passwordMinLength") : t("auth.passwordHint")}
+              </p>
             </div>
 
             <div>
@@ -873,11 +887,14 @@ export default function LoginPage() {
                 className={INPUT_CLASS}
                 required
               />
+              {forceConfirmMismatch && (
+                <p className="mt-1 text-xs text-destructive">{t("auth.passwordMismatch")}</p>
+              )}
             </div>
 
             <button
               type="submit"
-              disabled={forceSubmitting}
+              disabled={!forceCanSubmit}
               className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
             >
               {forceSubmitting && (

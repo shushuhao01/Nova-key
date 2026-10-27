@@ -360,7 +360,8 @@ export const authApi = {
   /** 默认密码登录后强制修改密码，返回新登录态 */
   forceChangePassword: (data: { old_password: string; new_password: string; confirm_password: string }) =>
     request<AuthResult>("/auth/force-change-password", { method: "POST", body: JSON.stringify(data) }),
-  login: (data: { account: string; password: string }) =>
+  /** 登录；defer_force_change 仅支付成功页自动登录使用（本次会话豁免强制改密，下次正常登录仍强制） */
+  login: (data: { account: string; password: string; defer_force_change?: boolean }) =>
     request<AuthResult>("/auth/login", { method: "POST", body: JSON.stringify(data) }),
   /** 验证码登录（邮箱 + 6 位验证码） */
   loginByCode: (data: { email: string; code: string }) =>

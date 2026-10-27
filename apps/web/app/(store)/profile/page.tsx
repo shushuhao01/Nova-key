@@ -17,6 +17,9 @@ import { Modal } from "@/components/ui/modal"
 type Tab = "info" | "password" | "points" | "coupons" | "invite"
 type BindType = "phone" | "email"
 
+const PHONE_PATTERN = /^1[3-9]\d{9}$/
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 export default function ProfilePage() {
   const { t } = useLocale()
   const currentUser = useRequireAuth()
@@ -232,15 +235,22 @@ function BindAccountModal({
     }
   }, [type])
 
+  // 格式校验：手机号 / 邮箱格式正确且填写了密码才允许点击绑定
+  const trimmedValue = value.trim()
+  const valueInvalid =
+    trimmedValue.length > 0 &&
+    (type === "phone" ? !PHONE_PATTERN.test(trimmedValue) : !EMAIL_PATTERN.test(trimmedValue))
+  const canSubmit = !!type && trimmedValue.length > 0 && !valueInvalid && password.length > 0 && !isLoading
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!type) return
     const trimmed = value.trim()
-    if (type === "phone" && !/^1[3-9]\d{9}$/.test(trimmed)) {
+    if (type === "phone" && !PHONE_PATTERN.test(trimmed)) {
       toast.error(t("profile.bindInvalidPhone"))
       return
     }
-    if (type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    if (type === "email" && !EMAIL_PATTERN.test(trimmed)) {
       toast.error(t("profile.bindInvalidEmail"))
       return
     }
@@ -285,14 +295,26 @@ function BindAccountModal({
             </label>
             <input
               type={type === "email" ? "email" : "tel"}
+              inputMode={type === "email" ? "email" : "numeric"}
+              maxLength={type === "phone" ? 11 : undefined}
               value={value}
-              onChange={(e) => setValue(e.target.value)}
+              onChange={(e) =>
+                setValue(type === "phone" ? e.target.value.replace(/\D/g, "") : e.target.value)
+              }
               placeholder={
                 type === "email" ? t("profile.bindEmailPlaceholder") : t("profile.bindPhonePlaceholder")
               }
               autoComplete={type === "email" ? "email" : "tel"}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+              className={cn(
+                "w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary",
+                valueInvalid ? "border-destructive" : "border-border"
+              )}
             />
+            {valueInvalid && (
+              <p className="mt-1 text-xs text-destructive">
+                {type === "phone" ? t("profile.bindInvalidPhone") : t("profile.bindInvalidEmail")}
+              </p>
+            )}
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">
@@ -329,8 +351,8 @@ function BindAccountModal({
           </button>
           <button
             type="submit"
-            disabled={isLoading}
-            className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+            disabled={!canSubmit}
+            className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
           >
             {isLoading ? t("common.loading") : t("profile.bindSubmit")}
           </button>

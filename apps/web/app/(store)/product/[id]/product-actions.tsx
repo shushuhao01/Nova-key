@@ -225,11 +225,12 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
         () => mockCreateOrder(email, selectedPayment)
       )
       toast.success(t("checkout.processingOrder"))
-      // 匿名手机号下单自动建号：登录提示一次性交接给支付成功页（读取后即降级，不保留明文密码）
+      // 匿名手机号下单自动建号：登录提示交接给支付成功页（login_phone_full 用于成功页一键登录）
       if (result.login_phone) {
         sessionStorage.setItem(`order_hint_${result.order.id}`, JSON.stringify({
           auto_registered: result.auto_registered,
           login_phone: result.login_phone,
+          login_phone_full: usePhone ? normalizePhone(phone) : undefined,
           initial_password: result.initial_password,
         }))
       }

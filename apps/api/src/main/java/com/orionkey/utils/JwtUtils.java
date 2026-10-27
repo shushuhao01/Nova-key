@@ -24,16 +24,28 @@ public class JwtUtils {
     }
 
     public String generateToken(UUID userId, String username, String role, int passwordVersion) {
+        return generateToken(userId, username, role, passwordVersion, false);
+    }
+
+    /**
+     * @param deferMustChange 为 true 时在 token 中写入 deferPwd 标记，
+     *                        本次会话豁免"必须修改初始密码"拦截（数据库标记不变，下次登录仍强制）
+     */
+    public String generateToken(UUID userId, String username, String role, int passwordVersion,
+                                boolean deferMustChange) {
         Date now = new Date();
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .subject(userId.toString())
                 .claim("username", username)
                 .claim("role", role)
                 .claim("pwdVer", passwordVersion)
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + expiration))
-                .signWith(key)
-                .compact();
+                .signWith(key);
+        if (deferMustChange) {
+            builder.claim("deferPwd", true);
+        }
+        return builder.compact();
     }
 
     public Claims parseToken(String token) {
