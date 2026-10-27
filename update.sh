@@ -133,9 +133,9 @@ if ss -ltnp | grep -q ':8083'; then
     ok "后端 8083 端口已监听 (PID: $PID)"
     info "进程信息:"
     ps -eo pid,lstart,cmd | grep 'nova-key.*jar' | grep -v grep | head -1 | sed 's/^/    /'
-    # 健康检查
+    # 健康检查（401/403 说明 Web 层已响应，同样是"已启动"）
     HEALTH=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8083/api/health 2>/dev/null || echo "000")
-    if [ "$HEALTH" = "200" ] || [ "$HEALTH" = "404" ]; then
+    if [ "$HEALTH" = "200" ] || [ "$HEALTH" = "401" ] || [ "$HEALTH" = "403" ] || [ "$HEALTH" = "404" ]; then
         ok "后端 HTTP 响应正常 ($HEALTH)"
     else
         warn "后端 HTTP 响应码: $HEALTH（可能还在启动中）"
@@ -151,8 +151,30 @@ fi
 section "构建前端 (Next.js)"
 # ─────────────────────────────────────────
 cd /www/wwwroot/nova-key/apps/web
+# 先停旧前端：next start 运行期间会持续写入 .next（如 .next/server/app），
+# 直接 rm 会报 "Directory not empty" 并在 set -e 下中断整个部署
+OLD_WEB_PID=$(ss -ltnp | grep ':3001' | grep -o 'pid=[0-9]*' | cut -d= -f2 || echo "")
+if [ -n "$OLD_WEB_PID" ]; then
+    info "停止旧前端进程 PID: $OLD_WEB_PID"
+    fuser -k 3001/tcp 2>/dev/null || true
+    for _ in $(seq 1 5); do
+        ss -ltnp | grep -q ':3001' || break
+        sleep 1
+    done
+else
+    info "无旧前端进程"
+fi
 info "清理构建缓存..."
+set +e
 rm -rf .next
+RM_EXIT=$?
+set -e
+if [ "$RM_EXIT" -ne 0 ]; then
+    # 偶发删除失败（残留句柄/文件系统延迟）重试一次，仍失败则继续构建，由 next build 覆盖产物
+    warn "清理 .next 未完全成功，重试..."
+    sleep 1
+    rm -rf .next 2>/dev/null || warn ".next 未完全清理，继续构建"
+fi
 info "开始构建..."
 # 注意：不能写成 `pnpm build | tail`，管道会吞掉 pnpm 的退出码导致构建失败仍被判定为成功
 set +e
@@ -179,19 +201,14 @@ fi
 # ─────────────────────────────────────────
 section "重启前端服务"
 # ─────────────────────────────────────────
-OLD_WEB_PID=$(ss -ltnp | grep ':3001' | grep -o 'pid=[0-9]*' | cut -d= -f2 || echo "")
-if [ -n "$OLD_WEB_PID" ]; then
-    info "停止旧前端进程 PID: $OLD_WEB_PID"
+# 旧前端已在构建前停止；若端口仍被占用则再清理一次
+if ss -ltnp | grep -q ':3001'; then
+    warn "3001 仍被占用，强制清理..."
     fuser -k 3001/tcp 2>/dev/null || true
+    sleep 2
 else
-    info "无旧前端进程"
+    info "3001 端口空闲"
 fi
-
-# 等旧进程释放端口（最多 5 秒）
-for _ in $(seq 1 5); do
-    ss -ltnp | grep -q ':3001' || break
-    sleep 1
-done
 
 # 宝塔不会自动拉起前端（无守护进程），直接手动启动；setsid 保证脚本退出后进程不被回收
 warn "手动启动前端..."
