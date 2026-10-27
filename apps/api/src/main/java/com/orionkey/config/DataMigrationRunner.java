@@ -63,6 +63,16 @@ public class DataMigrationRunner implements ApplicationRunner {
      * 幂等安全：列已可空 / 索引已存在时跳过。
      */
     private void migratePhoneSupport() {
+        // users.must_change_password：实体为原始 boolean（NOT NULL），Hibernate ddl-auto:update
+        // 对已有数据的表执行 ADD COLUMN ... NOT NULL（无默认值）会被 PostgreSQL 拒绝，
+        // 且只会记警告继续启动 → 列缺失导致所有 users 查询（登录/个人中心/后台鉴权）500。
+        // 这里显式补列并给默认值 false，幂等安全。
+        try {
+            jdbcTemplate.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password boolean NOT NULL DEFAULT false");
+            log.info("[Migration] ensured column users.must_change_password");
+        } catch (Exception e) {
+            log.warn("[Migration] users.must_change_password column add skipped: {}", e.getMessage());
+        }
         try {
             List<String> nullable = jdbcTemplate.queryForList(
                     "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'email'",
