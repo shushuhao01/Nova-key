@@ -8,9 +8,13 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 public interface OperationLogRepository extends JpaRepository<OperationLog, UUID> {
+
+    /** 账号合并：取某用户全部操作日志（保留审计） */
+    List<OperationLog> findByUserId(UUID userId);
 
     @Query(value = "SELECT * FROM operation_logs o WHERE " +
             "(CAST(:userId AS uuid) IS NULL OR o.user_id = CAST(:userId AS uuid)) " +

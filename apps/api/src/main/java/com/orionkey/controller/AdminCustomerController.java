@@ -50,13 +50,20 @@ public class AdminCustomerController {
         return ApiResponse.success(adminCustomerService.registeredDetail(id, page, pageSize));
     }
 
-    /** 匿名客户详情（邮箱经 @RequestParam 传递，避免 URL 特殊字符问题） */
+    /** 匿名客户详情（联系方式经 @RequestParam 传递，避免 URL 特殊字符问题；手机号或邮箱） */
     @GetMapping("/anonymous/detail")
     public ApiResponse<?> anonymousDetail(
-            @RequestParam String email,
+            @RequestParam String contact,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(value = "page_size", defaultValue = "10") int pageSize) {
-        return ApiResponse.success(adminCustomerService.anonymousDetail(email, page, pageSize));
+        return ApiResponse.success(adminCustomerService.anonymousDetail(contact, page, pageSize));
+    }
+
+    /** 管理员重置客户密码（随机新密码一次性返回，旧 token 立即失效） */
+    @LogOperation(action = "user.password.reset", targetType = "CUSTOMER", targetId = "#id", detail = "'管理员重置客户密码'")
+    @PostMapping("/registered/{id}/reset-password")
+    public ApiResponse<?> resetPassword(@PathVariable UUID id) {
+        return ApiResponse.success(adminCustomerService.resetPassword(id));
     }
 
     /** 封禁 / 解禁注册客户 */

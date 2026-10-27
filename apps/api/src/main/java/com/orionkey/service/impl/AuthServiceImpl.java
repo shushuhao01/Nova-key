@@ -8,12 +8,17 @@ import com.orionkey.entity.SiteConfig;
 import com.orionkey.entity.User;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.model.request.CodeLoginRequest;
+import com.orionkey.model.request.ForceChangePasswordRequest;
 import com.orionkey.model.request.LoginRequest;
+import com.orionkey.model.request.RegisterPhoneRequest;
 import com.orionkey.model.request.RegisterRequest;
 import com.orionkey.model.request.ResetPasswordRequest;
 import com.orionkey.model.request.SendCodeRequest;
+import com.orionkey.model.request.SendSmsCodeRequest;
+import com.orionkey.model.request.SmsCodeLoginRequest;
 import com.orionkey.model.response.AuthResponse;
 import com.orionkey.model.response.CaptchaResponse;
+import com.orionkey.model.response.LoginHintResponse;
 import com.orionkey.model.response.SendCodeResponse;
 import com.orionkey.model.response.UserProfileResponse;
 import com.orionkey.repository.CartItemRepository;
@@ -25,6 +30,7 @@ import com.orionkey.service.DistributionService;
 import com.orionkey.service.NotificationService;
 import com.orionkey.utils.CaptchaUtils;
 import com.orionkey.utils.JwtUtils;
+import com.orionkey.util.PhoneUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -34,11 +40,16 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.security.SecureRandom;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Service
@@ -55,6 +66,12 @@ public class AuthServiceImpl implements AuthService {
     private final NotificationService notificationService;
     private final PermissionResolver permissionResolver;
     private final DistributionService distributionService;
+    private final SmsCodeService smsCodeService;
+
+    /** 手机号注册的默认用户名前缀：p_<phone> */
+    private static final String PHONE_USERNAME_PREFIX = "p_";
+    /** 单 IP 注册计数（按自然日），配合 site_configs.phone_register_daily_limit 限流 */
+    private static final Map<String, IpRegisterCounter> REGISTER_IP_COUNTERS = new ConcurrentHashMap<>();
 
     @Override
     public CaptchaResponse generateCaptcha() {
@@ -113,6 +130,78 @@ public class AuthServiceImpl implements AuthService {
         return new AuthResponse(token, UserProfileResponse.from(user, permissionResolver.resolve(user)));
     }
 
+    @Override
+    @Transactional(noRollbackFor = BusinessException.class)
+    public AuthResponse registerPhone(RegisterPhoneRequest request, String ip) {
+        // 前置开关：客户手机号 / 手机号登录 / 手机号注册同时开启才允许自助注册
+        if (!isConfigEnabled("customer_phone_enabled")
+                || !isConfigEnabled("phone_login_enabled")
+                || !isConfigEnabled("phone_register_enabled")) {
+            throw new BusinessException(ErrorCode.PHONE_FEATURE_DISABLED, "手机号注册未启用");
+        }
+
+        String phone = PhoneUtils.normalize(request.getPhone());
+        if (!PhoneUtils.isValidCnMobile(phone)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "手机号格式不正确");
+        }
+        if (userRepository.existsByPhone(phone)) {
+            throw new BusinessException(ErrorCode.PHONE_EXISTS, "该手机号已注册，请直接登录");
+        }
+        if (request.getPassword() == null || !request.getPassword().equals(request.getConfirmPassword())) {
+            throw new BusinessException(ErrorCode.PASSWORD_MISMATCH, "两次输入的密码不一致");
+        }
+        validatePasswordStrength(request.getPassword());
+
+        if (!captchaUtils.verify(request.getCaptchaId(), request.getCaptcha())) {
+            throw new BusinessException(ErrorCode.CAPTCHA_INVALID, "验证码错误或已过期");
+        }
+
+        // 单 IP 日注册上限（默认 20），仅在真正落库成功后计数
+        String clientIp = ip == null ? "" : ip.trim();
+        int dailyLimit = intConfig("phone_register_daily_limit", 20);
+        IpRegisterCounter counter = acquireRegisterCounter(clientIp, dailyLimit);
+
+        User user = new User();
+        user.setUsername(resolvePhoneUsername(phone));
+        user.setPhone(phone);
+        user.setPhoneRegisteredAt(LocalDateTime.now());
+        user.setEmail(null);
+        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setRole(UserRole.USER);
+        // 用户自设密码，无需强制修改
+        user.setMustChangePassword(false);
+        try {
+            userRepository.save(user);
+        } catch (DataIntegrityViolationException e) {
+            log.warn("Phone register unique conflict: phone={}", phone);
+            throw new BusinessException(ErrorCode.PHONE_EXISTS, "该手机号已注册，请直接登录");
+        }
+        counter.increment();
+
+        // 管理员通知：新用户注册（手机号注册无邮箱，避免 Map.of 传 null 触发 NPE）
+        try {
+            Map<String, Object> vars = new HashMap<>();
+            vars.put("username", user.getUsername());
+            vars.put("phone", phone);
+            notificationService.sendTemplate("REGISTER", vars);
+        } catch (Exception e) {
+            log.warn("Register notification failed: {}", e.getMessage());
+        }
+
+        if (request.getInviteCode() != null && !request.getInviteCode().isBlank()) {
+            try {
+                distributionService.bindCustomerByInviteCode(user.getId(), request.getInviteCode());
+                log.info("Phone user {} registered and bound by invite code {}", user.getId(), request.getInviteCode().trim());
+            } catch (Exception e) {
+                log.warn("Phone register invite bind skipped: {}", e.getMessage());
+            }
+        }
+
+        log.info("Phone register success: userId={}, phone={}", user.getId(), phone);
+        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name(), user.getPasswordVersion());
+        return new AuthResponse(token, UserProfileResponse.from(user, permissionResolver.resolve(user)));
+    }
+
     /** 连续登录失败上限 */
     private static final int MAX_FAILED_ATTEMPTS = 5;
     /** 账户锁定时长（分钟） */
@@ -140,13 +229,29 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(noRollbackFor = BusinessException.class)
     public AuthResponse login(LoginRequest request, String sessionToken) {
-        // 登录账号是邮箱时统一小写（与注册时的邮箱小写规则一致），用户名则原样
-        String account = request.getAccount();
-        if (account != null && account.contains("@")) {
-            account = account.trim().toLowerCase();
+        // 统一登录入口自动识别：含 @ → 邮箱（小写）；手机号正则 → 手机号；其余 → 用户名
+        String account = request.getAccount() == null ? "" : request.getAccount().trim();
+        User user;
+        if (account.contains("@")) {
+            String email = account.toLowerCase(Locale.ROOT);
+            user = userRepository.findByUsernameOrEmail(email, email)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS, "用户名或密码错误"));
+        } else {
+            String phone = PhoneUtils.normalize(account);
+            if (PhoneUtils.isValidCnMobile(phone)) {
+                if (!isConfigEnabled("phone_login_enabled")) {
+                    throw new BusinessException(ErrorCode.PHONE_LOGIN_DISABLED, "手机号登录未启用");
+                }
+                user = userRepository.findByPhone(phone)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.PHONE_NOT_REGISTERED, "该手机号未注册，请先注册"));
+                if (user.getRole() == UserRole.ADMIN) {
+                    throw new BusinessException(ErrorCode.ADMIN_PHONE_LOGIN_FORBIDDEN, "管理员请使用账号或邮箱登录");
+                }
+            } else {
+                user = userRepository.findByUsernameOrEmail(account, account)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS, "用户名或密码错误"));
+            }
         }
-        User user = userRepository.findByUsernameOrEmail(account, account)
-                .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS, "用户名或密码错误"));
 
         if (user.getIsDeleted() == 1) {
             throw new BusinessException(ErrorCode.ACCOUNT_DISABLED, "该账号已被禁用");
@@ -194,12 +299,49 @@ public class AuthServiceImpl implements AuthService {
         return new AuthResponse(token, UserProfileResponse.from(user, permissionResolver.resolve(user)));
     }
 
+    @Override
+    public LoginHintResponse loginHint() {
+        return new LoginHintResponse(strConfig("phone_default_password", "Aa123456"));
+    }
+
+    @Override
+    @Transactional(noRollbackFor = BusinessException.class)
+    public AuthResponse forceChangePassword(UUID userId, ForceChangePasswordRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED, "登录已失效，请重新登录"));
+        if (user.getIsDeleted() == 1) {
+            throw new BusinessException(ErrorCode.ACCOUNT_DISABLED, "该账号已被禁用");
+        }
+        if (request.getOldPassword() == null
+                || !passwordEncoder.matches(request.getOldPassword(), user.getPasswordHash())) {
+            throw new BusinessException(ErrorCode.OLD_PASSWORD_WRONG, "原密码不正确");
+        }
+        if (request.getNewPassword() == null || !request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new BusinessException(ErrorCode.PASSWORD_MISMATCH, "两次输入的密码不一致");
+        }
+        if (request.getNewPassword().equals(request.getOldPassword())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "新密码不能与原密码相同");
+        }
+        validatePasswordStrength(request.getNewPassword());
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        // passwordVersion +1 使旧 token 立即失效，返回的新 token 供前端续用
+        user.setPasswordVersion(user.getPasswordVersion() + 1);
+        user.setMustChangePassword(false);
+        user.setFailedLoginAttempts(0);
+        user.setLockUntil(null);
+        userRepository.save(user);
+
+        log.info("Force change password success: userId={}", user.getId());
+        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name(), user.getPasswordVersion());
+        return new AuthResponse(token, UserProfileResponse.from(user, permissionResolver.resolve(user)));
+    }
+
     // ═══════════ 邮箱验证码：发送 / 忘记密码 / 验证码登录 ═══════════
 
     @Override
     @Transactional
     public SendCodeResponse sendEmailCode(SendCodeRequest request, String ip) {
-        String email = normalizeEmail(request.getEmail());
         String scene = request.getScene() == null ? "" : request.getScene().trim().toUpperCase(Locale.ROOT);
         if (!SCENE_PASSWORD_RESET.equals(scene) && !SCENE_LOGIN.equals(scene)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "不支持的验证码场景");
@@ -208,6 +350,18 @@ public class AuthServiceImpl implements AuthService {
         int expireMinutes = intConfig("auth_code_expire_minutes", DEFAULT_CODE_EXPIRE_MINUTES);
         int intervalSeconds = intConfig("auth_code_send_interval_seconds", DEFAULT_CODE_SEND_INTERVAL_SECONDS);
         int dailyLimit = intConfig("auth_code_daily_limit", DEFAULT_CODE_DAILY_LIMIT);
+
+        // 找回密码支持「邮箱」或「手机号」输入：手机号账号走其绑定邮箱；未注册手机号静默成功（防枚举）
+        String email;
+        if (SCENE_PASSWORD_RESET.equals(scene)) {
+            email = resolvePasswordResetEmail(request.getEmail(), true);
+            if (email == null) {
+                log.info("Skip sending reset code (phone not registered or disabled)");
+                return new SendCodeResponse(expireMinutes, intervalSeconds);
+            }
+        } else {
+            email = normalizeEmail(request.getEmail());
+        }
         LocalDateTime now = LocalDateTime.now();
 
         // 重发间隔限制（以最近一次发送时间为准，无论是否已使用）
@@ -269,7 +423,8 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(noRollbackFor = BusinessException.class)
     public void resetPassword(ResetPasswordRequest request) {
-        String email = normalizeEmail(request.getEmail());
+        // 输入可为邮箱，也可为手机号（转发到该账号绑定邮箱的验证码）
+        String email = resolvePasswordResetEmail(request.getEmail(), false);
         User user = userRepository.findByUsernameOrEmail(email, email)
                 .orElseThrow(() -> new BusinessException(ErrorCode.EMAIL_CODE_INVALID, "邮箱或验证码错误"));
         if (user.getIsDeleted() == 1) {
@@ -299,6 +454,53 @@ public class AuthServiceImpl implements AuthService {
         }
 
         verifyAndConsumeCode(email, SCENE_LOGIN, request.getCode());
+
+        // 登录成功：重置失败计数和锁定状态
+        if (user.getFailedLoginAttempts() > 0 || user.getLockUntil() != null) {
+            user.setFailedLoginAttempts(0);
+            user.setLockUntil(null);
+            userRepository.save(user);
+        }
+
+        if (StringUtils.hasText(sessionToken)) {
+            mergeCart(sessionToken, user.getId());
+        }
+
+        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name(), user.getPasswordVersion());
+        return new AuthResponse(token, UserProfileResponse.from(user, permissionResolver.resolve(user)));
+    }
+
+    // ═══════════ 手机短信验证码：发送 / 验证码登录 ═══════════
+
+    @Override
+    public SendCodeResponse sendSmsCode(SendSmsCodeRequest request, String ip) {
+        return smsCodeService.sendCode(request.getPhone(), request.getScene(), ip);
+    }
+
+    @Override
+    @Transactional(noRollbackFor = BusinessException.class)
+    public AuthResponse loginBySms(SmsCodeLoginRequest request, String sessionToken) {
+        if (!isConfigEnabled("sms_enabled")) {
+            throw new BusinessException(ErrorCode.SMS_NOT_ENABLED, "短信服务未启用");
+        }
+        if (!isConfigEnabled("phone_code_login_enabled")) {
+            throw new BusinessException(ErrorCode.PHONE_FEATURE_DISABLED, "手机号验证码登录未启用");
+        }
+        String phone = PhoneUtils.normalize(request.getPhone());
+        if (!PhoneUtils.isValidCnMobile(phone)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "手机号格式不正确");
+        }
+
+        User user = userRepository.findByPhone(phone)
+                .orElseThrow(() -> new BusinessException(ErrorCode.CAPTCHA_INVALID, "手机号或验证码错误"));
+        if (user.getIsDeleted() == 1) {
+            throw new BusinessException(ErrorCode.ACCOUNT_DISABLED, "该账号已被禁用");
+        }
+        if (user.getRole() == UserRole.ADMIN) {
+            throw new BusinessException(ErrorCode.ADMIN_PHONE_LOGIN_FORBIDDEN, "管理员请使用账号或邮箱登录");
+        }
+
+        smsCodeService.verifyAndConsume(phone, SmsCodeService.SCENE_LOGIN, request.getCode());
 
         // 登录成功：重置失败计数和锁定状态
         if (user.getFailedLoginAttempts() > 0 || user.getLockUntil() != null) {
@@ -369,6 +571,126 @@ public class AuthServiceImpl implements AuthService {
                     }
                 })
                 .orElse(fallback);
+    }
+
+    /** 读取字符串型站点配置，缺失时回退默认值 */
+    private String strConfig(String key, String fallback) {
+        return siteConfigRepository.findByConfigKey(key)
+                .map(SiteConfig::getConfigValue)
+                .filter(v -> v != null && !v.isBlank())
+                .orElse(fallback);
+    }
+
+    /** 布尔开关：配置值为 true（忽略大小写）视为开启 */
+    private boolean isConfigEnabled(String key) {
+        return "true".equalsIgnoreCase(strConfig(key, "false").trim());
+    }
+
+    /** 密码强度：至少 8 位且同时包含字母与数字，且不得等于后台配置的默认密码 */
+    private void validatePasswordStrength(String password) {
+        String pwd = password == null ? "" : password;
+        boolean hasLetter = false;
+        boolean hasDigit = false;
+        for (char c : pwd.toCharArray()) {
+            if (Character.isLetter(c)) {
+                hasLetter = true;
+            } else if (Character.isDigit(c)) {
+                hasDigit = true;
+            }
+        }
+        if (pwd.length() < 8 || !hasLetter || !hasDigit) {
+            throw new BusinessException(ErrorCode.WEAK_PASSWORD, "密码至少 8 位，且需同时包含字母和数字");
+        }
+        if (pwd.equalsIgnoreCase(strConfig("phone_default_password", "Aa123456"))) {
+            throw new BusinessException(ErrorCode.WEAK_PASSWORD, "新密码不能与默认密码相同，请设置更安全的密码");
+        }
+    }
+
+    /** 手机号注册用户名：p_&lt;phone&gt;，冲突时追加 4 位随机，最多重试 3 次 */
+    private String resolvePhoneUsername(String phone) {
+        String base = PHONE_USERNAME_PREFIX + phone;
+        if (!userRepository.existsByUsername(base)) {
+            return base;
+        }
+        for (int i = 0; i < 3; i++) {
+            String candidate = base + "_" + String.format("%04d", CODE_RANDOM.nextInt(10_000));
+            if (!userRepository.existsByUsername(candidate)) {
+                return candidate;
+            }
+        }
+        // 极端兜底：仍冲突则用当前时间毫秒拼接，避免注册失败
+        return base + "_" + System.currentTimeMillis();
+    }
+
+    /** 获取（并按自然日重置）当前 IP 的注册计数器，超出日上限直接拒绝 */
+    private IpRegisterCounter acquireRegisterCounter(String ip, int limit) {
+        LocalDate today = LocalDate.now();
+        if (REGISTER_IP_COUNTERS.size() > 5000) {
+            REGISTER_IP_COUNTERS.entrySet().removeIf(e -> !today.equals(e.getValue().getDay()));
+        }
+        IpRegisterCounter counter = REGISTER_IP_COUNTERS.computeIfAbsent(ip, k -> new IpRegisterCounter(today));
+        if (!today.equals(counter.getDay())) {
+            counter.reset(today);
+        }
+        if (counter.getCount().get() >= limit) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, "今日注册次数已达上限，请明天再试");
+        }
+        return counter;
+    }
+
+    /**
+     * 找回密码输入解析：邮箱原样小写返回；手机号则定位账号并取其绑定邮箱。
+     *
+     * @param silentOnMissing 手机号未注册/已禁用时是否静默返回 null（发送验证码场景防枚举）
+     */
+    private String resolvePasswordResetEmail(String input, boolean silentOnMissing) {
+        String raw = input == null ? "" : input.trim();
+        if (raw.contains("@")) {
+            return normalizeEmail(raw);
+        }
+        String phone = PhoneUtils.normalize(raw);
+        if (!PhoneUtils.isValidCnMobile(phone)) {
+            return normalizeEmail(raw);
+        }
+        User user = userRepository.findByPhone(phone).orElse(null);
+        if (user == null || user.getIsDeleted() == 1) {
+            if (silentOnMissing) {
+                return null;
+            }
+            throw new BusinessException(ErrorCode.EMAIL_CODE_INVALID, "邮箱或验证码错误");
+        }
+        if (!StringUtils.hasText(user.getEmail())) {
+            throw new BusinessException(ErrorCode.EMAIL_NOT_BOUND,
+                    "该手机号账号未绑定邮箱，请先登录并在个人中心绑定邮箱后再找回密码");
+        }
+        return normalizeEmail(user.getEmail());
+    }
+
+    /** 单 IP 注册计数（内存态，按自然日重置） */
+    private static final class IpRegisterCounter {
+        private volatile LocalDate day;
+        private final AtomicInteger count = new AtomicInteger(0);
+
+        private IpRegisterCounter(LocalDate day) {
+            this.day = day;
+        }
+
+        private LocalDate getDay() {
+            return day;
+        }
+
+        private AtomicInteger getCount() {
+            return count;
+        }
+
+        private synchronized void reset(LocalDate newDay) {
+            this.day = newDay;
+            this.count.set(0);
+        }
+
+        private void increment() {
+            count.incrementAndGet();
+        }
     }
 
     @Override

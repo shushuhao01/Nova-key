@@ -5,9 +5,14 @@ import com.orionkey.common.ApiResponse;
 import com.orionkey.service.AdminOrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
@@ -72,6 +77,27 @@ public class AdminOrderController {
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "page_size", defaultValue = "10") int pageSize) {
         return ApiResponse.success(adminOrderService.listSettlementDistributors(startDate, endDate, page, pageSize));
+    }
+
+    /** 导出订单 CSV：与列表同一套筛选条件（含手机号列），最多 10000 条 */
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> exportOrders(
+            @RequestParam(required = false) String status,
+            @RequestParam(value = "order_type", required = false) String orderType,
+            @RequestParam(value = "payment_method", required = false) String paymentMethod,
+            @RequestParam(value = "is_risk_flagged", required = false) Boolean isRiskFlagged,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(value = "start_date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(value = "end_date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        byte[] bytes = adminOrderService.exportOrders(status, orderType, paymentMethod,
+                isRiskFlagged, keyword, startDate, endDate);
+        String filename = URLEncoder.encode("订单导出_" + LocalDate.now(), StandardCharsets.UTF_8);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename + ".csv")
+                .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+                .body(bytes);
     }
 
     @GetMapping("/{id}")

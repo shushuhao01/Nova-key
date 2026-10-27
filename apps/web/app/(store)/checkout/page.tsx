@@ -2,12 +2,12 @@
 
 import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { ShoppingBag, Mail, CreditCard, Lock } from "lucide-react"
+import { ShoppingBag, Mail, Phone, CreditCard, Lock } from "lucide-react"
 import { toast } from "sonner"
-import { useLocale, useCart } from "@/lib/context"
+import { useLocale, useCart, useSiteConfig } from "@/lib/context"
 import { orderApi, paymentApi, withMockFallback, getApiErrorMessage } from "@/services/api"
 import { mockPaymentChannels, mockCreateOrder } from "@/lib/mock-data"
-import { validateEmail, generateIdempotencyKey, getCurrencySymbol, detectPaymentDevice, isMobileDevice } from "@/lib/utils"
+import { validateEmail, validatePhone, normalizePhone, generateIdempotencyKey, getCurrencySymbol, detectPaymentDevice, isMobileDevice } from "@/lib/utils"
 import { PaymentSelector } from "@/components/shared/payment-selector"
 import { Turnstile, useTurnstile } from "@/components/shared/turnstile"
 import { setTurnstileHeaders } from "@/services/api"
@@ -15,14 +15,22 @@ import type { PaymentChannelItem } from "@/types"
 
 export default function CheckoutPage() {
   const { t } = useLocale()
+  const { config } = useSiteConfig()
   const router = useRouter()
   const { items, totalAmount, itemCount, refreshCart } = useCart()
 
+  // 手机号下单通道：需后台「客户配置」同时开启
+  const phoneChannelEnabled = config?.customer_phone_enabled === true && config?.phone_purchase_enabled === true
+
   const [email, setEmail] = useState("")
+  const [contactType, setContactType] = useState<"EMAIL" | "PHONE">("EMAIL")
+  const [phone, setPhone] = useState("")
+  const [phoneError, setPhoneError] = useState("")
   const [channels, setChannels] = useState<PaymentChannelItem[]>([])
   const [selectedPayment, setSelectedPayment] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const emailInputRef = useRef<HTMLInputElement>(null)
+  const phoneInputRef = useRef<HTMLInputElement>(null)
   const { turnstileToken, setTurnstileToken, handleTurnstileReset } = useTurnstile()
 
   // Fetch payment channels on mount
@@ -49,16 +57,40 @@ export default function CheckoutPage() {
     return () => { cancelled = true }
   }, [])
 
-  const handleConfirmOrder = async () => {
-    if (!email.trim()) {
-      toast.error(t("product.emailRequired"))
-      emailInputRef.current?.focus()
-      return
+  const handlePhoneChange = (value: string) => {
+    setPhone(value)
+    if (value && !validatePhone(normalizePhone(value))) {
+      setPhoneError(t("product.phoneInvalid"))
+    } else {
+      setPhoneError("")
     }
-    if (!validateEmail(email)) {
-      toast.error(t("product.emailInvalid"))
-      emailInputRef.current?.focus()
-      return
+  }
+
+  const handleConfirmOrder = async () => {
+    const usePhone = phoneChannelEnabled && contactType === "PHONE"
+    if (usePhone) {
+      const normalizedPhone = normalizePhone(phone)
+      if (!normalizedPhone) {
+        toast.error(t("product.phoneRequired"))
+        phoneInputRef.current?.focus()
+        return
+      }
+      if (!validatePhone(normalizedPhone)) {
+        toast.error(t("product.phoneInvalid"))
+        phoneInputRef.current?.focus()
+        return
+      }
+    } else {
+      if (!email.trim()) {
+        toast.error(t("product.emailRequired"))
+        emailInputRef.current?.focus()
+        return
+      }
+      if (!validateEmail(email)) {
+        toast.error(t("product.emailInvalid"))
+        emailInputRef.current?.focus()
+        return
+      }
     }
     if (!selectedPayment) {
       toast.error(t("product.paymentMethod"))
@@ -69,9 +101,12 @@ export default function CheckoutPage() {
     try {
       setTurnstileHeaders(turnstileToken)
       const device = detectPaymentDevice()
+      const contactPayload = usePhone
+        ? { phone: normalizePhone(phone), contact_type: "PHONE" as const }
+        : { email: email.trim(), contact_type: "EMAIL" as const }
       const result = await withMockFallback(
         () => orderApi.createFromCart({
-          email,
+          ...contactPayload,
           payment_method: selectedPayment,
           idempotency_key: generateIdempotencyKey(),
           device,
@@ -80,6 +115,14 @@ export default function CheckoutPage() {
       )
       await refreshCart()
       toast.success(t("checkout.processingOrder"))
+      // 匿名手机号下单自动建号：登录提示一次性交接给支付成功页（读取后即降级，不保留明文密码）
+      if (result.login_phone) {
+        sessionStorage.setItem(`order_hint_${result.order.id}`, JSON.stringify({
+          auto_registered: result.auto_registered,
+          login_phone: result.login_phone,
+          initial_password: result.initial_password,
+        }))
+      }
       // 0 元订单（优惠券全额抵扣后无需支付）：直接跳转支付页，服务端订单状态已为 PAID，会自动展示已发货
       if (!result.payment) {
         router.push(`/pay/${result.order.id}?method=${selectedPayment}`)
@@ -143,25 +186,78 @@ export default function CheckoutPage() {
           </div>
         </div>
 
-        {/* Email */}
+        {/* Contact: email / phone */}
         <div className="rounded-lg border border-border bg-background p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Mail className="h-5 w-5 text-primary" />
-            <h2 className="text-base font-semibold text-foreground">
-              {t("product.email")}
-            </h2>
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              {phoneChannelEnabled && contactType === "PHONE" ? (
+                <Phone className="h-5 w-5 text-primary" />
+              ) : (
+                <Mail className="h-5 w-5 text-primary" />
+              )}
+              <h2 className="text-base font-semibold text-foreground">
+                {phoneChannelEnabled && contactType === "PHONE" ? t("product.phone") : t("product.email")}
+                <span className="ml-0.5 text-destructive">*</span>
+              </h2>
+            </div>
+            {phoneChannelEnabled && (
+              <div className="inline-flex rounded-md border border-border p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setContactType("EMAIL")}
+                  className={
+                    contactType === "EMAIL"
+                      ? "rounded bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground"
+                      : "rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  }
+                >
+                  {t("product.contactEmail")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setContactType("PHONE")}
+                  className={
+                    contactType === "PHONE"
+                      ? "rounded bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground"
+                      : "rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  }
+                >
+                  {t("product.contactPhone")}
+                </button>
+              </div>
+            )}
           </div>
-          <input
-            ref={emailInputRef}
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder={t("product.emailPlaceholder")}
-            className="mb-2 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-          />
-          <p className="text-xs text-muted-foreground">
-            {t("product.emailFullHint")}
-          </p>
+          {phoneChannelEnabled && contactType === "PHONE" ? (
+            <>
+              <input
+                ref={phoneInputRef}
+                type="tel"
+                inputMode="numeric"
+                value={phone}
+                onChange={(e) => handlePhoneChange(e.target.value)}
+                placeholder={t("product.phonePlaceholder")}
+                className="mb-2 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("product.phoneFullHint")}
+              </p>
+              {phoneError && <p className="mt-1 text-xs text-destructive">{phoneError}</p>}
+            </>
+          ) : (
+            <>
+              <input
+                ref={emailInputRef}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={t("product.emailPlaceholder")}
+                className="mb-2 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("product.emailFullHint")}
+              </p>
+            </>
+          )}
         </div>
 
         {/* Payment method */}

@@ -4,30 +4,38 @@ import com.orionkey.common.PageResult;
 import com.orionkey.constant.DistributorStatus;
 import com.orionkey.constant.ErrorCode;
 import com.orionkey.constant.UserRole;
+import com.orionkey.context.RequestContext;
 import com.orionkey.entity.Distributor;
 import com.orionkey.entity.Order;
 import com.orionkey.entity.OrderItem;
+import com.orionkey.entity.SiteConfig;
 import com.orionkey.entity.User;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.DistributorRepository;
 import com.orionkey.repository.OrderItemRepository;
 import com.orionkey.repository.OrderRepository;
+import com.orionkey.repository.SiteConfigRepository;
 import com.orionkey.repository.UserRepository;
 import com.orionkey.service.AdminCustomerService;
+import com.orionkey.service.NotificationService;
 import com.orionkey.service.WechatMpConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -40,19 +48,34 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
     private final OrderItemRepository orderItemRepository;
     private final DistributorRepository distributorRepository;
     private final WechatMpConfigService wechatMpConfigService;
+    private final SiteConfigRepository siteConfigRepository;
+    private final NotificationService notificationService;
+    private final PasswordEncoder passwordEncoder;
+
+    @Value("${app.base-url:https://noepay.cn}")
+    private String baseUrlDefault;
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /** 新密码字符集：排除易混淆字符 0 / O / 1 / l / I */
+    private static final char[] PWD_UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ".toCharArray();
+    private static final char[] PWD_LOWER = "abcdefghijkmnopqrstuvwxyz".toCharArray();
+    private static final char[] PWD_DIGIT = "23456789".toCharArray();
+    private static final SecureRandom PWD_RANDOM = new SecureRandom();
+
+    /** 重置密码频控：key = 管理员 / 目标用户，value = 命中时间戳队列 */
+    private final Map<String, Deque<Long>> resetRateBuckets = new ConcurrentHashMap<>();
 
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> overview() {
         LocalDateTime monthStart = LocalDate.now().withDayOfMonth(1).atStartOfDay();
         long totalRegistered = userRepository.countByRole(UserRole.USER);
-        long totalAnonymous = orderRepository.countAnonymousEmails();
+        long totalAnonymous = orderRepository.countAnonymousContacts();
         long totalCustomers = totalRegistered + totalAnonymous;
 
         long newRegistered = userRepository.countByRoleAndCreatedAtGreaterThanEqual(UserRole.USER, monthStart);
-        long newAnonymous = orderRepository.countNewAnonymousEmails(monthStart);
+        long newAnonymous = orderRepository.countNewAnonymousContacts(monthStart);
 
         long dealRegistered = orderRepository.countPaidRegisteredCustomers();
         long dealAnonymous = orderRepository.countPaidAnonymousCustomers();
@@ -78,8 +101,9 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
         Pageable pageable = PageRequest.of(Math.max(page - 1, 0), Math.min(Math.max(pageSize, 1), 100));
         Page<User> userPage;
         if (keyword != null && !keyword.isBlank()) {
-            userPage = userRepository.findByRoleAndUsernameContainingOrRoleAndEmailContaining(
-                    UserRole.USER, keyword.trim(), UserRole.USER, keyword.trim(), pageable);
+            String kw = keyword.trim();
+            userPage = userRepository.findByRoleAndUsernameContainingOrRoleAndEmailContainingOrRoleAndPhoneContaining(
+                    UserRole.USER, kw, UserRole.USER, kw, UserRole.USER, kw, pageable);
         } else {
             userPage = userRepository.findByRoleOrderByCreatedAtDesc(UserRole.USER, pageable);
         }
@@ -115,6 +139,7 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
             m.put("id", uid);
             m.put("username", u.getUsername());
             m.put("email", u.getEmail());
+            m.put("phone", u.getPhone());
             m.put("points", u.getPoints());
             m.put("is_banned", u.getIsDeleted() == 1);
             m.put("created_at", u.getCreatedAt());
@@ -153,22 +178,26 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
     @Transactional(readOnly = true)
     public PageResult<?> listAnonymous(String keyword, int page, int pageSize) {
         Pageable pageable = PageRequest.of(Math.max(page - 1, 0), Math.min(Math.max(pageSize, 1), 100));
-        Page<String> emailPage;
+        Page<String> contactPage;
         if (keyword != null && !keyword.isBlank()) {
-            emailPage = orderRepository.findAnonymousEmailsByKeyword("%" + keyword.trim().toLowerCase() + "%", pageable);
+            contactPage = orderRepository.findAnonymousContactsByKeyword("%" + keyword.trim().toLowerCase() + "%", pageable);
         } else {
-            emailPage = orderRepository.findAnonymousEmails(pageable);
+            contactPage = orderRepository.findAnonymousContacts(pageable);
         }
-        List<String> emails = emailPage.getContent();
-        // 批量取出本页邮箱的全部订单，内存聚合（每页最多 100 个邮箱，可控）
-        Map<String, List<Order>> ordersByEmail = emails.isEmpty()
+        List<String> contacts = contactPage.getContent();
+        // 批量取出本页联系方式的全部订单，内存聚合（每页最多 100 个客户，可控）
+        Map<String, List<Order>> ordersByContact = contacts.isEmpty()
                 ? Map.of()
-                : ordersByEmailMap(orderRepository.findByEmailInAndUserIdIsNullOrderByCreatedAtDesc(emails));
+                : ordersByContactMap(orderRepository.findAnonymousOrdersByContacts(contacts));
 
-        List<Map<String, Object>> list = emails.stream().map(email -> {
-            List<Order> orders = ordersByEmail.getOrDefault(email, List.of());
+        List<Map<String, Object>> list = contacts.stream().map(contact -> {
+            List<Order> orders = ordersByContact.getOrDefault(contact, List.of());
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("email", email);
+            m.put("contact", contact);
+            m.put("phone", orders.stream().map(Order::getPhone)
+                    .filter(p -> p != null && !p.isBlank()).findFirst().orElse(null));
+            m.put("email", orders.stream().map(Order::getEmail)
+                    .filter(e -> e != null && !e.isBlank()).findFirst().orElse(null));
             long paidCount = orders.stream().filter(o -> isPaid(o)).count();
             BigDecimal totalSpent = orders.stream()
                     .filter(o -> isPaid(o))
@@ -182,7 +211,7 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
             m.put("last_order_at", orders.isEmpty() ? null : orders.get(0).getCreatedAt());
             return m;
         }).toList();
-        return PageResult.of(emailPage, list);
+        return PageResult.of(contactPage, list);
     }
 
     @Override
@@ -197,6 +226,7 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
         m.put("id", u.getId());
         m.put("username", u.getUsername());
         m.put("email", u.getEmail());
+        m.put("phone", u.getPhone());
         m.put("points", u.getPoints());
         m.put("is_banned", u.getIsDeleted() == 1);
         m.put("registered_at", u.getCreatedAt());
@@ -209,12 +239,12 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
 
     @Override
     @Transactional(readOnly = true)
-    public Map<String, Object> anonymousDetail(String email, int page, int pageSize) {
-        if (email == null || email.isBlank()) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "邮箱不能为空");
+    public Map<String, Object> anonymousDetail(String contact, int page, int pageSize) {
+        if (contact == null || contact.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "联系方式不能为空");
         }
-        String e = email.trim().toLowerCase();
-        List<Order> all = orderRepository.findByEmailAndUserIdIsNullOrderByCreatedAtDesc(e);
+        String c = contact.trim();
+        List<Order> all = orderRepository.findAnonymousOrdersByContact(c);
         if (all.isEmpty()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "匿名客户不存在");
         }
@@ -232,7 +262,11 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("email", e);
+        m.put("contact", c);
+        m.put("phone", all.stream().map(Order::getPhone)
+                .filter(p -> p != null && !p.isBlank()).findFirst().orElse(null));
+        m.put("email", all.stream().map(Order::getEmail)
+                .filter(e -> e != null && !e.isBlank()).findFirst().orElse(null));
         m.put("order_count", all.size());
         m.put("paid_count", paidCount);
         m.put("total_spent", totalSpent);
@@ -259,6 +293,114 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
 
     // ═══════════ 辅助 ═══════════
 
+    @Override
+    @Transactional
+    public Map<String, Object> resetPassword(UUID userId) {
+        // 频控：同一目标用户 5 分钟内仅 1 次；同一管理员 60 秒内 ≤ 10 次
+        checkRateLimit("target:" + userId, 1, 5 * 60 * 1000L, "该用户近期已被重置过密码，请 5 分钟后再试");
+        UUID adminId = RequestContext.getUserId();
+        if (adminId != null) {
+            checkRateLimit("admin:" + adminId, 10, 60 * 1000L, "重置操作过于频繁，请稍后再试");
+        }
+
+        User u = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "客户不存在"));
+        if (u.getRole() != UserRole.USER) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "仅支持重置普通客户密码");
+        }
+
+        String newPassword = generatePassword();
+        u.setPasswordHash(passwordEncoder.encode(newPassword));
+        // 密码版本 +1：已签发的旧 JWT 立即失效（所有设备需重新登录）
+        u.setPasswordVersion(u.getPasswordVersion() + 1);
+        // 重置目的就是让用户能直接登录，不再强制改密
+        u.setMustChangePassword(false);
+        // 重置即解锁
+        u.setFailedLoginAttempts(0);
+        u.setLockUntil(null);
+        userRepository.save(u);
+
+        String email = u.getEmail();
+        String phone = u.getPhone();
+        String loginUrl = siteUrl() + "/login";
+        List<String> channels = new ArrayList<>();
+        // 邮件通知（收件人为用户本人；发送失败不影响重置结果）
+        if (email != null && !email.isBlank()) {
+            Map<String, Object> vars = new LinkedHashMap<>();
+            vars.put("username", u.getUsername());
+            vars.put("email", email);
+            vars.put("phone", phone == null ? "" : phone);
+            vars.put("new_password", newPassword);
+            vars.put("login_url", loginUrl);
+            try {
+                notificationService.sendTemplateToEmail("ADMIN_RESET_PASSWORD", email, vars);
+                channels.add("EMAIL");
+            } catch (Exception ex) {
+                log.warn("Send reset-password email failed for user {}: {}", userId, ex.getMessage());
+            }
+        }
+        // 短信通知（方案 A：仅提示密码已重置，不含明文密码）
+        if (phone != null && !phone.isBlank()) {
+            Map<String, Object> vars = new LinkedHashMap<>();
+            vars.put("username", u.getUsername());
+            vars.put("login_url", loginUrl);
+            if (notificationService.sendTemplateToSms("ADMIN_RESET_PASSWORD", phone, vars)) {
+                channels.add("SMS");
+            }
+        }
+
+        String notify = channels.isEmpty() ? "NONE" : String.join(",", channels);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("username", u.getUsername());
+        result.put("email", email);
+        result.put("phone", phone);
+        result.put("new_password", newPassword);
+        result.put("notify", notify);
+        // 操作日志绝不记录密码
+        log.info("Reset password for customer {} by {}, notify={}", u.getUsername(), adminId, notify);
+        return result;
+    }
+
+    /** 频控：窗口期内命中次数超过上限则拒绝 */
+    private void checkRateLimit(String key, int limit, long windowMillis, String message) {
+        long now = System.currentTimeMillis();
+        Deque<Long> bucket = resetRateBuckets.computeIfAbsent(key, k -> new ArrayDeque<>());
+        synchronized (bucket) {
+            while (!bucket.isEmpty() && now - bucket.peekFirst() >= windowMillis) {
+                bucket.pollFirst();
+            }
+            if (bucket.size() >= limit) {
+                throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, message);
+            }
+            bucket.addLast(now);
+        }
+    }
+
+    /** 生成 12 位随机密码：大小写 + 数字，排除 0 / O / 1 / l / I 等易混淆字符 */
+    private String generatePassword() {
+        String all = new String(PWD_UPPER) + new String(PWD_LOWER) + new String(PWD_DIGIT);
+        List<Character> chars = new ArrayList<>(12);
+        chars.add(PWD_UPPER[PWD_RANDOM.nextInt(PWD_UPPER.length)]);
+        chars.add(PWD_LOWER[PWD_RANDOM.nextInt(PWD_LOWER.length)]);
+        chars.add(PWD_DIGIT[PWD_RANDOM.nextInt(PWD_DIGIT.length)]);
+        while (chars.size() < 12) {
+            chars.add(all.charAt(PWD_RANDOM.nextInt(all.length())));
+        }
+        Collections.shuffle(chars, PWD_RANDOM);
+        StringBuilder sb = new StringBuilder(12);
+        for (Character ch : chars) {
+            sb.append(ch);
+        }
+        return sb.toString();
+    }
+
+    private String siteUrl() {
+        return siteConfigRepository.findByConfigKey("mail_site_url")
+                .map(SiteConfig::getConfigValue)
+                .filter(v -> v != null && !v.isBlank())
+                .orElse(baseUrlDefault);
+    }
+
     private boolean isPaid(Order o) {
         return o.getStatus() != null && switch (o.getStatus()) {
             case PAID, DELIVERED, COMPLETED -> true;
@@ -266,13 +408,22 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
         };
     }
 
-    private Map<String, List<Order>> ordersByEmailMap(List<Order> orders) {
+    private Map<String, List<Order>> ordersByContactMap(List<Order> orders) {
         Map<String, List<Order>> map = new LinkedHashMap<>();
         for (Order o : orders) {
-            if (o.getEmail() == null) continue;
-            map.computeIfAbsent(o.getEmail().trim().toLowerCase(), k -> new ArrayList<>()).add(o);
+            String contact = contactOf(o);
+            if (contact == null) continue;
+            map.computeIfAbsent(contact, k -> new ArrayList<>()).add(o);
         }
         return map;
+    }
+
+    /** 匿名客户联系方式口径：优先手机号，无手机号回落到邮箱（与 SQL 中 COALESCE 一致） */
+    private String contactOf(Order o) {
+        String phone = o.getPhone();
+        if (phone != null && !phone.isBlank()) return phone;
+        String email = o.getEmail();
+        return email == null || email.isBlank() ? null : email;
     }
 
     /** 订单摘要（含商品明细） */
@@ -280,6 +431,7 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", o.getId());
         m.put("email", o.getEmail());
+        m.put("phone", o.getPhone());
         m.put("status", o.getStatus() == null ? null : o.getStatus().name());
         m.put("payment_method", o.getPaymentMethod());
         m.put("total_amount", o.getTotalAmount());

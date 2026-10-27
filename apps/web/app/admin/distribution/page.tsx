@@ -7,7 +7,7 @@ import {
   Clock, CheckCircle2, UserCheck, UserX, Percent, RefreshCw, ShoppingBag,
   HandCoins, Loader2, ScrollText, ShieldCheck, Layers, CalendarRange,
   ArrowUpRight, ArrowDownRight, Eye, User, AtSign, KeyRound, Link2,
-  Crown, Users, AlertCircle, Send, Receipt,
+  Crown, Users, AlertCircle, Send, Receipt, Phone,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -862,6 +862,7 @@ function DistributorDetailModal({ distributor, onClose, onOpenTeam }: {
 
   const infoItems: { icon: ReactNode; label: string; value: ReactNode }[] = [
     { icon: <AtSign className="h-4 w-4" />, label: "邮箱", value: v("email") || "—" },
+    { icon: <Phone className="h-4 w-4" />, label: "手机号", value: v("phone") || "—" },
     { icon: <KeyRound className="h-4 w-4" />, label: "分销员编码", value: v("distributor_code") || "—" },
     { icon: <Link2 className="h-4 w-4" />, label: "邀请码", value: v("invite_code") || "—" },
     { icon: <Crown className="h-4 w-4" />, label: "上级分销员", value: v("parent_id") ? String(v("parent_id")).slice(0, 8) + "…" : "无" },
@@ -991,6 +992,7 @@ interface TeamSubordinate {
   distributor_code: string | null
   username: string | null
   email: string | null
+  phone: string | null
   status: DistributorStatus
   total_sales: number
   paid_count: number
@@ -1002,7 +1004,12 @@ interface TeamSubordinate {
 
 interface TeamCustomer {
   id: string
-  customer_email: string
+  /** 绑定邮箱（手机号下单客户可能为空） */
+  customer_email: string | null
+  /** 客户手机号（有则优先展示） */
+  customer_phone: string | null
+  /** 客户标识：手机号优先，无手机号回落到邮箱 */
+  customer_contact: string
   username: string | null
   purchase_count: number
   first_bind_at: string
@@ -1065,7 +1072,7 @@ function TeamModal({ distributorId, distributorName, initialMode, onClose }: {
     }
   }
 
-  const customerLabel = (c: TeamCustomer) => c.username || c.customer_email
+  const customerLabel = (c: TeamCustomer) => c.username || c.customer_phone || c.customer_email || "—"
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1158,7 +1165,7 @@ function TeamModal({ distributorId, distributorName, initialMode, onClose }: {
                             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><User className="h-4 w-4" /></span>
                             <div className="min-w-0">
                               <div className="line-clamp-2 break-words font-medium text-foreground">{s.username || "—"}</div>
-                              <div className="line-clamp-2 break-words text-xs text-muted-foreground">{s.email || s.distributor_code || "—"}</div>
+                              <div className="line-clamp-2 break-words text-xs text-muted-foreground">{s.email || s.phone || s.distributor_code || "—"}</div>
                             </div>
                           </div>
                         </td>
@@ -1264,7 +1271,7 @@ function CustomerOrdersModal({ distributorId, customer, onClose }: {
     let cancelled = false
     async function load() {
       try {
-        const data = await adminDistributionApi.listCustomerOrders(distributorId, customer.customer_email, { page, page_size: pageSize })
+        const data = await adminDistributionApi.listCustomerOrders(distributorId, customer.customer_contact, { page, page_size: pageSize })
         if (!cancelled) {
           setOrders(data?.list || [])
           setTotal(data?.pagination?.total || 0)
@@ -1277,7 +1284,7 @@ function CustomerOrdersModal({ distributorId, customer, onClose }: {
     }
     load()
     return () => { cancelled = true }
-  }, [distributorId, customer.customer_email, page])
+  }, [distributorId, customer.customer_contact, page])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
@@ -1289,8 +1296,8 @@ function CustomerOrdersModal({ distributorId, customer, onClose }: {
           <div className="flex items-center gap-2">
             <Receipt className="h-5 w-5 text-primary" />
             <div>
-              <h2 className="text-lg font-bold text-foreground">{customer.username || customer.customer_email}</h2>
-              <p className="text-xs text-muted-foreground">{customer.username || customer.customer_email} 的订单（共 {total} 笔）</p>
+              <h2 className="text-lg font-bold text-foreground">{customer.username || customer.customer_phone || customer.customer_email || "—"}</h2>
+              <p className="text-xs text-muted-foreground">{customer.username || customer.customer_phone || customer.customer_email || "—"} 的订单（共 {total} 笔）</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
@@ -1395,7 +1402,7 @@ function DistributorStatusModal({ distributor, status, onClose, onSaved }: {
           </button>
         </div>
         <div className="mb-4 rounded-lg bg-muted/40 p-3 text-sm">
-          <p className="font-medium text-foreground">{distributor.username || distributor.email || "推广员"}</p>
+          <p className="font-medium text-foreground">{distributor.username || distributor.email || distributor.phone || "推广员"}</p>
           <p className="mt-1 text-xs text-muted-foreground">{distributor.email || distributor.phone || "—"}</p>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -2408,7 +2415,7 @@ function PromoterRankModal({ product, dates, onClose }: {
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex flex-col">
-                        <span className="font-medium text-foreground">{r.username || r.email || "匿名用户"}</span>
+                        <span className="font-medium text-foreground">{r.username || r.email || r.phone || "匿名用户"}</span>
                         <span className="text-xs text-muted-foreground">{r.distributor_code || ""}{r.link_url ? " · 已生成专属链接" : ""}</span>
                       </div>
                     </td>

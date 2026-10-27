@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,6 +21,9 @@ public interface CustomerBindingRepository extends JpaRepository<CustomerBinding
     Optional<CustomerBinding> findByCustomerEmailAndDistributorId(String email, UUID distributorId);
 
     long countByDistributorId(UUID distributorId);
+
+    /** 账号合并：某注册客户的全部绑定关系 */
+    List<CustomerBinding> findByCustomerUserId(UUID customerUserId);
 
     /** 管理后台：某推广员绑定的客户分页（可按邮箱模糊搜索，新绑定在前） */
     @Query("SELECT cb FROM CustomerBinding cb WHERE cb.distributorId = :distId " +

@@ -12,6 +12,12 @@ public interface OperationLogService {
 
     void log(UUID userId, String username, String action, String targetType, String targetId, String detail, String ip);
 
+    /**
+     * 独立事务写日志：用于外层业务事务即将回滚、但失败痕迹仍需落库的场景（如短信发送失败）。
+     */
+    void logInNewTransaction(UUID userId, String username, String action, String targetType,
+                             String targetId, String detail, String ip);
+
     /** 获取操作日志定时清理配置（默认启用、24 小时后清理） */
     Map<String, Object> getCleanupConfig();
 

@@ -1,6 +1,5 @@
 package com.orionkey.model.request;
 
-import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
@@ -11,8 +10,8 @@ import lombok.Setter;
 @Setter
 public class ResetPasswordRequest {
 
+    /** 邮箱；也允许填手机号（该账号需已绑定邮箱） */
     @NotBlank(message = "Email is required")
-    @Email(message = "Invalid email format")
     private String email;
 
     @NotBlank(message = "Code is required")

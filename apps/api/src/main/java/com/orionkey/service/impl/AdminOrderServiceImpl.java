@@ -29,10 +29,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -45,6 +48,9 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     private static final String REFUND_STATUS_SUCCESS = "SUCCESS";
     /** 退款未成功（关闭/异常，终态） */
     private static final String REFUND_STATUS_FAILED = "FAILED";
+    /** 订单导出的最大行数（与列表同一套筛选条件，超出部分需缩小日期范围） */
+    private static final int EXPORT_MAX_ROWS = 10000;
+    private static final DateTimeFormatter EXPORT_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
@@ -108,6 +114,78 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         stats.put("invalid_orders", row != null && row[4] != null ? ((Number) row[4]).longValue() : 0L);
         stats.put("total_customers", row != null && row[5] != null ? ((Number) row[5]).longValue() : 0L);
         return stats;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] exportOrders(String status, String orderType, String paymentMethod,
+                               Boolean isRiskFlagged, String keyword,
+                               LocalDate startDate, LocalDate endDate) {
+        List<OrderStatus> statuses = parseStatuses(status);
+        boolean containsRefunded = statuses.contains(OrderStatus.REFUNDED);
+        OrderType ot = parseOrderType(orderType);
+        String pm = paymentMethod != null && !paymentMethod.isBlank() ? paymentMethod.trim() : "";
+        List<OrderStatus> statusParam = statuses.isEmpty() ? null : statuses;
+        LocalDateTime from = rangeStart(startDate);
+        LocalDateTime to = rangeEnd(endDate);
+        PageRequest pageable = PageRequest.of(0, EXPORT_MAX_ROWS);
+        boolean hasKeyword = keyword != null && !keyword.isBlank();
+        Page<Order> orderPage = hasKeyword
+                ? orderRepository.findAdminOrdersByKeyword(statusParam, containsRefunded, ot, pm, isRiskFlagged,
+                        "%" + keyword + "%", from, to, pageable)
+                : orderRepository.findAdminOrders(statusParam, containsRefunded, ot, pm, isRiskFlagged,
+                        from, to, pageable);
+        List<Order> orders = orderPage.getContent();
+
+        // 批量加载用户名 / 商品明细 / 推广员，避免逐单查询造成 N+1
+        Set<UUID> userIds = orders.stream().map(Order::getUserId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<UUID, String> usernameMap = userIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(userIds).stream()
+                        .collect(Collectors.toMap(User::getId,
+                                u -> u.getUsername() != null ? u.getUsername() : "", (a, b) -> a));
+        List<UUID> orderIds = orders.stream().map(Order::getId).toList();
+        Map<UUID, List<OrderItem>> itemMap = new HashMap<>();
+        if (!orderIds.isEmpty()) {
+            for (OrderItem item : orderItemRepository.findByOrderIdIn(orderIds)) {
+                itemMap.computeIfAbsent(item.getOrderId(), k -> new ArrayList<>()).add(item);
+            }
+        }
+        Map<UUID, String> promoterMap = resolvePromoters(orders.stream()
+                .map(Order::getReferralDistributorId).filter(Objects::nonNull).collect(Collectors.toSet()));
+
+        StringBuilder sb = new StringBuilder();
+        sb.append('\uFEFF');
+        sb.append("订单号,客户账号,邮箱,手机号,订单状态,订单类型,支付方式,商品,数量,订单金额,实付金额,退款金额,推广员,创建时间,支付时间,完成时间\n");
+        for (Order o : orders) {
+            List<OrderItem> items = itemMap.getOrDefault(o.getId(), List.of());
+            String productText = items.stream()
+                    .map(i -> {
+                        String title = i.getProductTitle() != null ? i.getProductTitle() : "";
+                        return i.getSpecName() != null && !i.getSpecName().isBlank()
+                                ? title + " - " + i.getSpecName()
+                                : title;
+                    })
+                    .collect(Collectors.joining("；"));
+            int quantity = items.stream().mapToInt(OrderItem::getQuantity).sum();
+            appendCsv(sb, o.getId());
+            appendCsv(sb, o.getUserId() != null ? usernameMap.get(o.getUserId()) : "");
+            appendCsv(sb, o.getEmail());
+            appendCsv(sb, o.getPhone());
+            appendCsv(sb, orderStatusLabel(o.getStatus()));
+            appendCsv(sb, o.getOrderType() == OrderType.CART ? "购物车下单" : "直接下单");
+            appendCsv(sb, paymentMethodLabel(o.getPaymentMethod()));
+            appendCsv(sb, productText);
+            appendCsv(sb, quantity);
+            appendCsv(sb, o.getTotalAmount());
+            appendCsv(sb, o.getActualAmount());
+            appendCsv(sb, o.getRefundedAmount() != null ? o.getRefundedAmount() : BigDecimal.ZERO);
+            appendCsv(sb, o.getReferralDistributorId() != null ? promoterMap.get(o.getReferralDistributorId()) : "");
+            appendCsv(sb, formatExportTime(o.getCreatedAt()));
+            appendCsv(sb, formatExportTime(o.getPaidAt()));
+            appendCsvLast(sb, formatExportTime(o.getCompletedAt()));
+        }
+        return sb.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     @Override
@@ -574,6 +652,40 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         };
     }
 
+    /** 订单状态中文文案（导出 CSV 使用） */
+    private static String orderStatusLabel(OrderStatus status) {
+        if (status == null) return "";
+        return switch (status) {
+            case PENDING -> "待支付";
+            case PAID -> "已支付";
+            case DELIVERED -> "已发货";
+            case COMPLETED -> "已完成";
+            case EXPIRED -> "已过期";
+            case REFUNDED -> "已退款";
+            case PARTIALLY_REFUNDED -> "部分退款";
+        };
+    }
+
+    /** 导出时间格式化（空值输出空串） */
+    private static String formatExportTime(LocalDateTime time) {
+        return time != null ? time.format(EXPORT_TIME_FORMAT) : "";
+    }
+
+    private static void appendCsv(StringBuilder sb, Object value) {
+        sb.append('"').append(csv(value)).append('"').append(',');
+    }
+
+    private static void appendCsvLast(StringBuilder sb, Object value) {
+        sb.append('"').append(csv(value)).append('"').append('\n');
+    }
+
+    private static String csv(Object value) {
+        if (value == null) {
+            return "";
+        }
+        return String.valueOf(value).replace("\"", "\"\"");
+    }
+
     private Map<String, Object> toAdminOrder(Order o, Map<UUID, String> promoterMap) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", o.getId());
@@ -596,6 +708,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         }
         map.put("created_at", o.getCreatedAt());
         map.put("email", o.getEmail());
+        map.put("phone", o.getPhone());
         map.put("points_deducted", o.getPointsDeducted());
         map.put("points_discount", o.getPointsDiscount());
         map.put("expires_at", o.getExpiresAt());

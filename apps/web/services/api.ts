@@ -2,6 +2,7 @@ import type {
   ApiResponse,
   PaginatedData,
   UserProfile,
+  BindResult,
   OrderBrief,
   OrderDetail,
   OrderStatus,
@@ -42,12 +43,14 @@ import type {
   NotificationChannelItem,
   SystemMessageItem,
   NotificationTestResult,
+  SmsTestResult,
   OperationLog,
   OperationLogCleanupConfig,
   RiskConfig,
   WholesaleRule,
   CaptchaResult,
   AuthResult,
+  LoginHintResult,
   SendCodeResult,
   CurrencyItem,
   TxidVerifyResult,
@@ -348,6 +351,15 @@ export const authApi = {
     request<CaptchaResult>("/auth/captcha"),
   register: (data: { username: string; password: string; email: string; captcha_id: string; captcha: string; invite_code?: string }) =>
     request<AuthResult>("/auth/register", { method: "POST", body: JSON.stringify(data) }),
+  /** 手机号自助注册（成功后直接返回登录态） */
+  registerPhone: (data: { phone: string; password: string; confirm_password: string; captcha_id: string; captcha: string; invite_code?: string }) =>
+    request<AuthResult>("/auth/register-phone", { method: "POST", body: JSON.stringify(data) }),
+  /** 登录页默认密码提示（后端限流 10 次/分/IP） */
+  loginHint: () =>
+    request<LoginHintResult>("/auth/login-hint"),
+  /** 默认密码登录后强制修改密码，返回新登录态 */
+  forceChangePassword: (data: { old_password: string; new_password: string; confirm_password: string }) =>
+    request<AuthResult>("/auth/force-change-password", { method: "POST", body: JSON.stringify(data) }),
   login: (data: { account: string; password: string }) =>
     request<AuthResult>("/auth/login", { method: "POST", body: JSON.stringify(data) }),
   /** 验证码登录（邮箱 + 6 位验证码） */
@@ -356,6 +368,12 @@ export const authApi = {
   /** 发送邮箱验证码，scene: PASSWORD_RESET（忘记密码）/ LOGIN（验证码登录） */
   sendEmailCode: (data: { email: string; scene: "PASSWORD_RESET" | "LOGIN" }) =>
     request<SendCodeResult>("/auth/email-code/send", { method: "POST", body: JSON.stringify(data) }),
+  /** 发送短信验证码，scene: LOGIN（手机验证码登录）/ PASSWORD_RESET（短信找回密码）/ BIND_PHONE（绑定手机号） */
+  sendSmsCode: (data: { phone: string; scene: "LOGIN" | "PASSWORD_RESET" | "BIND_PHONE" }) =>
+    request<SendCodeResult>("/auth/sms-code/send", { method: "POST", body: JSON.stringify(data) }),
+  /** 手机验证码登录（手机号 + 6 位验证码） */
+  loginBySms: (data: { phone: string; code: string }) =>
+    request<AuthResult>("/auth/login-by-sms", { method: "POST", body: JSON.stringify(data) }),
   /** 忘记密码：邮箱验证码校验通过后重置密码 */
   resetPassword: (data: { email: string; code: string; new_password: string }) =>
     request<null>("/auth/forgot-password/reset", { method: "POST", body: JSON.stringify(data) }),
@@ -380,6 +398,12 @@ export const userApi = {
     const qs = buildQuery(params)
     return request<PointsData>(`/user/points?${qs}`)
   },
+  /** 绑定手机号（已被其他账号占用则合并账号） */
+  bindPhone: (data: { phone: string; password: string }) =>
+    request<BindResult>("/user/bind-phone", { method: "POST", body: JSON.stringify(data) }),
+  /** 绑定邮箱（已被其他账号占用则合并账号） */
+  bindEmail: (data: { email: string; password: string }) =>
+    request<BindResult>("/user/bind-email", { method: "POST", body: JSON.stringify(data) }),
 }
 
 // ============================================================
@@ -428,7 +452,7 @@ export const orderApi = {
     request<{ order_id: string; status: OrderStatus; expires_at: string; remaining_seconds: number; payment_url?: string; jsapi_params?: import("@/types").JsapiPayParams }>(`/orders/${orderId}/status`),
   refreshStatus: (orderId: string) =>
     request<{ status: OrderStatus }>(`/orders/${orderId}/refresh`, { method: "POST" }),
-  query: (data: { order_ids?: string[]; emails?: string[] }) =>
+  query: (data: { order_ids?: string[]; emails?: string[]; phones?: string[] }) =>
     request<OrderBrief[]>("/orders/query", { method: "POST", body: JSON.stringify(data) }),
   deliver: (data: { order_ids: string[] }) =>
     request<DeliverResult[]>("/orders/deliver", { method: "POST", body: JSON.stringify(data) }),
@@ -742,6 +766,20 @@ export const adminOrderApi = {
     const qs = buildQuery(params)
     return request<PaginatedData<SettlementDistributorDetail>>(`/admin/orders/settlement/distributors?${qs}`)
   },
+  /** 导出订单 CSV（与列表同一套筛选条件，含手机号列） */
+  exportOrders: (params: {
+    status?: string; order_type?: string; payment_method?: string;
+    is_risk_flagged?: number; keyword?: string; start_date?: string; end_date?: string
+  }) => {
+    const query: Record<string, string> = {}
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== "") query[k] = String(v)
+    }
+    const d = new Date()
+    const pad = (n: number) => String(n).padStart(2, "0")
+    const filename = `订单导出_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.csv`
+    return downloadFile("/admin/orders/export", query, filename)
+  },
   getDetail: (id: string) =>
     request<AdminOrderItem>(`/admin/orders/${id}`),
   markPaid: (id: string) =>
@@ -870,12 +908,15 @@ export const adminCustomerApi = {
     const qs = buildQuery(params)
     return request<import("@/types").RegisteredCustomerDetail>(`/admin/customers/registered/${id}?${qs}`)
   },
-  anonymousDetail: (email: string, params: { page?: number; page_size?: number }) => {
+  anonymousDetail: (contact: string, params: { page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
-    return request<import("@/types").AnonymousCustomerDetail>(`/admin/customers/anonymous/detail?${qs}&email=${encodeURIComponent(email)}`)
+    return request<import("@/types").AnonymousCustomerDetail>(`/admin/customers/anonymous/detail?${qs}&contact=${encodeURIComponent(contact)}`)
   },
   toggleRegistered: (id: string, isDeleted: 0 | 1) =>
     request<null>(`/admin/customers/registered/${id}/toggle`, { method: "POST", body: JSON.stringify({ is_deleted: isDeleted }) }),
+  /** 管理员重置客户密码：返回新密码（一次性展示，不落库明文） */
+  resetPassword: (id: string) =>
+    request<import("@/types").AdminResetPasswordResult>(`/admin/customers/registered/${id}/reset-password`, { method: "POST" }),
 }
 
 // ============================================================
@@ -915,14 +956,14 @@ export const adminNotificationApi = {
     const qs = buildQuery(params)
     return request<PaginatedData<NotificationTemplateItem>>(`/admin/notifications/templates?${qs}`)
   },
-  createTemplate: (data: { code: string; name: string; category: string; title?: string; content?: string; channels?: string; enabled?: boolean; auto_trigger?: boolean }) =>
+  createTemplate: (data: { code: string; name: string; category: string; title?: string; content?: string; channels?: string; sms_template_code?: string; enabled?: boolean; auto_trigger?: boolean }) =>
     request<null>("/admin/notifications/templates", { method: "POST", body: JSON.stringify(data) }),
-  updateTemplate: (id: string, data: { enabled?: boolean; channels?: string; title?: string; content?: string }) =>
+  updateTemplate: (id: string, data: { enabled?: boolean; channels?: string; title?: string; content?: string; sms_template_code?: string }) =>
     request<null>(`/admin/notifications/templates/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   // 渠道
   getChannels: () =>
     request<NotificationChannelItem[]>("/admin/notifications/channels"),
-  saveChannel: (channelType: string, data: { name?: string; enabled?: boolean; webhook_url?: string; email_to?: string }) =>
+  saveChannel: (channelType: string, data: { name?: string; enabled?: boolean; webhook_url?: string; email_to?: string; phone_to?: string }) =>
     request<null>(`/admin/notifications/channels/${channelType}`, { method: "PUT", body: JSON.stringify(data) }),
   // 测试发送
   testSend: (templateCode: string) =>
@@ -956,6 +997,17 @@ export const adminConfigApi = {
   // 用当前 SMTP 配置发送测试邮件
   testEmail: (toEmail: string) =>
     request<null>("/admin/site-config/email/test", { method: "POST", body: JSON.stringify({ to_email: toEmail }) }),
+  // 短信配置（config_group = sms）
+  getSmsConfig: () =>
+    request<SiteConfigKV[]>("/admin/site-config/sms"),
+  updateSmsConfig: (data: { configs: { config_key: string; config_value: string }[] }) =>
+    request<null>("/admin/site-config/sms", { method: "PUT", body: JSON.stringify(data) }),
+  // 测试连通：校验 AK/SK 与签名（只读接口，权限不足时后端退化为发一条测试短信）
+  testSmsConnection: () =>
+    request<SmsTestResult>("/admin/site-config/sms/test-connection", { method: "POST" }),
+  // 测试发送：template_code 为空时后端使用通用验证码模板
+  testSmsSend: (data: { phone: string; template_code: string }) =>
+    request<SmsTestResult>("/admin/site-config/sms/test-send", { method: "POST", body: JSON.stringify(data) }),
 }
 
 // ============================================================
@@ -1051,9 +1103,9 @@ export const adminDistributionApi = {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/distributors/${id}/customers?${qs}`)
   },
-  listCustomerOrders: (id: string, email: string, params: { page?: number; page_size?: number }) => {
+  listCustomerOrders: (id: string, contact: string, params: { page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
-    return request<PaginatedData<any>>(`/admin/distribution/distributors/${id}/customer-orders?email=${encodeURIComponent(email)}&${qs}`)
+    return request<PaginatedData<any>>(`/admin/distribution/distributors/${id}/customer-orders?contact=${encodeURIComponent(contact)}&${qs}`)
   },
   updateDistributorStatus: (id: string, status: string, reason?: string) =>
     request<void>(`/admin/distribution/distributors/${id}/status`, { method: "PUT", body: JSON.stringify({ status, reason: reason || "" }) }),
@@ -1244,6 +1296,15 @@ const ERROR_CODE_I18N: Record<number, string> = {
   20005: "error.oldPasswordWrong",
   20006: "error.accountDisabled",
   20008: "error.emailCodeInvalid",
+  // 账号绑定 / 合并
+  20018: "error.bindAlreadyBound",
+  20019: "error.targetAccountComplete",
+  20020: "error.mergeDisabled",
+  20021: "error.mergeDualDistributor",
+  // 阿里云短信
+  20022: "error.smsNotEnabled",
+  20023: "error.smsNotConfigured",
+  20024: "error.smsSendFailed",
   // Product
   30001: "error.productNotFound",
   30002: "error.insufficientStock",

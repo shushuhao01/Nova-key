@@ -16,6 +16,9 @@ public interface UserMessageRepository extends JpaRepository<UserMessage, UUID> 
 
     long countByUserIdAndReadFalse(UUID userId);
 
+    /** 账号合并：取某用户全部站内消息（避免与分页查询 findUserId 重载混淆） */
+    List<UserMessage> findAllByUserId(UUID userId);
+
     List<UserMessage> findTop5ByUserIdOrderByCreatedAtDesc(UUID userId);
 
     @Query("SELECT m FROM UserMessage m WHERE m.userId = :userId " +

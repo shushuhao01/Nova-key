@@ -17,6 +17,9 @@ public interface MarketingRecipientRepository extends JpaRepository<MarketingRec
 
     long countByCampaignId(UUID campaignId);
 
+    /** 账号合并：某用户收到的全部营销邮件记录 */
+    java.util.List<MarketingRecipient> findByUserId(UUID userId);
+
     long countByCampaignIdAndDelivered(UUID campaignId, int delivered);
 
     /** 批量标记送达（doSendAsync 内逐条更新） */

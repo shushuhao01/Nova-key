@@ -11,6 +11,7 @@ import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.*;
 import com.orionkey.service.EmailService;
 import com.orionkey.service.NotificationService;
+import com.orionkey.service.SmsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -60,6 +61,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final CardKeyRepository cardKeyRepository;
     private final EmailService emailService;
     private final ObjectMapper objectMapper;
+    private final SmsService smsService;
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter DAY_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -69,7 +71,11 @@ public class NotificationServiceImpl implements NotificationService {
     private static final String CH_DINGTALK = "DINGTALK";
     private static final String CH_WECOM = "WECOM";
     private static final String CH_EMAIL = "EMAIL";
-    /** 所有渠道（模板默认勾选） */
+    private static final String CH_SMS = "SMS";
+    /**
+     * 预设模板默认勾选渠道（不含短信）：
+     * 短信需管理员显式勾选并填写 {@code sms_template_code}，避免新建模板因缺少短信模板 CODE 而保存失败。
+     */
     private static final String ALL_CHANNELS = CH_DINGTALK + "," + CH_WECOM + "," + CH_EMAIL;
 
     private final RestClient restClient = RestClient.builder().build();
@@ -116,6 +122,15 @@ public class NotificationServiceImpl implements NotificationService {
             c.setSortOrder(3);
             return channelRepository.save(c);
         });
+        channelRepository.findByChannelType(CH_SMS).orElseGet(() -> {
+            NotificationChannel c = new NotificationChannel();
+            c.setChannelType(CH_SMS);
+            c.setName("短信通知");
+            c.setConfigJson(writeJson(Map.of("phone_to", "")));
+            c.setEnabled(false);
+            c.setSortOrder(4);
+            return channelRepository.save(c);
+        });
     }
 
     /** 预设消息模板（全部默认关闭，管理员在后台勾选启用与渠道） */
@@ -134,6 +149,11 @@ public class NotificationServiceImpl implements NotificationService {
                         "登录验证码",
                         "{site_name}：您正在使用邮箱验证码登录，请在页面中填写以下验证码。\n验证码：{code}\n有效期 {expire_minutes} 分钟，请勿泄露给他人。\n如非本人操作，请忽略本邮件。",
                         ALL_CHANNELS, true, 14),
+                // ── 管理员重置密码（功能性邮件/短信：收件人为用户本人） ──
+                template("ADMIN_RESET_PASSWORD", "管理员重置密码通知", "USER",
+                        "账号密码已重置",
+                        "{site_name}：您的账号 {username} 密码已重置，请使用新密码登录并及时修改。\n新密码：{new_password}\n登录地址：{login_url}\n重置时间：{time}",
+                        CH_EMAIL, true, 16),
                 template("ORDER_CREATED", "新订单提交", "ORDER",
                         "新订单提交通知",
                         "{site_name}：新订单 {order_no}\n商品：{product} x{quantity}\n金额：¥{amount}\n支付方式：{payment_method}\n推广员：{promoter}\n提交时间：{time}",
@@ -334,6 +354,8 @@ public class NotificationServiceImpl implements NotificationService {
         t.setTitle(str(body.get("title")).isBlank() ? name : str(body.get("title")));
         t.setContent(str(body.get("content")).isBlank() ? name : str(body.get("content")));
         t.setChannels(str(body.get("channels")).isBlank() ? ALL_CHANNELS : str(body.get("channels")));
+        t.setSmsTemplateCode(str(body.get("sms_template_code")));
+        validateSmsTemplateCode(t.getChannels(), t.getSmsTemplateCode());
         t.setEnabled(Boolean.TRUE.equals(body.get("enabled")));
         t.setAutoTrigger(Boolean.TRUE.equals(body.get("auto_trigger")));
         t.setSortOrder(templateRepository.findMaxSortOrder() + 10);
@@ -349,13 +371,14 @@ public class NotificationServiceImpl implements NotificationService {
         m.put("title", t.getTitle());
         m.put("content", t.getContent());
         m.put("channels", t.getChannels());
+        m.put("sms_template_code", t.getSmsTemplateCode());
         m.put("enabled", t.isEnabled());
         m.put("auto_trigger", t.isAutoTrigger());
         m.put("sort_order", t.getSortOrder());
         return m;
     }
 
-    /** 更新模板（enabled / channels） */
+    /** 更新模板（enabled / channels / title / content / sms_template_code） */
     @Transactional
     public void updateTemplate(UUID id, Map<String, Object> body) {
         NotificationTemplate t = templateRepository.findById(id)
@@ -373,7 +396,21 @@ public class NotificationServiceImpl implements NotificationService {
         if (body.get("content") instanceof String content && !content.isBlank()) {
             t.setContent(content);
         }
+        if (body.get("sms_template_code") instanceof String smsCode) {
+            t.setSmsTemplateCode(smsCode.trim());
+        }
+        validateSmsTemplateCode(t.getChannels(), t.getSmsTemplateCode());
         templateRepository.save(t);
+    }
+
+    /** 勾选短信渠道时，必须填写短信模板 CODE（否则短信无法发送） */
+    private void validateSmsTemplateCode(String channels, String smsTemplateCode) {
+        if (channels == null) return;
+        boolean smsSelected = Arrays.stream(channels.split("\\s*,\\s*"))
+                .anyMatch(CH_SMS::equalsIgnoreCase);
+        if (smsSelected && (smsTemplateCode == null || smsTemplateCode.isBlank())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "勾选短信渠道时必须填写短信模板 CODE");
+        }
     }
 
     /** 渠道配置列表 */
@@ -426,6 +463,10 @@ public class NotificationServiceImpl implements NotificationService {
         }
         if (body.get("email_to") instanceof String to) {
             cfg.put("email_to", to.trim());
+        }
+        // 短信渠道接收手机号（仅 CH_SMS 使用）
+        if (body.get("phone_to") instanceof String phoneTo) {
+            cfg.put("phone_to", phoneTo.trim());
         }
         if (!cfg.isEmpty()) {
             c.setConfigJson(writeJson(cfg));
@@ -509,7 +550,7 @@ public class NotificationServiceImpl implements NotificationService {
                 channelRepository.findByChannelType(chType.trim()).ifPresent(ch -> {
                     if (!ch.isEnabled()) return;
                     try {
-                        dispatch(ch, title, content);
+                        dispatch(ch, t, title, content, merged);
                     } catch (Exception e) {
                         log.error("Notification dispatch failed: template={}, channel={}, err={}",
                                 code, chType, e.getMessage());
@@ -556,8 +597,49 @@ public class NotificationServiceImpl implements NotificationService {
         emailService.sendNoticeEmail(toEmail, "【" + siteName() + "】" + title, content);
     }
 
-    /** 按渠道类型分发 */
-    private void dispatch(NotificationChannel ch, String title, String content) {
+    /**
+     * 向指定手机号（用户本人）直接发送模板短信，用于管理员重置密码等「功能性短信」。
+     * 不走渠道配置（不使用渠道的 phone_to）、不写系统消息、忽略模板 enabled/channels 开关；
+     * 短信模板 CODE 取消息模板的 {@code sms_template_code}，未启用或未配置时返回 false。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public boolean sendTemplateToSms(String code, String toPhone, Map<String, Object> vars) {
+        if (toPhone == null || toPhone.isBlank()) {
+            return false;
+        }
+        if (!smsService.isEnabled()) {
+            log.debug("SMS service disabled, skip functional sms: template={}", code);
+            return false;
+        }
+        NotificationTemplate t = templateRepository.findByCode(code).orElse(null);
+        String smsTemplateCode = t == null ? "" : str(t.getSmsTemplateCode());
+        if (smsTemplateCode.isBlank()) {
+            log.warn("SMS template code not configured for notification template: {}", code);
+            return false;
+        }
+        Map<String, Object> merged = new LinkedHashMap<>();
+        if (vars != null) {
+            merged.putAll(vars);
+        }
+        merged.putIfAbsent("site_name", siteName());
+        merged.putIfAbsent("time", LocalDateTime.now().format(FMT));
+        try {
+            Map<String, Object> params = new LinkedHashMap<>();
+            merged.forEach((k, v) -> {
+                if (v != null) params.put(k, String.valueOf(v));
+            });
+            smsService.sendTemplate(toPhone.trim(), smsTemplateCode, params);
+            return true;
+        } catch (Exception e) {
+            log.error("sendTemplateToSms({}) failed: {}", code, e.getMessage());
+            return false;
+        }
+    }
+
+    /** 按渠道类型分发（短信渠道需要模板的短信 CODE 与渲染变量） */
+    private void dispatch(NotificationChannel ch, NotificationTemplate template,
+                          String title, String content, Map<String, Object> vars) {
         Map<String, Object> cfg;
         try {
             cfg = ch.getConfigJson() == null || ch.getConfigJson().isBlank()
@@ -600,6 +682,31 @@ public class NotificationServiceImpl implements NotificationService {
                     return;
                 }
                 emailService.sendNoticeEmail(to, "【" + siteName() + "】" + title, content);
+            }
+            case CH_SMS -> {
+                // 发送条件：短信服务已启用 + 渠道配置了接收手机号 + 模板配置了短信模板 CODE
+                String to = str(cfg.get("phone_to"));
+                if (to.isBlank()) {
+                    log.debug("Notice sms phone_to not configured");
+                    return;
+                }
+                if (!smsService.isEnabled()) {
+                    log.debug("SMS service disabled, skip notification sms");
+                    return;
+                }
+                String smsTemplateCode = template == null ? "" : str(template.getSmsTemplateCode());
+                if (smsTemplateCode.isBlank()) {
+                    log.warn("SMS template code not configured for notification template: {}",
+                            template == null ? "-" : template.getCode());
+                    return;
+                }
+                Map<String, Object> params = new LinkedHashMap<>();
+                if (vars != null) {
+                    vars.forEach((k, v) -> {
+                        if (v != null) params.put(k, String.valueOf(v));
+                    });
+                }
+                smsService.sendTemplate(to, smsTemplateCode, params);
             }
             default -> log.warn("Unknown notification channel type: {}", ch.getChannelType());
         }
@@ -703,7 +810,7 @@ public class NotificationServiceImpl implements NotificationService {
                 continue;
             }
             try {
-                dispatch(ch, title, content);
+                dispatch(ch, t, title, content, merged);
                 items.add(Map.of("name", ch.getName(), "status", true, "message", "发送成功"));
             } catch (Exception e) {
                 items.add(Map.of("name", ch.getName(), "status", false, "message", "发送失败：" + e.getMessage()));

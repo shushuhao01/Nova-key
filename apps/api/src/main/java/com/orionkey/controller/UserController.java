@@ -3,6 +3,8 @@ package com.orionkey.controller;
 import com.orionkey.common.ApiResponse;
 import com.orionkey.common.PageResult;
 import com.orionkey.context.RequestContext;
+import com.orionkey.model.request.BindEmailRequest;
+import com.orionkey.model.request.BindPhoneRequest;
 import com.orionkey.model.request.ChangePasswordRequest;
 import com.orionkey.model.response.UserProfileResponse;
 import com.orionkey.service.UserService;
@@ -28,6 +30,16 @@ public class UserController {
     public ApiResponse<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
         userService.changePassword(RequestContext.getUserId(), request);
         return ApiResponse.success();
+    }
+
+    @PostMapping("/bind-phone")
+    public ApiResponse<Map<String, Object>> bindPhone(@Valid @RequestBody BindPhoneRequest request) {
+        return ApiResponse.success(userService.bindPhone(RequestContext.getUserId(), request));
+    }
+
+    @PostMapping("/bind-email")
+    public ApiResponse<Map<String, Object>> bindEmail(@Valid @RequestBody BindEmailRequest request) {
+        return ApiResponse.success(userService.bindEmail(RequestContext.getUserId(), request));
     }
 
     @GetMapping("/orders")

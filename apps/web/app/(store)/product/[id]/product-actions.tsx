@@ -4,11 +4,11 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Zap, Minus, Plus, ShoppingCart, Package, TrendingUp, Ticket, CheckCircle2, XCircle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import { useLocale, useAuth, useCart } from "@/lib/context"
+import { useLocale, useAuth, useCart, useSiteConfig } from "@/lib/context"
 import { orderApi, marketingApi, withMockFallback, getApiErrorMessage, setTurnstileHeaders } from "@/services/api"
 import { mockCreateOrder } from "@/lib/mock-data"
 import { Turnstile, useTurnstile } from "@/components/shared/turnstile"
-import { cn, validateEmail, generateIdempotencyKey, getCurrencySymbol, detectPaymentDevice, isMobileDevice } from "@/lib/utils"
+import { cn, validateEmail, validatePhone, normalizePhone, generateIdempotencyKey, getCurrencySymbol, detectPaymentDevice, isMobileDevice } from "@/lib/utils"
 import { PaymentSelector } from "@/components/shared/payment-selector"
 import { ShareCommissionButton } from "@/components/store/share-commission"
 import type { ProductDetail, ProductSpec, PaymentChannelItem, MyCouponItem } from "@/types"
@@ -22,8 +22,13 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
   const { t } = useLocale()
   const { isLoggedIn } = useAuth()
   const { addItem } = useCart()
+  const { config } = useSiteConfig()
   const router = useRouter()
   const emailInputRef = useRef<HTMLInputElement>(null)
+  const phoneInputRef = useRef<HTMLInputElement>(null)
+
+  // 手机号下单通道：需后台「客户配置」同时开启
+  const phoneChannelEnabled = config?.customer_phone_enabled === true && config?.phone_purchase_enabled === true
 
   const enabledChannels = useMemo(() => channels.filter(c => c.is_enabled), [channels])
 
@@ -33,6 +38,9 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
   const [quantity, setQuantity] = useState(1)
   const [email, setEmail] = useState("")
   const [emailError, setEmailError] = useState("")
+  const [contactType, setContactType] = useState<"EMAIL" | "PHONE">("EMAIL")
+  const [phone, setPhone] = useState("")
+  const [phoneError, setPhoneError] = useState("")
   const [selectedPayment, setSelectedPayment] = useState(
     enabledChannels.length > 0 ? enabledChannels[0].channel_code : ""
   )
@@ -149,17 +157,42 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
     }
   }
 
-  const handleBuyNow = async () => {
-    if (!email.trim()) {
-      toast.error(t("product.emailRequired"))
-      emailInputRef.current?.focus()
-      emailInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
-      return
+  const handlePhoneChange = (value: string) => {
+    setPhone(value)
+    if (value && !validatePhone(normalizePhone(value))) {
+      setPhoneError(t("product.phoneInvalid"))
+    } else {
+      setPhoneError("")
     }
-    if (!validateEmail(email)) {
-      toast.error(t("product.emailInvalid"))
-      emailInputRef.current?.focus()
-      return
+  }
+
+  const handleBuyNow = async () => {
+    const usePhone = phoneChannelEnabled && contactType === "PHONE"
+    if (usePhone) {
+      const normalizedPhone = normalizePhone(phone)
+      if (!normalizedPhone) {
+        toast.error(t("product.phoneRequired"))
+        phoneInputRef.current?.focus()
+        phoneInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+        return
+      }
+      if (!validatePhone(normalizedPhone)) {
+        toast.error(t("product.phoneInvalid"))
+        phoneInputRef.current?.focus()
+        return
+      }
+    } else {
+      if (!email.trim()) {
+        toast.error(t("product.emailRequired"))
+        emailInputRef.current?.focus()
+        emailInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+        return
+      }
+      if (!validateEmail(email)) {
+        toast.error(t("product.emailInvalid"))
+        emailInputRef.current?.focus()
+        return
+      }
     }
     if (!selectedPayment) {
       toast.error(t("product.paymentMethod"))
@@ -175,12 +208,15 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
     try {
       setTurnstileHeaders(turnstileToken)
       const device = detectPaymentDevice()
+      const contactPayload = usePhone
+        ? { phone: normalizePhone(phone), contact_type: "PHONE" as const }
+        : { email: email.trim(), contact_type: "EMAIL" as const }
       const result = await withMockFallback(
         () => orderApi.create({
           product_id: product.id,
           spec_id: selectedSpec?.id ?? null,
           quantity,
-          email,
+          ...contactPayload,
           payment_method: selectedPayment,
           idempotency_key: generateIdempotencyKey(),
           device,
@@ -189,6 +225,14 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
         () => mockCreateOrder(email, selectedPayment)
       )
       toast.success(t("checkout.processingOrder"))
+      // 匿名手机号下单自动建号：登录提示一次性交接给支付成功页（读取后即降级，不保留明文密码）
+      if (result.login_phone) {
+        sessionStorage.setItem(`order_hint_${result.order.id}`, JSON.stringify({
+          auto_registered: result.auto_registered,
+          login_phone: result.login_phone,
+          initial_password: result.initial_password,
+        }))
+      }
       // 0 元订单（优惠券全额抵扣后无需支付）：直接跳转支付页，服务端订单状态已为 PAID，会自动展示已发货
       if (!result.payment) {
         router.push(`/pay/${result.order.id}?method=${selectedPayment}`)
@@ -382,30 +426,84 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
           </div>
         </div>
 
-        {/* Email input */}
+        {/* Contact input: email / phone */}
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-foreground">
-            {t("product.email")}
-          </label>
-          <input
-            ref={emailInputRef}
-            type="email"
-            placeholder={t("product.emailPlaceholder")}
-            value={email}
-            onChange={(e) => handleEmailChange(e.target.value)}
-            className={cn(
-              "h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
-              emailError ? "border-destructive" : "border-input"
-            )}
-          />
-          <div className="mt-1.5">
-            <p className="text-xs text-muted-foreground">
-              {t("product.emailFullHint")}
-            </p>
-            {emailError && (
-              <p className="mt-1 text-xs text-destructive">{emailError}</p>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label className="block text-sm font-medium text-foreground">
+              {phoneChannelEnabled && contactType === "PHONE" ? t("product.phone") : t("product.email")}
+              <span className="ml-0.5 text-destructive">*</span>
+            </label>
+            {phoneChannelEnabled && (
+              <div className="inline-flex rounded-md border border-border p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setContactType("EMAIL")}
+                  className={cn(
+                    "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                    contactType === "EMAIL" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {t("product.contactEmail")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setContactType("PHONE")}
+                  className={cn(
+                    "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                    contactType === "PHONE" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {t("product.contactPhone")}
+                </button>
+              </div>
             )}
           </div>
+          {phoneChannelEnabled && contactType === "PHONE" ? (
+            <>
+              <input
+                ref={phoneInputRef}
+                type="tel"
+                inputMode="numeric"
+                placeholder={t("product.phonePlaceholder")}
+                value={phone}
+                onChange={(e) => handlePhoneChange(e.target.value)}
+                className={cn(
+                  "h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
+                  phoneError ? "border-destructive" : "border-input"
+                )}
+              />
+              <div className="mt-1.5">
+                <p className="text-xs text-muted-foreground">
+                  {t("product.phoneFullHint")}
+                </p>
+                {phoneError && (
+                  <p className="mt-1 text-xs text-destructive">{phoneError}</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <input
+                ref={emailInputRef}
+                type="email"
+                placeholder={t("product.emailPlaceholder")}
+                value={email}
+                onChange={(e) => handleEmailChange(e.target.value)}
+                className={cn(
+                  "h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
+                  emailError ? "border-destructive" : "border-input"
+                )}
+              />
+              <div className="mt-1.5">
+                <p className="text-xs text-muted-foreground">
+                  {t("product.emailFullHint")}
+                </p>
+                {emailError && (
+                  <p className="mt-1 text-xs text-destructive">{emailError}</p>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Payment method */}

@@ -1052,6 +1052,7 @@ const mockRegisteredCustomers: RegisteredCustomerItem[] = [
     id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     username: "alice",
     email: "alice@example.com",
+    phone: "13800000001",
     points: 120,
     is_banned: false,
     created_at: new Date(Date.now() - 86400000 * 30).toISOString(),
@@ -1063,6 +1064,7 @@ const mockRegisteredCustomers: RegisteredCustomerItem[] = [
     id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
     username: "bob",
     email: "bob@example.com",
+    phone: null,
     points: 30,
     is_banned: true,
     created_at: new Date(Date.now() - 86400000 * 15).toISOString(),
@@ -1074,6 +1076,8 @@ const mockRegisteredCustomers: RegisteredCustomerItem[] = [
 
 const mockAnonymousCustomers: AnonymousCustomerItem[] = [
   {
+    contact: "13800000002",
+    phone: "13800000002",
     email: "guest1@example.com",
     order_count: 2,
     paid_count: 2,
@@ -1082,6 +1086,8 @@ const mockAnonymousCustomers: AnonymousCustomerItem[] = [
     last_order_at: new Date(Date.now() - 86400000).toISOString(),
   },
   {
+    contact: "guest2@example.com",
+    phone: null,
     email: "guest2@example.com",
     order_count: 1,
     paid_count: 1,
@@ -1110,7 +1116,12 @@ export function mockRegisteredCustomerList(params?: { keyword?: string; page?: n
   let filtered = [...mockRegisteredCustomers]
   if (params?.keyword) {
     const kw = params.keyword.toLowerCase()
-    filtered = filtered.filter(u => u.username.toLowerCase().includes(kw) || u.email.toLowerCase().includes(kw))
+    filtered = filtered.filter(
+      u =>
+        u.username.toLowerCase().includes(kw) ||
+        (u.email ?? "").toLowerCase().includes(kw) ||
+        (u.phone ?? "").toLowerCase().includes(kw)
+    )
   }
   const page = params?.page ?? 1
   const pageSize = params?.page_size ?? 10
@@ -1124,7 +1135,7 @@ export function mockAnonymousCustomerList(params?: { keyword?: string; page?: nu
   let filtered = [...mockAnonymousCustomers]
   if (params?.keyword) {
     const kw = params.keyword.toLowerCase()
-    filtered = filtered.filter(u => u.email.toLowerCase().includes(kw))
+    filtered = filtered.filter(u => u.contact.toLowerCase().includes(kw))
   }
   const page = params?.page ?? 1
   const pageSize = params?.page_size ?? 10

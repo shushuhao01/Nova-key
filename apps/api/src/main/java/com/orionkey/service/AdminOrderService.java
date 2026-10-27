@@ -22,6 +22,14 @@ public interface AdminOrderService {
                                       LocalDate startDate, LocalDate endDate);
 
     /**
+     * 导出订单 CSV（与列表同一套筛选条件，最多 10000 条，含手机号列）。
+     * 返回带 BOM 的 UTF-8 字节内容，由 Controller 包装成附件下载。
+     */
+    byte[] exportOrders(String status, String orderType, String paymentMethod,
+                        Boolean isRiskFlagged, String keyword,
+                        LocalDate startDate, LocalDate endDate);
+
+    /**
      * 业绩结算报表：汇总卡片 + 业绩趋势 + 支付方式/订单类型分布 + 分销佣金。
      * 日期按订单创建时间 [startDate 00:00, endDate+1 00:00) 过滤，传 null 表示不限。
      */

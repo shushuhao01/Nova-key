@@ -45,6 +45,15 @@ export interface CaptchaResult {
 export interface AuthResult {
   token: string
   user: UserProfile
+  /** 默认密码登录后需强制修改密码 */
+  must_change_password?: boolean
+  has_email?: boolean
+  has_phone?: boolean
+}
+
+/** 登录页默认密码提示 */
+export interface LoginHintResult {
+  default_password: string
 }
 
 /** 发送邮箱验证码结果（返回有效期与重发间隔，供前端倒计时） */
@@ -60,8 +69,21 @@ export interface UserProfile {
   role: 'USER' | 'STAFF' | 'ADMIN'
   points: number
   created_at: string
+  /** 手机号（脱敏展示，如 138****8000） */
+  phone?: string
+  has_phone?: boolean
+  has_email?: boolean
+  must_change_password?: boolean
   /** RBAC 后台权限码（登录后由后端返回，前端按此渲染菜单/按钮） */
   permissions?: string[]
+}
+
+/** 绑定手机号 / 邮箱结果 */
+export interface BindResult {
+  /** 是否执行了账号合并（目标标识已被其他账号占用） */
+  merged: boolean
+  /** 是否幂等命中（目标标识 == 当前账号已绑定值） */
+  idempotent: boolean
 }
 
 // ============================================================
@@ -184,6 +206,8 @@ export interface OrderItemDetail {
 
 export interface OrderDetail extends OrderBrief {
   email: string
+  /** 下单手机号（手机号下单才有） */
+  phone?: string | null
   points_deducted: number
   points_discount: number
   expires_at: string
@@ -226,6 +250,12 @@ export interface CreateOrderResult {
   order: OrderDetail
   /** 0 元订单（优惠券全额抵扣）时为 null，无需支付 */
   payment: PaymentCreateResult | null
+  /** 匿名手机号下单自动建号：true=本次新建账号，false=归属已有账号（仅下单响应返回，一次性字段） */
+  auto_registered?: boolean
+  /** 脱敏手机号（如 138****8000），仅下单响应返回 */
+  login_phone?: string
+  /** 首次建号时的初始密码，仅本次响应返回，不落库、不写日志 */
+  initial_password?: string
 }
 
 export interface DeliverResultGroup {
@@ -304,8 +334,10 @@ export interface NotificationTemplateItem {
   category: string
   title: string
   content: string
-  /** 勾选的发送渠道，逗号分隔：DINGTALK,WECOM,EMAIL */
+  /** 勾选的发送渠道，逗号分隔：DINGTALK,WECOM,EMAIL,SMS */
   channels: string
+  /** 勾选短信渠道时必填：阿里云短信模板 CODE */
+  sms_template_code?: string
   enabled: boolean
   auto_trigger: boolean
   sort_order: number
@@ -322,6 +354,14 @@ export interface NotificationChannelItem {
   /** 钉钉加签密钥（安全设置选「加签」时必填） */
   secret?: string
   email_to?: string
+  /** 短信渠道接收手机号 */
+  phone_to?: string
+}
+
+/** 短信测试连通 / 测试发送结果 */
+export interface SmsTestResult {
+  passed: boolean
+  message: string
 }
 
 /** 系统消息（后台铃铛列表项） */
@@ -388,6 +428,16 @@ export interface SiteConfig {
   icp_number?: string
   police_number?: string
   custom_css?: string
+  // 手机号相关公开开关（后台「客户配置」）
+  customer_phone_enabled?: boolean
+  phone_login_enabled?: boolean
+  phone_register_enabled?: boolean
+  phone_purchase_enabled?: boolean
+  phone_query_enabled?: boolean
+  phone_code_login_enabled?: boolean
+  phone_reset_by_sms_enabled?: boolean
+  phone_force_change_password?: boolean
+  sms_enabled?: boolean
 }
 
 export interface SiteConfigKV {
@@ -401,11 +451,17 @@ export interface SiteConfigKV {
 // Create Order Requests
 // ============================================================
 
+export type ContactType = 'EMAIL' | 'PHONE'
+
 export interface CreateOrderRequest {
   product_id: string
   spec_id: string | null
   quantity: number
-  email: string
+  /** 邮箱 / 手机号至少填一个（手机号通道需后台开启） */
+  email?: string
+  phone?: string
+  /** 主联系渠道，缺省 EMAIL */
+  contact_type?: ContactType
   payment_method: string
   use_points?: boolean
   idempotency_key: string
@@ -415,7 +471,11 @@ export interface CreateOrderRequest {
 }
 
 export interface CreateCartOrderRequest {
-  email: string
+  /** 邮箱 / 手机号至少填一个（手机号通道需后台开启） */
+  email?: string
+  phone?: string
+  /** 主联系渠道，缺省 EMAIL */
+  contact_type?: ContactType
   payment_method: string
   use_points?: boolean
   idempotency_key: string
@@ -637,7 +697,10 @@ export interface CustomerOverview {
 export interface RegisteredCustomerItem {
   id: string
   username: string
-  email: string
+  /** 邮箱（手机号注册用户可能未填邮箱） */
+  email: string | null
+  /** 手机号（手机号注册用户才有；无则为空） */
+  phone?: string | null
   points: number
   is_banned: boolean
   created_at: string
@@ -656,9 +719,12 @@ export interface RegisteredCustomerItem {
   distributor_level?: 1 | 2 | null
 }
 
-/** 匿名客户列表项 */
+/** 匿名客户列表项（同一手机号只算 1 个客户；无手机号时回落到邮箱） */
 export interface AnonymousCustomerItem {
-  email: string
+  /** 客户标识：手机号优先，无手机号回落到邮箱 */
+  contact: string
+  phone: string | null
+  email: string | null
   order_count: number
   paid_count: number
   total_spent: number
@@ -669,7 +735,9 @@ export interface AnonymousCustomerItem {
 /** 客户订单摘要 */
 export interface CustomerOrderItem {
   id: string
-  email: string
+  email: string | null
+  /** 下单手机号（手机号下单才有） */
+  phone?: string | null
   status: string
   payment_method: string | null
   total_amount: number
@@ -696,13 +764,26 @@ export interface RegisteredCustomerDetail extends RegisteredCustomerItem {
 
 /** 匿名客户详情 */
 export interface AnonymousCustomerDetail {
-  email: string
+  /** 客户标识：手机号优先，无手机号回落到邮箱 */
+  contact: string
+  phone: string | null
+  email: string | null
   order_count: number
   paid_count: number
   total_spent: number
   first_order_at: string | null
   last_order_at: string | null
   orders: PaginatedData<CustomerOrderItem>
+}
+
+/** 管理员重置客户密码结果（新密码仅此一次返回，关闭弹窗后不可再查看） */
+export interface AdminResetPasswordResult {
+  username: string
+  email: string | null
+  phone: string | null
+  new_password: string
+  /** 通知状态：EMAIL / SMS / EMAIL,SMS / NONE */
+  notify: string
 }
 
 // ============================================================

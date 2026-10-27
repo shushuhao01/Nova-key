@@ -12,7 +12,7 @@ import { mockQueryOrders, mockDeliver } from "@/lib/mock-data"
 import { OrderStatusBadge } from "@/components/shared/order-status-badge"
 import { PaymentIcon, getPaymentLabel } from "@/components/shared/payment-icon"
 import type { OrderBrief, DeliverResult, TxidVerifyResult } from "@/types"
-import { cn, stripInvisible } from "@/lib/utils"
+import { cn, stripInvisible, validatePhone, normalizePhone } from "@/lib/utils"
 import { Modal } from "@/components/ui/modal"
 
 interface RecentQuery {
@@ -90,11 +90,16 @@ export default function OrderQueryPage() {
     setDeliverResults([])
 
     try {
-      // Determine if input is email or order ID
+      // Determine if input is email / phone / order ID
       const isEmail = trimmed.includes("@")
+      const phoneQueryEnabled = config?.phone_query_enabled === true
+      const normalizedPhone = normalizePhone(trimmed)
+      const isPhone = !isEmail && phoneQueryEnabled && validatePhone(normalizedPhone)
       const queryParams = isEmail
         ? { emails: [trimmed] }
-        : { order_ids: [trimmed] }
+        : isPhone
+          ? { phones: [normalizedPhone] }
+          : { order_ids: [trimmed] }
 
       const found = await withMockFallback(
         () => orderApi.query(queryParams),
@@ -141,7 +146,7 @@ export default function OrderQueryPage() {
       setSearched(true)
       setIsSearching(false)
     }
-  }, [])
+  }, [config?.phone_query_enabled])
 
   const handleSearch = useCallback((value?: string) => {
     doSearch(value || queryValue)
@@ -241,7 +246,9 @@ export default function OrderQueryPage() {
       {/* Header */}
       <div>
         <h1 className="text-xl font-bold text-foreground">{t("order.query")}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t("order.queryDesc")}</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {config?.phone_query_enabled === true ? t("order.queryDescWithPhone") : t("order.queryDesc")}
+        </p>
       </div>
 
       {/* Search Form */}
@@ -250,7 +257,7 @@ export default function OrderQueryPage() {
           <div className="relative flex-1">
             <input
               type="text"
-              placeholder={t("order.queryPlaceholder")}
+              placeholder={config?.phone_query_enabled === true ? t("order.queryPlaceholderWithPhone") : t("order.queryPlaceholder")}
               value={queryValue}
               onChange={(e) => setQueryValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}

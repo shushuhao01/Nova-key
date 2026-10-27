@@ -31,6 +31,8 @@ public class RateLimitFilter implements Filter {
     private final Map<String, TokenBucket> buckets = new ConcurrentHashMap<>();
     /** 登录端点独立限流桶（更严格） */
     private final Map<String, TokenBucket> loginBuckets = new ConcurrentHashMap<>();
+    /** 默认密码提示端点独立限流桶 */
+    private final Map<String, TokenBucket> hintBuckets = new ConcurrentHashMap<>();
 
     /** 受信代理 IP 列表（只有来自受信代理的请求才读取 X-Forwarded-For） */
     @Value("${rate-limit.trusted-proxies:127.0.0.1,::1,0:0:0:0:0:0:0:1}")
@@ -45,10 +47,16 @@ public class RateLimitFilter implements Filter {
     /** 登录端点限制：每分钟 5 次 */
     private static final int LOGIN_RATE_PER_MINUTE = 5;
 
+    /** 默认密码提示端点限制：每分钟 10 次 */
+    private static final int LOGIN_HINT_RATE_PER_MINUTE = 10;
+
     /** 敏感端点路径 */
     private static final Set<String> LOGIN_PATHS = Set.of(
-            "/api/auth/login", "/api/auth/register"
+            "/api/auth/login", "/api/auth/register", "/api/auth/register-phone"
     );
+
+    /** 默认密码提示路径 */
+    private static final String LOGIN_HINT_PATH = "/api/auth/login-hint";
 
     private Set<String> getTrustedProxies() {
         if (trustedProxies == null) {
@@ -89,6 +97,17 @@ public class RateLimitFilter implements Filter {
             }
         }
 
+        // 默认密码提示：独立限流（每分钟 LOGIN_HINT_RATE_PER_MINUTE 次）
+        if (LOGIN_HINT_PATH.equals(path)) {
+            String hintKey = "hint:" + clientIp;
+            TokenBucket hintBucket = hintBuckets.computeIfAbsent(hintKey,
+                    k -> new TokenBucket(LOGIN_HINT_RATE_PER_MINUTE, 60_000));
+            if (!hintBucket.tryConsume()) {
+                rejectTooManyRequests(response, "请求过于频繁，请稍后再试");
+                return;
+            }
+        }
+
         // 通用限流
         int rateLimit = getRateLimit();
         TokenBucket bucket = buckets.computeIfAbsent(clientIp, k -> new TokenBucket(rateLimit));
@@ -106,6 +125,9 @@ public class RateLimitFilter implements Filter {
         }
         if (loginBuckets.size() > 5000) {
             loginBuckets.entrySet().removeIf(e -> now - e.getValue().lastAccess > 120_000);
+        }
+        if (hintBuckets.size() > 5000) {
+            hintBuckets.entrySet().removeIf(e -> now - e.getValue().lastAccess > 120_000);
         }
     }
 

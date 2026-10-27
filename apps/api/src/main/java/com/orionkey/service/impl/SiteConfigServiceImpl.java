@@ -30,7 +30,11 @@ public class SiteConfigServiceImpl implements SiteConfigService {
             "wechat_kefu_link", "wechat_qrcode",
             "points_enabled", "points_rate",
             "maintenance_enabled", "maintenance_message", "footer_text", "github_url", "custom_css",
-            "copyright", "icp_number", "police_number"
+            "copyright", "icp_number", "police_number",
+            // 手机号 / 邮箱双通道开关（公开：前台据此决定是否渲染手机号入口）
+            "customer_phone_enabled", "phone_login_enabled", "phone_register_enabled",
+            "phone_purchase_enabled", "phone_query_enabled", "phone_code_login_enabled",
+            "phone_reset_by_sms_enabled", "phone_force_change_password", "sms_enabled"
     );
 
     /** 系统版本号：仅在管理后台「网站设置 → 基本信息」只读展示 */
@@ -60,8 +64,94 @@ public class SiteConfigServiceImpl implements SiteConfigService {
             "mail_from", "mail_from_name", "mail_site_url",
             // 系统参数
             "order_expire_minutes", "max_pending_orders_per_user", "max_pending_orders_per_ip",
-            "rate_limit_per_second"
+            "rate_limit_per_second",
+            // 客户配置（手机号 / 邮箱双通道）
+            "customer_phone_enabled", "phone_login_enabled", "phone_register_enabled",
+            "phone_purchase_enabled", "phone_query_enabled", "anonymous_phone_auto_register",
+            "phone_force_change_password", "account_merge_enabled", "phone_code_login_enabled",
+            "phone_reset_by_sms_enabled", "phone_default_password", "phone_register_daily_limit",
+            "phone_code_interval_seconds", "phone_code_daily_limit", "phone_code_expire_minutes",
+            "login_fail_lock_threshold", "login_fail_lock_minutes", "customer_service_hint",
+            // 短信配置（阿里云）
+            "sms_enabled", "sms_provider", "sms_access_key_id", "sms_access_key_secret",
+            "sms_sign_name", "sms_region", "sms_tpl_verify_code", "sms_tpl_login_code",
+            "sms_tpl_password_reset", "sms_tpl_bind_phone", "sms_admin_phone"
     );
+
+    /** 客户配置默认值（config_group = customer），仅当键不存在时写入 */
+    private static final Map<String, String> CUSTOMER_CONFIG_DEFAULTS = createCustomerDefaults();
+
+    /** 短信配置默认值（config_group = sms），仅当键不存在时写入 */
+    private static final Map<String, String> SMS_CONFIG_DEFAULTS = createSmsDefaults();
+
+    /** 客户配置中的数值键：聚合读取时转成数字 */
+    private static final Set<String> CUSTOMER_NUMERIC_KEYS = Set.of(
+            "phone_register_daily_limit", "phone_code_interval_seconds", "phone_code_daily_limit",
+            "phone_code_expire_minutes", "login_fail_lock_threshold", "login_fail_lock_minutes"
+    );
+
+    private static Map<String, String> createCustomerDefaults() {
+        Map<String, String> m = new LinkedHashMap<>();
+        m.put("customer_phone_enabled", "false");
+        m.put("phone_login_enabled", "true");
+        m.put("phone_register_enabled", "true");
+        m.put("phone_purchase_enabled", "true");
+        m.put("phone_query_enabled", "true");
+        m.put("anonymous_phone_auto_register", "true");
+        m.put("phone_force_change_password", "true");
+        m.put("account_merge_enabled", "true");
+        m.put("phone_code_login_enabled", "false");
+        m.put("phone_reset_by_sms_enabled", "false");
+        m.put("phone_default_password", "Aa123456");
+        m.put("phone_register_daily_limit", "20");
+        m.put("phone_code_interval_seconds", "60");
+        m.put("phone_code_daily_limit", "10");
+        m.put("phone_code_expire_minutes", "10");
+        m.put("login_fail_lock_threshold", "5");
+        m.put("login_fail_lock_minutes", "15");
+        m.put("customer_service_hint", "");
+        return Collections.unmodifiableMap(m);
+    }
+
+    private static Map<String, String> createSmsDefaults() {
+        Map<String, String> m = new LinkedHashMap<>();
+        m.put("sms_enabled", "false");
+        m.put("sms_provider", "aliyun");
+        m.put("sms_access_key_id", "");
+        m.put("sms_access_key_secret", "");
+        m.put("sms_sign_name", "");
+        m.put("sms_region", "cn-hangzhou");
+        m.put("sms_tpl_verify_code", "");
+        m.put("sms_tpl_login_code", "");
+        m.put("sms_tpl_password_reset", "");
+        m.put("sms_tpl_bind_phone", "");
+        m.put("sms_admin_phone", "");
+        return Collections.unmodifiableMap(m);
+    }
+
+    /** 首次启动写入客户配置 / 短信配置默认值（幂等：键已存在则跳过，不覆盖后台修改） */
+    @jakarta.annotation.PostConstruct
+    @Transactional
+    public void initDefaults() {
+        seedConfigGroup("customer", CUSTOMER_CONFIG_DEFAULTS);
+        seedConfigGroup("sms", SMS_CONFIG_DEFAULTS);
+    }
+
+    private void seedConfigGroup(String group, Map<String, String> defaults) {
+        int inserted = 0;
+        for (Map.Entry<String, String> entry : defaults.entrySet()) {
+            if (siteConfigRepository.findByConfigKey(entry.getKey()).isPresent()) continue;
+            SiteConfig c = new SiteConfig();
+            c.setConfigKey(entry.getKey());
+            c.setConfigValue(entry.getValue());
+            c.setConfigGroup(group);
+            siteConfigRepository.save(c);
+            inserted++;
+        }
+        if (inserted > 0) {
+            log.info("Seeded {} default config key(s) for group {}", inserted, group);
+        }
+    }
 
     /** F15: CSS 危险模式 — 用于过滤 custom_css 中的 XSS 向量 */
     private static final Pattern CSS_DANGEROUS_PATTERNS = Pattern.compile(
@@ -104,14 +194,64 @@ public class SiteConfigServiceImpl implements SiteConfigService {
     }
 
     @Override
+    public Map<String, Object> getCustomerConfig() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : CUSTOMER_CONFIG_DEFAULTS.entrySet()) {
+            String key = entry.getKey();
+            String val = siteConfigRepository.findByConfigKey(key)
+                    .map(SiteConfig::getConfigValue)
+                    .orElse(entry.getValue());
+            if ("true".equalsIgnoreCase(val) || "false".equalsIgnoreCase(val)) {
+                result.put(key, Boolean.parseBoolean(val));
+            } else if (CUSTOMER_NUMERIC_KEYS.contains(key)) {
+                try {
+                    result.put(key, Integer.parseInt(val));
+                } catch (NumberFormatException e) {
+                    result.put(key, val);
+                }
+            } else {
+                result.put(key, val);
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public boolean isEnabled(String key) {
+        return siteConfigRepository.findByConfigKey(key)
+                .map(c -> "true".equalsIgnoreCase(c.getConfigValue()))
+                .orElse(false);
+    }
+
+    @Override
+    public String getValue(String key, String defaultValue) {
+        return siteConfigRepository.findByConfigKey(key)
+                .map(SiteConfig::getConfigValue)
+                .filter(v -> v != null && !v.isBlank())
+                .orElse(defaultValue);
+    }
+
+    @Override
+    public int getIntValue(String key, int defaultValue) {
+        String raw = getValue(key, null);
+        if (raw == null) return defaultValue;
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    @Override
     public List<?> getAllConfigs() {
         List<Map<String, Object>> list = new ArrayList<>(siteConfigRepository.findAll().stream()
                 .map(c -> {
                     Map<String, Object> map = new LinkedHashMap<>();
                     map.put("config_key", c.getConfigKey());
                     String value = c.getConfigValue();
-                    // SMTP 密码不回传明文，已配置时标记 __SET__（前端显示"已设置，留空则不修改"）
-                    if ("smtp_password".equals(c.getConfigKey()) && value != null && !value.isBlank()) {
+                    // SMTP 密码 / 短信 AccessKeySecret 不回传明文，已配置时标记 __SET__（前端显示"已设置，留空则不修改"）
+                    if (("smtp_password".equals(c.getConfigKey()) || "sms_access_key_secret".equals(c.getConfigKey()))
+                            && value != null && !value.isBlank()) {
                         value = "__SET__";
                     }
                     map.put("config_value", value);
@@ -141,6 +281,10 @@ public class SiteConfigServiceImpl implements SiteConfigService {
             }
             // SMTP 密码：前端空值或 __SET__ 表示不修改，保留原密码
             if ("smtp_password".equals(key) && (value == null || value.isBlank() || "__SET__".equals(value))) {
+                continue;
+            }
+            // 短信 AccessKeySecret：同上，留空或 __SET__ 表示保留已保存的密钥
+            if ("sms_access_key_secret".equals(key) && (value == null || value.isBlank() || "__SET__".equals(value))) {
                 continue;
             }
             // F15: custom_css 写入时也做安全过滤

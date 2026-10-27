@@ -349,6 +349,7 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("distributor_code", sub.getDistributorCode());
             m.put("username", u != null ? u.getUsername() : null);
             m.put("email", u != null ? u.getEmail() : null);
+            m.put("phone", u != null ? u.getPhone() : null);
             m.put("status", sub.getStatus().name());
             // 推广总额 / 付款单数（已付款/已发货/已完成）
             m.put("total_sales", nullSafe(orderRepository.sumSalesByDistributorAll(sub.getId())).setScale(2, RoundingMode.HALF_UP));
@@ -381,17 +382,21 @@ public class DistributionServiceImpl implements DistributionService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", cb.getId());
             m.put("customer_email", cb.getCustomerEmail());
-            String username = null;
-            if (cb.getCustomerUserId() != null) {
-                username = userRepository.findById(cb.getCustomerUserId()).map(User::getUsername).orElse(null);
-            }
+            User cu = cb.getCustomerUserId() != null
+                    ? userRepository.findById(cb.getCustomerUserId()).orElse(null) : null;
+            String username = cu != null ? cu.getUsername() : null;
+            String phone = cu != null && cu.getPhone() != null && !cu.getPhone().isBlank() ? cu.getPhone() : null;
             m.put("username", username);
+            m.put("customer_phone", phone);
+            // 客户标识：优先手机号，无手机号回落到邮箱
+            String contact = phone != null ? phone : cb.getCustomerEmail();
+            m.put("customer_contact", contact);
             m.put("purchase_count", cb.getPurchaseCount());
             m.put("first_bind_at", cb.getCreatedAt());
             m.put("last_purchase_at", cb.getLastPurchaseAt());
 
-            // 聚合该客户在该推广员名下的购买明细（订单按推广员+客户邮箱匹配）
-            List<Order> orders = orderRepository.findDistributorOrdersByEmail(d.getId(), cb.getCustomerEmail().trim().toLowerCase());
+            // 聚合该客户在该推广员名下的购买明细（订单按推广员 + 客户邮箱/手机号双口径合并去重）
+            List<Order> orders = distributorCustomerOrders(d.getId(), cb.getCustomerEmail(), phone);
             BigDecimal paidAmount = BigDecimal.ZERO;
             BigDecimal commission = BigDecimal.ZERO;
             int quantity = 0;
@@ -439,11 +444,11 @@ public class DistributionServiceImpl implements DistributionService {
 
     @Override
     @Transactional(readOnly = true)
-    public Map<String, Object> adminListCustomerOrders(UUID distributorId, String email, int page, int pageSize) {
-        if (email == null || email.isBlank()) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "缺少客户邮箱");
+    public Map<String, Object> adminListCustomerOrders(UUID distributorId, String contact, int page, int pageSize) {
+        if (contact == null || contact.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "缺少客户联系方式");
         }
-        List<Order> orders = orderRepository.findDistributorOrdersByEmail(distributorId, email.trim().toLowerCase());
+        List<Order> orders = orderRepository.findDistributorOrdersByContact(distributorId, contact.trim().toLowerCase());
         int total = orders.size();
         int totalPages = Math.max(1, (int) Math.ceil((double) total / Math.max(1, pageSize)));
         int safePage = Math.max(1, Math.min(page, totalPages));
@@ -453,6 +458,7 @@ public class DistributionServiceImpl implements DistributionService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", o.getId());
             m.put("email", o.getEmail());
+            m.put("phone", o.getPhone());
             m.put("actual_amount", o.getActualAmount());
             m.put("status", o.getStatus() != null ? o.getStatus().name() : null);
             m.put("order_type", o.getOrderType() != null ? o.getOrderType().name() : null);
@@ -481,6 +487,22 @@ public class DistributionServiceImpl implements DistributionService {
             case PAID, DELIVERED, COMPLETED -> true;
             default -> false;
         };
+    }
+
+    /** 该推广员名下某客户的全部订单：邮箱 + 手机号双口径合并去重（最近下单在前） */
+    private List<Order> distributorCustomerOrders(UUID distributorId, String email, String phone) {
+        Map<UUID, Order> merged = new LinkedHashMap<>();
+        if (email != null && !email.isBlank()) {
+            orderRepository.findDistributorOrdersByContact(distributorId, email.trim().toLowerCase())
+                    .forEach(o -> merged.put(o.getId(), o));
+        }
+        if (phone != null && !phone.isBlank()) {
+            orderRepository.findDistributorOrdersByContact(distributorId, phone.trim())
+                    .forEach(o -> merged.put(o.getId(), o));
+        }
+        List<Order> list = new ArrayList<>(merged.values());
+        list.sort(Comparator.comparing(Order::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())));
+        return list;
     }
 
     @Override
@@ -690,6 +712,7 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("distributor_code", d != null ? d.getDistributorCode() : null);
             m.put("username", u != null ? u.getUsername() : null);
             m.put("email", u != null ? u.getEmail() : null);
+            m.put("phone", u != null ? u.getPhone() : null);
             m.put("total_sales", sales.setScale(2, RoundingMode.HALF_UP));
             m.put("total_commission", commission.setScale(2, RoundingMode.HALF_UP));
             m.put("click_count", clicks);
@@ -3660,6 +3683,7 @@ public class DistributionServiceImpl implements DistributionService {
         m.put("user_id", d.getUserId());
         m.put("username", user != null ? user.getUsername() : null);
         m.put("email", user != null ? user.getEmail() : null);
+        m.put("phone", user != null ? user.getPhone() : null);
         m.put("distributor_code", d.getDistributorCode());
         m.put("status", d.getStatus().name());
         m.put("custom_rate", rateToPercent(d.getCustomRate()));

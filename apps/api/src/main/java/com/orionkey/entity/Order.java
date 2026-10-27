@@ -22,7 +22,16 @@ public class Order extends BaseEntity {
 
     private UUID userId;
 
+    /** 联系邮箱（邮箱下单时写入，手机号下单时可为空） */
     private String email;
+
+    /** 联系电话（手机号下单时写入，邮箱下单时可为空） */
+    @Column(length = 20)
+    private String phone;
+
+    /** 联系方式类型：EMAIL / PHONE（历史订单可为空，读取时按 email 是否为空推断） */
+    @Column(length = 16)
+    private String contactType;
 
     @Column(precision = 10, scale = 2)
     private BigDecimal totalAmount;

@@ -305,7 +305,7 @@ export default function AdminRiskPage() {
                         {order.id.length > 16 ? `${order.id.slice(0, 8)}...${order.id.slice(-4)}` : order.id}
                       </td>
                       <td className="px-4 py-3 text-foreground">{order.username || t("admin.guest")}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{order.email}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{order.email || order.phone || "-"}</td>
                       <td className="px-4 py-3 font-medium text-foreground">¥{order.actual_amount.toFixed(2)}</td>
                       <td className="px-4 py-3">
                         <OrderStatusBadge status={order.status} />

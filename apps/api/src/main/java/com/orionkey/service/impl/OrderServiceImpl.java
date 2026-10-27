@@ -4,6 +4,7 @@ import com.orionkey.constant.CardKeyStatus;
 import com.orionkey.constant.ErrorCode;
 import com.orionkey.constant.OrderStatus;
 import com.orionkey.constant.OrderType;
+import com.orionkey.constant.UserRole;
 import com.orionkey.entity.*;
 import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.*;
@@ -12,12 +13,16 @@ import com.orionkey.service.NotificationService;
 import com.orionkey.service.OrderService;
 import com.orionkey.service.PaymentService;
 import com.orionkey.service.DistributionService;
+import com.orionkey.service.SiteConfigService;
+import com.orionkey.util.PhoneUtils;
 import com.orionkey.util.UserAgentUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,6 +51,9 @@ public class OrderServiceImpl implements OrderService {
     private final DistributionService distributionService;
     private final DistributorRepository distributorRepository;
     private final PromotionLinkRepository promotionLinkRepository;
+    private final SiteConfigService siteConfigService;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -74,7 +82,11 @@ public class OrderServiceImpl implements OrderService {
         UUID productId = UUID.fromString((String) req.get("product_id"));
         UUID specId = req.get("spec_id") != null ? UUID.fromString((String) req.get("spec_id")) : null;
         int quantity = ((Number) req.get("quantity")).intValue();
-        String email = (String) req.get("email");
+        // 联系方式：邮箱 / 手机号双通道（开关关闭时忽略 phone，行为与改造前一致）
+        Contact contact = resolveContact(req);
+        // 匿名手机号下单：按开关自动建号 / 归属已有账号（仅本次响应返回初始密码，不落库）
+        AutoRegister autoRegister = maybeAutoRegisterByPhone(userId, contact.phone());
+        UUID effectiveUserId = autoRegister.userId() != null ? autoRegister.userId() : userId;
 
         // F4: 购买数量校验（读取后台配置，兜底 999）
         int maxQuantity = getMaxPurchasePerUser();
@@ -83,8 +95,8 @@ public class OrderServiceImpl implements OrderService {
                     Map.of("max", maxQuantity));
         }
 
-        // F14: 提前提取 email，用于 pending 订单限制（email + IP 双维度防刷）
-        checkPendingOrderLimits(userId, clientIp, email);
+        // F14: 提前提取 email/phone，用于 pending 订单限制（email + phone + IP 多维防刷）
+        checkPendingOrderLimits(userId, clientIp, contact.email(), contact.phone());
         String paymentMethod = (String) req.get("payment_method");
         validatePaymentMethod(paymentMethod);
 
@@ -112,8 +124,10 @@ public class OrderServiceImpl implements OrderService {
         int expireMinutes = getConfigInt("order_expire_minutes", 15);
 
         Order order = new Order();
-        order.setUserId(userId);
-        order.setEmail(email);
+        order.setUserId(effectiveUserId);
+        order.setEmail(contact.email());
+        order.setPhone(contact.phone());
+        order.setContactType(contact.contactType());
         order.setTotalAmount(totalAmount);
         order.setActualAmount(totalAmount);
         order.setStatus(OrderStatus.PENDING);
@@ -124,14 +138,16 @@ public class OrderServiceImpl implements OrderService {
         order.setClientIp(clientIp);
         order.setDevice(deviceLabel);
         order.setSessionToken(sessionToken);
-        applyReferralDistributor(order, referralDistributorId, promotionLinkId, userId);
+        applyReferralDistributor(order, referralDistributorId, promotionLinkId, effectiveUserId);
         order.setChannelCode(normalizeChannel(channelCode));
         orderRepository.save(order);
 
         // 优惠券抵扣（选填）：校验核销码 → 计算抵扣 → 绑定订单并重算应付金额
         String couponCode = (String) req.get("coupon_code");
         if (couponCode != null && !couponCode.isBlank()) {
-            BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, userId, email, totalAmount, order.getId(), List.of(productId));
+            BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, effectiveUserId,
+                    contact.email() != null ? contact.email() : contact.phone(),
+                    totalAmount, order.getId(), List.of(productId));
             BigDecimal actual = totalAmount.subtract(couponDiscount).max(BigDecimal.ZERO);
             order.setCouponCode(couponCode.trim().toUpperCase());
             order.setCouponDiscount(couponDiscount);
@@ -170,7 +186,9 @@ public class OrderServiceImpl implements OrderService {
         lockCardKeysForOrderItem(order.getId(), item.getId(), productId, specId, quantity);
 
         sendOrderCreatedNotice(order);
-        return buildOrderResult(order, device);
+        Map<String, Object> result = buildOrderResult(order, device);
+        appendAutoRegisterInfo(result, autoRegister, contact.phone());
+        return result;
     }
 
     @Override
@@ -194,8 +212,11 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        String email = (String) req.get("email");
-        checkPendingOrderLimits(userId, clientIp, email);
+        Contact contact = resolveContact(req);
+        // 匿名手机号下单：按开关自动建号 / 归属已有账号（仅本次响应返回初始密码，不落库）
+        AutoRegister autoRegister = maybeAutoRegisterByPhone(userId, contact.phone());
+        UUID effectiveUserId = autoRegister.userId() != null ? autoRegister.userId() : userId;
+        checkPendingOrderLimits(userId, clientIp, contact.email(), contact.phone());
         String paymentMethod = (String) req.get("payment_method");
         validatePaymentMethod(paymentMethod);
 
@@ -225,8 +246,10 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal totalAmount = BigDecimal.ZERO;
 
         Order order = new Order();
-        order.setUserId(userId);
-        order.setEmail(email);
+        order.setUserId(effectiveUserId);
+        order.setEmail(contact.email());
+        order.setPhone(contact.phone());
+        order.setContactType(contact.contactType());
         order.setStatus(OrderStatus.PENDING);
         order.setOrderType(OrderType.CART);
         order.setPaymentMethod(paymentMethod);
@@ -235,7 +258,7 @@ public class OrderServiceImpl implements OrderService {
         order.setClientIp(clientIp);
         order.setDevice(deviceLabel);
         order.setSessionToken(sessionToken);
-        applyReferralDistributor(order, referralDistributorId, promotionLinkId, userId);
+        applyReferralDistributor(order, referralDistributorId, promotionLinkId, effectiveUserId);
         order.setChannelCode(normalizeChannel(channelCode));
         orderRepository.save(order);
 
@@ -299,7 +322,8 @@ public class OrderServiceImpl implements OrderService {
         // 优惠券抵扣（选填）：校验核销码 → 计算抵扣 → 绑定订单并重算应付金额
         String couponCode = (String) req.get("coupon_code");
         if (couponCode != null && !couponCode.isBlank()) {
-            BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, userId, email, totalAmount, order.getId(),
+            BigDecimal couponDiscount = marketingService.applyCoupon(couponCode, effectiveUserId,
+                    contact.email() != null ? contact.email() : contact.phone(), totalAmount, order.getId(),
                     cartItems.stream().map(CartItem::getProductId).toList());
             BigDecimal actual = totalAmount.subtract(couponDiscount).max(BigDecimal.ZERO);
             order.setCouponCode(couponCode.trim().toUpperCase());
@@ -324,7 +348,9 @@ public class OrderServiceImpl implements OrderService {
         }
 
         sendOrderCreatedNotice(order);
-        return buildOrderResult(order, device);
+        Map<String, Object> result = buildOrderResult(order, device);
+        appendAutoRegisterInfo(result, autoRegister, contact.phone());
+        return result;
     }
 
     @Override
@@ -451,8 +477,52 @@ public class OrderServiceImpl implements OrderService {
         return basePrice;
     }
 
-    private void checkPendingOrderLimits(UUID userId, String clientIp, String email) {
-        // 邮箱和 IP 共用同一配置值（面板"最大待支付订单数"）
+    /**
+     * 解析下单联系方式（邮箱 / 手机号双通道）。
+     * 校验顺序固定：开关判断 → 手机号格式校验 → 二者至少一个 → contact_type 指定优先。
+     * 开关关闭时忽略 phone，仅按 email 校验（与改造前行为一致）。
+     */
+    private Contact resolveContact(Map<String, Object> req) {
+        boolean phoneChannelEnabled = siteConfigService.isEnabled("customer_phone_enabled")
+                && siteConfigService.isEnabled("phone_purchase_enabled");
+
+        Object emailRaw = req.get("email");
+        String email = emailRaw != null ? emailRaw.toString().trim() : null;
+        if (email != null && email.isEmpty()) {
+            email = null;
+        }
+
+        String phone = null;
+        Object phoneRaw = req.get("phone");
+        if (phoneChannelEnabled && phoneRaw != null && !phoneRaw.toString().isBlank()) {
+            String normalized = PhoneUtils.normalize(phoneRaw.toString());
+            if (!PhoneUtils.isValidCnMobile(normalized)) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "手机号格式不正确");
+            }
+            phone = normalized;
+        }
+
+        if (email == null && phone == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    phoneChannelEnabled ? "请输入邮箱或手机号" : "请输入邮箱");
+        }
+
+        String contactType;
+        if (email != null && phone != null) {
+            Object typeRaw = req.get("contact_type");
+            contactType = typeRaw != null && "PHONE".equalsIgnoreCase(typeRaw.toString().trim()) ? "PHONE" : "EMAIL";
+        } else {
+            contactType = phone != null ? "PHONE" : "EMAIL";
+        }
+        return new Contact(email, phone, contactType);
+    }
+
+    /** 下单联系方式：email / phone 至少一个；contactType 标记主联系渠道（EMAIL / PHONE） */
+    private record Contact(String email, String phone, String contactType) {
+    }
+
+    private void checkPendingOrderLimits(UUID userId, String clientIp, String email, String phone) {
+        // 邮箱、手机号和 IP 共用同一配置值（面板"最大待支付订单数"）
         int maxPending = getConfigInt("max_pending_orders_per_user", 5);
 
         if (userId != null) {
@@ -472,6 +542,13 @@ public class OrderServiceImpl implements OrderService {
             long pending = orderRepository.countByEmailAndStatus(email, OrderStatus.PENDING);
             if (pending >= maxPending) {
                 throw new BusinessException(ErrorCode.UNPAID_ORDER_EXISTS, "该邮箱有未支付的订单，请先完成支付或等待过期");
+            }
+        }
+        // 手机号维度 pending 订单限制 — 防止通过 IP / 邮箱轮换绕过限制
+        if (phone != null && !phone.isBlank()) {
+            long pending = orderRepository.countByPhoneAndStatus(phone, OrderStatus.PENDING);
+            if (pending >= maxPending) {
+                throw new BusinessException(ErrorCode.UNPAID_ORDER_EXISTS, "该手机号有未支付的订单，请先完成支付或等待过期");
             }
         }
     }
@@ -566,6 +643,90 @@ public class OrderServiceImpl implements OrderService {
         return UserAgentUtil.labelToPayDevice(deviceLabel);
     }
 
+    /** 匿名手机号下单自动建号结果：userId 为归属账号；initialPassword 仅首次建号时非空（一次性返回） */
+    private record AutoRegister(UUID userId, String initialPassword) {
+        static AutoRegister none() {
+            return new AutoRegister(null, null);
+        }
+    }
+
+    /**
+     * 匿名手机号下单自动建号 / 归属已有账号。
+     * 仅当 customer_phone_enabled && anonymous_phone_auto_register 且下单使用手机号、当前未登录时触发。
+     * 已存在同手机号账号 → 直接归属（auto_registered=false）；否则按 phone_default_password 建号。
+     */
+    private AutoRegister maybeAutoRegisterByPhone(UUID userId, String phone) {
+        if (userId != null || phone == null || phone.isBlank()) {
+            return AutoRegister.none();
+        }
+        if (!siteConfigService.isEnabled("customer_phone_enabled")
+                || !siteConfigService.isEnabled("anonymous_phone_auto_register")) {
+            return AutoRegister.none();
+        }
+        Optional<User> existing = userRepository.findByPhone(phone);
+        if (existing.isPresent()) {
+            return new AutoRegister(existing.get().getId(), null);
+        }
+        String defaultPassword = getConfigString("phone_default_password", "Aa123456");
+        boolean forceChange = siteConfigService.isEnabled("phone_force_change_password");
+        try {
+            User user = new User();
+            user.setUsername(resolvePhoneUsername(phone));
+            user.setPhone(phone);
+            user.setEmail(null);
+            user.setPhoneRegisteredAt(LocalDateTime.now());
+            user.setMustChangePassword(forceChange);
+            user.setPasswordHash(passwordEncoder.encode(defaultPassword));
+            user.setRole(UserRole.USER);
+            userRepository.saveAndFlush(user);
+            return new AutoRegister(user.getId(), defaultPassword);
+        } catch (DataIntegrityViolationException e) {
+            // 并发下同手机号已被其他事务建号：重查复用，避免重复账号
+            return userRepository.findByPhone(phone)
+                    .map(u -> new AutoRegister(u.getId(), null))
+                    .orElseThrow(() -> e);
+        }
+    }
+
+    /** 手机号自动建号的登录名：p_<手机号>，冲突时追加序号 */
+    private String resolvePhoneUsername(String phone) {
+        String base = "p_" + phone;
+        if (!userRepository.existsByUsername(base)) {
+            return base;
+        }
+        for (int i = 1; i <= 3; i++) {
+            String candidate = base + "_" + i;
+            if (!userRepository.existsByUsername(candidate)) {
+                return candidate;
+            }
+        }
+        return base + "_" + System.currentTimeMillis();
+    }
+
+    private String getConfigString(String key, String defaultValue) {
+        String value = siteConfigService.getValue(key, defaultValue);
+        return (value == null || value.isBlank()) ? defaultValue : value;
+    }
+
+    /** 下单响应追加一次性字段（不落库、不写日志、不进订单详情接口） */
+    private void appendAutoRegisterInfo(Map<String, Object> result, AutoRegister autoRegister, String phone) {
+        if (autoRegister == null || autoRegister.userId() == null) {
+            return;
+        }
+        result.put("auto_registered", autoRegister.initialPassword() != null);
+        result.put("login_phone", maskPhone(phone));
+        if (autoRegister.initialPassword() != null) {
+            result.put("initial_password", autoRegister.initialPassword());
+        }
+    }
+
+    private String maskPhone(String phone) {
+        if (phone == null || phone.length() < 7) {
+            return phone;
+        }
+        return phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4);
+    }
+
     private Map<String, Object> buildOrderResult(Order order, String device) {
         List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
         Map<String, Object> orderDetail = toOrderDetail(order, items);
@@ -592,6 +753,8 @@ public class OrderServiceImpl implements OrderService {
         map.put("payment_method", o.getPaymentMethod());
         map.put("created_at", o.getCreatedAt());
         map.put("email", o.getEmail());
+        map.put("phone", o.getPhone());
+        map.put("contact_type", o.getContactType());
         map.put("points_deducted", o.getPointsDeducted());
         map.put("points_discount", o.getPointsDiscount());
         map.put("coupon_code", o.getCouponCode());

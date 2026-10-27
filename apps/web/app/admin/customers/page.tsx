@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import {
   Search, ChevronLeft, ChevronRight, Eye, Ban, CheckCircle2, Megaphone, Users, UserRound,
   ShoppingBag, CreditCard, Wallet, PlusCircle, X, UserX, UserCheck, Mail, Clock,
+  Phone, KeyRound, Copy,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
@@ -15,7 +16,7 @@ import {
 } from "@/lib/mock-data"
 import type {
   CustomerOverview, RegisteredCustomerItem, AnonymousCustomerItem, CustomerOrderItem,
-  RegisteredCustomerDetail, AnonymousCustomerDetail, OrderStatus,
+  RegisteredCustomerDetail, AnonymousCustomerDetail, OrderStatus, AdminResetPasswordResult,
 } from "@/types"
 import { OrderStatusBadge } from "@/components/shared/order-status-badge"
 
@@ -44,7 +45,11 @@ export default function AdminCustomersPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [orderPage, setOrderPage] = useState(1)
   const [detailId, setDetailId] = useState<string | null>(null)
-  const [detailEmail, setDetailEmail] = useState<string | null>(null)
+  const [detailContact, setDetailContact] = useState<string | null>(null)
+
+  const [resetTarget, setResetTarget] = useState<RegisteredCustomerItem | null>(null)
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetResult, setResetResult] = useState<AdminResetPasswordResult | null>(null)
 
   const fetchOverview = useCallback(async () => {
     try {
@@ -96,22 +101,24 @@ export default function AdminCustomersPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
 
-  const openDetail = async (kind: "registered" | "anonymous", idOrEmail: string) => {
+  const openDetail = async (kind: "registered" | "anonymous", idOrContact: string) => {
     setDetailOpen(true)
     setDetailLoading(true)
     setOrderPage(1)
-    setDetailId(kind === "registered" ? idOrEmail : null)
-    setDetailEmail(kind === "anonymous" ? idOrEmail : null)
+    setDetailId(kind === "registered" ? idOrContact : null)
+    setDetailContact(kind === "anonymous" ? idOrContact : null)
     setDetailTitle(kind === "registered" ? t("admin.customerRegistered") : t("admin.customerAnonymous"))
     try {
       const data = await withMockFallback<OrderDetailData>(
         () => kind === "registered"
-          ? adminCustomerApi.registeredDetail(idOrEmail, { page: 1, page_size: ITEMS_PER_PAGE })
-          : adminCustomerApi.anonymousDetail(idOrEmail, { page: 1, page_size: ITEMS_PER_PAGE }),
+          ? adminCustomerApi.registeredDetail(idOrContact, { page: 1, page_size: ITEMS_PER_PAGE })
+          : adminCustomerApi.anonymousDetail(idOrContact, { page: 1, page_size: ITEMS_PER_PAGE }),
         () => ({
-          id: idOrEmail,
+          id: idOrContact,
+          contact: idOrContact,
           username: "mock",
-          email: idOrEmail,
+          email: idOrContact,
+          phone: null,
           points: 0,
           is_banned: false,
           created_at: new Date().toISOString(),
@@ -132,14 +139,14 @@ export default function AdminCustomersPage() {
   }
 
   const loadOrderPage = async (page: number) => {
-    if (!detailId && !detailEmail) return
+    if (!detailId && !detailContact) return
     setDetailLoading(true)
     setOrderPage(page)
     try {
       const data = await withMockFallback<OrderDetailData>(
         () => detailId
           ? adminCustomerApi.registeredDetail(detailId, { page, page_size: ITEMS_PER_PAGE })
-          : adminCustomerApi.anonymousDetail(detailEmail!, { page, page_size: ITEMS_PER_PAGE }),
+          : adminCustomerApi.anonymousDetail(detailContact!, { page, page_size: ITEMS_PER_PAGE }),
         () => detailData ?? ({ orders: { list: [], pagination: { page, page_size: ITEMS_PER_PAGE, total: 0 } } }) as unknown as OrderDetailData
       )
       setDetailData(data)
@@ -164,7 +171,51 @@ export default function AdminCustomersPage() {
     }
   }
 
+  const handleResetPassword = async () => {
+    if (!resetTarget) return
+    setResetLoading(true)
+    try {
+      const data = await adminCustomerApi.resetPassword(resetTarget.id)
+      setResetTarget(null)
+      setResetResult(data)
+      toast.success(t("admin.resetPwdSuccess"))
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "重置密码失败")
+    } finally {
+      setResetLoading(false)
+    }
+  }
+
+  const notifyLabel = (notify: string) => {
+    const value = (notify || "").toUpperCase()
+    if (value === "EMAIL,SMS" || value === "SMS,EMAIL") {
+      return `${t("admin.resetPwdNotifyEmail")} + ${t("admin.resetPwdNotifySms")}`
+    }
+    if (value === "EMAIL") return t("admin.resetPwdNotifyEmail")
+    if (value === "SMS") return t("admin.resetPwdNotifySms")
+    return t("admin.resetPwdNotifyNone")
+  }
+
+  const handleCopyReset = async () => {
+    if (!resetResult) return
+    const loginUrl = `${window.location.origin}/login`
+    const text = [
+      `${t("admin.resetPwdAccount")}：${resetResult.username}`,
+      `${t("admin.customerEmail")}：${resetResult.email || "-"}`,
+      `${t("admin.resetPwdNewPassword")}：${resetResult.new_password}`,
+      `登录地址：${loginUrl}`,
+      "登录后请及时在个人中心修改密码。",
+    ].join("\n")
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success(t("admin.resetPwdCopied"))
+    } catch {
+      toast.error(t("admin.resetPwdCopyFail"))
+    }
+  }
+
   const goMarketing = (audience: "USER_IDS" | "EMAILS", targets: string) => {
+    if (!targets) return
     router.push(`/admin/marketing?audience=${audience}&targets=${encodeURIComponent(targets)}`)
   }
 
@@ -252,6 +303,7 @@ export default function AdminCustomersPage() {
                   <>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerUsername")}</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerEmail")}</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerPhone")}</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerWechat")}</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerMpSubscribe")}</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerOrderCount")}</th>
@@ -263,6 +315,7 @@ export default function AdminCustomersPage() {
                   </>
                 ) : (
                   <>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerPhone")}</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerEmail")}</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerOrderCount")}</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.customerPaidCount")}</th>
@@ -277,7 +330,7 @@ export default function AdminCustomersPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="py-12">
+                  <td colSpan={12} className="py-12">
                     <div className="flex items-center justify-center">
                       <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     </div>
@@ -285,7 +338,7 @@ export default function AdminCustomersPage() {
                 </tr>
               ) : (tab === "registered" ? registered : anonymous).length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-8 text-center text-sm text-muted-foreground">{t("admin.customerNoData")}</td>
+                  <td colSpan={12} className="py-8 text-center text-sm text-muted-foreground">{t("admin.customerNoData")}</td>
                 </tr>
               ) : tab === "registered" ? (
                 registered.map((u) => (
@@ -317,7 +370,8 @@ export default function AdminCustomersPage() {
                         <span className="font-medium text-foreground">{u.username}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{u.email || "—"}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{u.phone || "—"}</td>
                     <td className="px-4 py-3">
                       {u.wechat_customer ? (
                         <span className="inline-flex max-w-[140px] items-center gap-1 text-xs font-medium text-emerald-600">
@@ -368,11 +422,25 @@ export default function AdminCustomersPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => goMarketing("USER_IDS", u.email)}
-                          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-primary"
-                          title={t("admin.customerMarketing")}
+                          onClick={() => goMarketing("USER_IDS", u.email || "")}
+                          disabled={!u.email}
+                          className={cn(
+                            "flex h-8 w-8 items-center justify-center rounded-md",
+                            u.email
+                              ? "text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                              : "cursor-not-allowed text-muted-foreground/40"
+                          )}
+                          title={u.email ? t("admin.customerMarketing") : t("admin.customerMarketingNeedEmail")}
                         >
                           <Megaphone className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setResetTarget(u)}
+                          className="flex h-8 w-8 items-center justify-center rounded-md text-amber-600 hover:bg-amber-500/10"
+                          title={t("admin.customerResetPassword")}
+                        >
+                          <KeyRound className="h-4 w-4" />
                         </button>
                         <button
                           type="button"
@@ -393,15 +461,16 @@ export default function AdminCustomersPage() {
                 ))
               ) : (
                 anonymous.map((u) => (
-                  <tr key={u.email} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                  <tr key={u.contact} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                          <Mail className="h-4 w-4" />
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                          {u.phone ? <Phone className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
                         </span>
-                        <span className="font-medium text-foreground">{u.email}</span>
+                        <span className="font-medium text-foreground">{u.phone || "—"}</span>
                       </div>
                     </td>
+                    <td className="px-4 py-3 text-muted-foreground">{u.email || "—"}</td>
                     <td className="px-4 py-3 text-foreground">{u.order_count}</td>
                     <td className="px-4 py-3 text-foreground">{u.paid_count}</td>
                     <td className="px-4 py-3 font-medium text-primary">{currency(u.total_spent)}</td>
@@ -415,7 +484,7 @@ export default function AdminCustomersPage() {
                       <div className="flex items-center justify-end gap-1">
                         <button
                           type="button"
-                          onClick={() => openDetail("anonymous", u.email)}
+                          onClick={() => openDetail("anonymous", u.contact)}
                           className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                           title={t("admin.customerDetail")}
                         >
@@ -423,9 +492,15 @@ export default function AdminCustomersPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => goMarketing("EMAILS", u.email)}
-                          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-primary"
-                          title={t("admin.customerMarketing")}
+                          onClick={() => goMarketing("EMAILS", u.email || "")}
+                          disabled={!u.email}
+                          className={cn(
+                            "flex h-8 w-8 items-center justify-center rounded-md",
+                            u.email
+                              ? "text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                              : "cursor-not-allowed text-muted-foreground/40"
+                          )}
+                          title={u.email ? t("admin.customerMarketing") : t("admin.customerMarketingNeedEmail")}
                         >
                           <Megaphone className="h-4 w-4" />
                         </button>
@@ -499,9 +574,10 @@ export default function AdminCustomersPage() {
 
             <div className="flex flex-col gap-5 p-6">
               {/* Customer summary */}
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                 {detailData && [
-                  { label: t("admin.customerEmail"), value: (detailData.email as string) || "" },
+                  { label: t("admin.customerEmail"), value: detailData.email || "—" },
+                  { label: t("admin.customerPhone"), value: detailData.phone || "—" },
                   { label: t("admin.customerOrderCount"), value: String(detailData.order_count ?? 0) },
                   { label: t("admin.customerPaidCount"), value: String(detailData.paid_count ?? 0) },
                   { label: t("admin.customerTotalSpent"), value: currency(Number(detailData.total_spent ?? 0)) },
@@ -598,6 +674,105 @@ export default function AdminCustomersPage() {
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset password confirm modal */}
+      {resetTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => { if (!resetLoading) setResetTarget(null) }}
+          />
+          <div className="relative w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
+            <div className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-amber-600" />
+              <h2 className="text-lg font-bold text-foreground">{t("admin.resetPwdTitle")}</h2>
+            </div>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{t("admin.resetPwdConfirmMsg")}</p>
+            <div className="mt-4 rounded-lg border border-border bg-muted/20 p-3">
+              <p className="font-medium text-foreground">{resetTarget.username}</p>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {resetTarget.email || resetTarget.phone || "—"}
+              </p>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setResetTarget(null)}
+                disabled={resetLoading}
+                className="rounded-lg border border-input px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={handleResetPassword}
+                disabled={resetLoading}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {resetLoading && (
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                )}
+                {t("admin.resetPwdConfirmBtn")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset password result modal */}
+      {resetResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" />
+          <div className="relative w-full max-w-md rounded-xl border border-border bg-card shadow-2xl">
+            <div className="flex items-center gap-2 border-b border-border px-6 py-4">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              <h2 className="text-lg font-bold text-foreground">{t("admin.resetPwdSuccess")}</h2>
+            </div>
+            <div className="flex flex-col gap-3 p-6">
+              {[
+                { label: t("admin.resetPwdAccount"), value: resetResult.username, mono: false },
+                { label: t("admin.customerEmail"), value: resetResult.email || "—", mono: false },
+                { label: t("admin.customerPhone"), value: resetResult.phone || "—", mono: false },
+                { label: t("admin.resetPwdNewPassword"), value: resetResult.new_password, mono: true },
+                { label: t("admin.resetPwdNotify"), value: notifyLabel(resetResult.notify), mono: false },
+              ].map(item => (
+                <div
+                  key={item.label}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2"
+                >
+                  <span className="shrink-0 text-xs text-muted-foreground">{item.label}</span>
+                  <span
+                    className={cn(
+                      "truncate text-sm font-medium text-foreground",
+                      item.mono && "font-mono tracking-wide text-primary"
+                    )}
+                  >
+                    {item.value}
+                  </span>
+                </div>
+              ))}
+              <p className="text-xs text-amber-600">{t("admin.resetPwdCopyTip")}</p>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setResetResult(null)}
+                  className="rounded-lg border border-input px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
+                >
+                  {t("common.close")}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyReset}
+                  className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  <Copy className="h-4 w-4" />
+                  {t("admin.resetPwdCopy")}
+                </button>
               </div>
             </div>
           </div>

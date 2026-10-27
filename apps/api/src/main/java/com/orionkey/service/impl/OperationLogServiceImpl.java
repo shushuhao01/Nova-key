@@ -12,6 +12,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
@@ -50,6 +51,18 @@ public class OperationLogServiceImpl implements OperationLogService {
     @Transactional
     public void log(UUID userId, String username, String action, String targetType,
                     String targetId, String detail, String ip) {
+        doLog(userId, username, action, targetType, targetId, detail, ip);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void logInNewTransaction(UUID userId, String username, String action, String targetType,
+                                    String targetId, String detail, String ip) {
+        doLog(userId, username, action, targetType, targetId, detail, ip);
+    }
+
+    private void doLog(UUID userId, String username, String action, String targetType,
+                       String targetId, String detail, String ip) {
         OperationLog log = new OperationLog();
         log.setUserId(userId);
         log.setUsername(username);

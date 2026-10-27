@@ -93,6 +93,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             rejectRequest(response, "身份验证失败，请重新登录");
                             return;
                         }
+                        // 默认密码登录后必须改密：除白名单外一律 403，前端据此弹不可关闭的改密弹窗
+                        if (user.isMustChangePassword() && !isMustChangePasswordAllowed(path)) {
+                            rejectMustChangePassword(response);
+                            return;
+                        }
                         // 使用数据库最新信息，避免旧 token 中的陈旧用户名/角色
                         username = user.getUsername();
                         role = user.getRole().name();
@@ -116,6 +121,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         response.setCharacterEncoding("UTF-8");
         response.getWriter().write(objectMapper.writeValueAsString(
                 ApiResponse.error(ErrorCode.UNAUTHORIZED, message)));
+    }
+
+    /** 强制改密期间允许访问的接口白名单（路径含 context-path `/api` 前缀） */
+    private boolean isMustChangePasswordAllowed(String path) {
+        return "/api/auth/force-change-password".equals(path)
+                || "/api/auth/logout".equals(path)
+                || "/api/user/profile".equals(path)
+                || "/api/user/password".equals(path);
+    }
+
+    private void rejectMustChangePassword(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding("UTF-8");
+        response.getWriter().write(objectMapper.writeValueAsString(
+                ApiResponse.error(ErrorCode.MUST_CHANGE_PASSWORD, "请先修改初始密码")));
     }
 
     private String extractToken(HttpServletRequest request) {

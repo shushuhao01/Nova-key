@@ -913,7 +913,7 @@ export function SettlementReportPanel() {
                     <td className="py-3 pr-4">
                       <div className="flex flex-col gap-0.5">
                         <span className="text-xs text-foreground">{order.username || "游客"}</span>
-                        <span className="text-xs text-muted-foreground">{order.email}</span>
+                        <span className="text-xs text-muted-foreground">{order.email || order.phone || "-"}</span>
                       </div>
                     </td>
                     <td className="py-3 pr-4">

@@ -3,6 +3,7 @@ package com.orionkey.config;
 import com.orionkey.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -35,6 +36,10 @@ public class DataMigrationRunner implements ApplicationRunner {
     private final JdbcTemplate jdbcTemplate;
     private final PasswordEncoder passwordEncoder;
 
+    /** 历史订单回填开关（默认关闭，避免误改生产数据）；开启方式：migration.backfill-orders-by-phone=true */
+    @Value("${migration.backfill-orders-by-phone:false}")
+    private boolean backfillOrdersByPhone;
+
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
@@ -46,7 +51,66 @@ public class DataMigrationRunner implements ApplicationRunner {
         migrateCouponCodes();
         migrateDistributionEnumColumns();
         migrateCommissionWithdrawalId();
+        migratePhoneSupport();
         migratePlaintextPasswords();
+    }
+
+    /**
+     * 手机号 / 邮箱双通道改造的幂等迁移：
+     * 1. users.email 允许为空（手机号注册用户没有邮箱）—— Hibernate ddl-auto:update 不会放开 NOT NULL，必须显式 DROP NOT NULL；
+     * 2. users.phone 唯一部分索引（多行 NULL 不冲突，非空手机号唯一）；
+     * 3. orders.phone 普通索引（订单查询按手机号检索）。
+     * 幂等安全：列已可空 / 索引已存在时跳过。
+     */
+    private void migratePhoneSupport() {
+        try {
+            List<String> nullable = jdbcTemplate.queryForList(
+                    "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'email'",
+                    String.class);
+            if (nullable.size() == 1 && "NO".equalsIgnoreCase(nullable.get(0))) {
+                jdbcTemplate.execute("ALTER TABLE users ALTER COLUMN email DROP NOT NULL");
+                log.info("[Migration] users.email now allows NULL (phone-only accounts)");
+            }
+        } catch (Exception e) {
+            log.warn("[Migration] users.email DROP NOT NULL skipped: {}", e.getMessage());
+        }
+        try {
+            jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_users_phone ON users(phone) WHERE phone IS NOT NULL");
+            log.info("[Migration] ensured unique partial index uk_users_phone on users(phone)");
+        } catch (Exception e) {
+            log.warn("[Migration] uk_users_phone index creation skipped: {}", e.getMessage());
+        }
+        try {
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_orders_phone ON orders(phone)");
+            log.info("[Migration] ensured index idx_orders_phone on orders(phone)");
+        } catch (Exception e) {
+            log.warn("[Migration] idx_orders_phone index creation skipped: {}", e.getMessage());
+        }
+        if (backfillOrdersByPhone) {
+            backfillOrders();
+        }
+    }
+
+    /**
+     * 一次性历史订单回填（默认关闭，通过 migration.backfill-orders-by-phone=true 开启）。
+     * 1. 有账号的历史订单：按 userId 关联 users 补 phone 与 contactType；
+     * 2. 历史匿名订单：按 email 匹配已有账号回填 userId。
+     * 执行前打印影响行数，需先备份 orders 表。
+     */
+    private void backfillOrders() {
+        try {
+            int filled = jdbcTemplate.update(
+                    "UPDATE orders o SET phone = u.phone, contact_type = COALESCE(o.contact_type, 'EMAIL') "
+                            + "FROM users u WHERE o.user_id = u.id AND o.phone IS NULL AND u.phone IS NOT NULL");
+            int linked = jdbcTemplate.update(
+                    "UPDATE orders o SET user_id = u.id, contact_type = COALESCE(o.contact_type, 'EMAIL') "
+                            + "FROM users u WHERE o.user_id IS NULL AND o.email IS NOT NULL "
+                            + "AND LOWER(o.email) = LOWER(u.email) AND u.is_deleted = 0");
+            log.warn("[Migration] orders backfill done: {} order(s) got phone, {} anonymous order(s) linked to users",
+                    filled, linked);
+        } catch (Exception e) {
+            log.warn("[Migration] orders backfill skipped: {}", e.getMessage());
+        }
     }
 
     /**

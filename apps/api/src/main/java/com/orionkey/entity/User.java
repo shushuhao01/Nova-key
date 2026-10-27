@@ -21,8 +21,19 @@ public class User extends BaseEntity {
     @Column(unique = true, nullable = false)
     private String username;
 
-    @Column(unique = true, nullable = false)
+    /** 邮箱（手机号注册用户可为空；唯一性由数据库唯一约束保证） */
+    @Column(unique = true)
     private String email;
+
+    /** 手机号（中国大陆 11 位，可为空；唯一部分索引 uk_users_phone 见 DataMigrationRunner） */
+    @Column(length = 20)
+    private String phone;
+
+    /** 手机号注册时间（手机号注册 / 自动注册时写入，邮箱注册用户可为空） */
+    private LocalDateTime phoneRegisteredAt;
+
+    /** 是否强制登录后修改密码（手机号自动注册用户为 true） */
+    private boolean mustChangePassword = false;
 
     @Column(nullable = false)
     private String passwordHash;

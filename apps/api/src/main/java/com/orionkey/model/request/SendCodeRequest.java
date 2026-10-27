@@ -1,6 +1,5 @@
 package com.orionkey.model.request;
 
-import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.Setter;
@@ -10,8 +9,8 @@ import lombok.Setter;
 @Setter
 public class SendCodeRequest {
 
+    /** 邮箱；忘记密码场景也允许填手机号（转发到该账号绑定邮箱） */
     @NotBlank(message = "Email is required")
-    @Email(message = "Invalid email format")
     private String email;
 
     /** 场景：PASSWORD_RESET（忘记密码）/ LOGIN（验证码登录） */

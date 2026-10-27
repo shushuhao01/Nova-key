@@ -118,7 +118,17 @@ export function OrderDetailModal({
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">联系邮箱</span>
-            <span className="text-sm text-foreground">{order.email}</span>
+            <span className="text-sm text-foreground">{order.email || "-"}</span>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">手机号</span>
+            <span className="text-sm text-foreground">{order.phone || "-"}</span>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">联系方式类型</span>
+            <span className="text-sm text-foreground">
+              {order.phone && order.email ? "手机号 + 邮箱" : order.phone ? "手机号" : order.email ? "邮箱" : "-"}
+            </span>
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">创建时间</span>

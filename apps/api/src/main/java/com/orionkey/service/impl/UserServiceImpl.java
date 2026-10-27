@@ -7,11 +7,14 @@ import com.orionkey.entity.Order;
 import com.orionkey.entity.PointsLog;
 import com.orionkey.entity.User;
 import com.orionkey.exception.BusinessException;
+import com.orionkey.model.request.BindEmailRequest;
+import com.orionkey.model.request.BindPhoneRequest;
 import com.orionkey.model.request.ChangePasswordRequest;
 import com.orionkey.model.response.UserProfileResponse;
 import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.PointsLogRepository;
 import com.orionkey.repository.UserRepository;
+import com.orionkey.service.UserMergeService;
 import com.orionkey.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -34,12 +37,23 @@ public class UserServiceImpl implements UserService {
     private final PointsLogRepository pointsLogRepository;
     private final PasswordEncoder passwordEncoder;
     private final PermissionResolver permissionResolver;
+    private final UserMergeService userMergeService;
 
     @Override
     public UserProfileResponse getProfile(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "用户不存在"));
         return UserProfileResponse.from(user, permissionResolver.resolve(user));
+    }
+
+    @Override
+    public Map<String, Object> bindPhone(UUID userId, BindPhoneRequest request) {
+        return userMergeService.bindPhone(userId, request);
+    }
+
+    @Override
+    public Map<String, Object> bindEmail(UUID userId, BindEmailRequest request) {
+        return userMergeService.bindEmail(userId, request);
     }
 
     @Override

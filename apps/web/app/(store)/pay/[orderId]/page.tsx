@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { use } from "react"
 import Link from "next/link"
-import { useSearchParams, useRouter } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import {
   Clock,
   CheckCircle2,
@@ -17,11 +17,13 @@ import {
   ArrowRight,
   AlertTriangle,
   Smartphone,
+  KeyRound,
+  UserRound,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale, useCart, useSiteConfig } from "@/lib/context"
 import { orderApi, wechatMpApi } from "@/services/api"
-import type { OrderStatus, JsapiPayParams } from "@/types"
+import type { OrderStatus, JsapiPayParams, DeliverResultGroup } from "@/types"
 import { cn, detectPaymentDevice, isMobileDevice } from "@/lib/utils"
 import { PaymentIcon, getPaymentLabel, getPaymentBrandColor, getPaymentScanHint } from "@/components/shared/payment-icon"
 import { QrCodeImage } from "@/components/shared/qr-code-image"
@@ -36,7 +38,6 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
   const { config } = useSiteConfig()
   const searchParams = useSearchParams()
 
-  const router = useRouter()
   const { refreshCart } = useCart()
 
   const [status, setStatus] = useState<OrderStatus>("PENDING")
@@ -53,6 +54,15 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
   const [jsapiErrorMsg, setJsapiErrorMsg] = useState<string | null>(null)
   const [jsapiPending, setJsapiPending] = useState(false)
   const [jsapiError, setJsapiError] = useState(false)
+
+  // 匿名手机号下单自动建号的一次性登录提示（读取后立即抹除明文密码，刷新只保留脱敏手机号）
+  const [loginHint, setLoginHint] = useState<{
+    auto_registered?: boolean
+    login_phone?: string
+    initial_password?: string
+  } | null>(null)
+  // 支付成功页展示的卡密（deliver 幂等，PAID 订单会自动分配卡密）
+  const [deliverGroups, setDeliverGroups] = useState<DeliverResultGroup[]>([])
 
   const isMobile = isMobileDevice()
   const deviceType = detectPaymentDevice()
@@ -184,6 +194,46 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
     }
     fetchOrderInfo()
   }, [orderId, searchParams])
+
+  // 读取下单时交接的登录提示：明文初始密码仅本次页面加载可用，读取后立即从 sessionStorage 移除
+  useEffect(() => {
+    const key = `order_hint_${orderId}`
+    const raw = sessionStorage.getItem(key)
+    if (!raw) return
+    try {
+      const parsed = JSON.parse(raw) as {
+        auto_registered?: boolean
+        login_phone?: string
+        initial_password?: string
+      }
+      if (!parsed || !parsed.login_phone) {
+        sessionStorage.removeItem(key)
+        return
+      }
+      setLoginHint(parsed)
+      // 刷新后降级：只保留脱敏手机号，不再保留明文密码
+      sessionStorage.setItem(key, JSON.stringify({
+        auto_registered: parsed.auto_registered,
+        login_phone: parsed.login_phone,
+      }))
+    } catch {
+      sessionStorage.removeItem(key)
+    }
+  }, [orderId])
+
+  // 支付成功：拉取卡密用于成功页展示（接口幂等，PAID 订单会自动分配卡密）
+  useEffect(() => {
+    if (status !== "PAID" && status !== "DELIVERED" && status !== "COMPLETED") return
+    let cancelled = false
+    orderApi.deliver({ order_ids: [orderId] })
+      .then((res) => {
+        if (!cancelled && res[0]) setDeliverGroups(res[0].groups)
+      })
+      .catch(() => {
+        // silent — 手动发货等场景暂无卡密
+      })
+    return () => { cancelled = true }
+  }, [status, orderId])
 
   // H5 自动跳转（移动端 + 有 payUrl + PENDING 状态 + 未跳转过 + 非微信浏览器内）
   // 微信浏览器内不能用 H5（需 JSAPI），普通手机浏览器可以拉起微信 App
@@ -383,30 +433,105 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
   }
 
-  // Success state — 倒计时自动跳转订单查询页
-  const [redirectCount, setRedirectCount] = useState(3)
-
-  useEffect(() => {
-    if (status !== "PAID" && status !== "DELIVERED" && status !== "COMPLETED") return
-    if (redirectCount <= 0) {
-      router.push(`/order/query?orderId=${orderId}`)
-      return
-    }
-    const timer = setTimeout(() => setRedirectCount((prev) => prev - 1), 1000)
-    return () => clearTimeout(timer)
-  }, [status, redirectCount, orderId, router])
-
   if (status === "PAID" || status === "DELIVERED" || status === "COMPLETED") {
+    const allKeys = deliverGroups.flatMap((g) => g.card_keys).join("\n")
+    const phone = loginHint?.login_phone || ""
     return (
-      <div className="mx-auto flex max-w-md flex-col items-center py-16">
-        <div className="mb-4 rounded-full bg-emerald-100 p-4 dark:bg-emerald-900/30">
-          <CheckCircle2 className="h-12 w-12 text-emerald-600 dark:text-emerald-400" />
+      <div className="mx-auto flex max-w-lg flex-col items-center gap-5 py-12">
+        <div className="flex flex-col items-center">
+          <div className="mb-4 rounded-full bg-emerald-100 p-4 dark:bg-emerald-900/30">
+            <CheckCircle2 className="h-12 w-12 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <h1 className="mb-2 text-xl font-bold text-foreground">{t("payment.success")}</h1>
+          <p className="text-sm text-muted-foreground">{t("payment.successDesc")}</p>
         </div>
-        <h1 className="mb-2 text-xl font-bold text-foreground">{t("payment.success")}</h1>
-        <p className="mb-4 text-sm text-muted-foreground">
-          {t("payment.successDesc").replace("{seconds}", String(redirectCount))}
-        </p>
-        <p className="mb-6 text-xs text-muted-foreground/70">{t("payment.successRedirectHint")}</p>
+
+        {/* 卡密 */}
+        {deliverGroups.length > 0 && (
+          <div className="w-full rounded-xl border border-border bg-card p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <KeyRound className="h-4 w-4 text-primary" />
+                {t("payment.cardKeysTitle")}
+              </h2>
+              {allKeys && (
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(allKeys)}
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  {t("payment.copyAllKeys")}
+                </button>
+              )}
+            </div>
+            <div className="space-y-3">
+              {deliverGroups.map((group, gIdx) => (
+                <div key={`${group.product_title}-${gIdx}`}>
+                  <p className="mb-1 text-xs text-muted-foreground">
+                    {group.product_title}
+                    {group.spec_name ? ` · ${group.spec_name}` : ""}
+                  </p>
+                  <div className="space-y-1 rounded-lg bg-muted/50 p-2.5">
+                    {group.card_keys.map((key, kIdx) => (
+                      <div key={`${gIdx}-${kIdx}`} className="flex items-center justify-between gap-2">
+                        <code className="min-w-0 flex-1 break-all font-mono text-xs text-foreground">{key}</code>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(key)}
+                          className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 登录提示卡片（匿名手机号下单自动建号 / 归属已有账号） */}
+        {loginHint && phone && (
+          <div className="w-full rounded-xl border border-primary/30 bg-primary/5 p-4">
+            <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
+              <UserRound className="h-4 w-4 text-primary" />
+              {loginHint.auto_registered
+                ? t("payment.accountCreatedTitle").replace("{phone}", phone)
+                : t("payment.accountExistsTitle")}
+            </h2>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {loginHint.auto_registered
+                ? (loginHint.initial_password
+                    ? t("payment.accountCreatedDesc")
+                    : t("payment.accountCreatedDescNoPwd"))
+                : t("payment.accountExistsDesc").replace("{phone}", phone)}
+            </p>
+            {loginHint.initial_password && (
+              <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2">
+                <span className="text-xs text-muted-foreground">{t("payment.initialPassword")}</span>
+                <span className="flex items-center gap-2">
+                  <code className="font-mono text-sm font-semibold text-foreground">{loginHint.initial_password}</code>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(loginHint.initial_password || "")}
+                    className="text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              </div>
+            )}
+            <Link
+              href="/login?redirect=/profile"
+              className="mt-3 inline-flex h-9 items-center rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              {t("payment.goLogin")}
+            </Link>
+          </div>
+        )}
+
         <Link
           href={`/order/query?orderId=${orderId}`}
           className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"

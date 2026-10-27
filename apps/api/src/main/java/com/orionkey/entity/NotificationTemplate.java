@@ -43,6 +43,10 @@ public class NotificationTemplate extends BaseEntity {
     @Column(nullable = false, length = 255)
     private String channels = "DINGTALK,WECOM,EMAIL";
 
+    /** 短信模板 CODE（阿里云 TemplateCode）；channels 含 SMS 时必填 */
+    @Column(length = 64)
+    private String smsTemplateCode;
+
     /** 模板总开关：关闭后该模板不发送任何通知 */
     @Column(name = "is_enabled")
     private boolean enabled = false;

@@ -9,6 +9,24 @@ export function validateEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
+/** 规范化手机号：去除空格 / 连字符 / 括号，剥离 +86、0086、86 前缀 */
+export function normalizePhone(raw: string): string {
+  let v = raw.replace(/[\s\-()]/g, "")
+  if (v.startsWith("+86")) {
+    v = v.slice(3)
+  } else if (v.startsWith("0086")) {
+    v = v.slice(4)
+  } else if (v.startsWith("86") && v.length === 13) {
+    v = v.slice(2)
+  }
+  return v
+}
+
+/** 校验中国大陆手机号：11 位、1 开头、第二位 3-9 */
+export function validatePhone(phone: string): boolean {
+  return /^1[3-9]\d{9}$/.test(phone)
+}
+
 export function generateIdempotencyKey(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID()

@@ -22,6 +22,29 @@ public final class ErrorCode {
     public static final int ACCOUNT_DISABLED = 20006;
     public static final int ACCOUNT_LOCKED = 20007;
     public static final int EMAIL_CODE_INVALID = 20008;
+    public static final int PHONE_EXISTS = 20009;
+    public static final int PHONE_NOT_REGISTERED = 20010;
+    public static final int PHONE_LOGIN_DISABLED = 20011;
+    public static final int ADMIN_PHONE_LOGIN_FORBIDDEN = 20012;
+    public static final int MUST_CHANGE_PASSWORD = 20013;
+    public static final int PASSWORD_MISMATCH = 20014;
+    public static final int WEAK_PASSWORD = 20015;
+    public static final int PHONE_FEATURE_DISABLED = 20016;
+    public static final int EMAIL_NOT_BOUND = 20017;
+    /** 当前账号已绑定手机号/邮箱，不可重复绑定（更换需联系客服） */
+    public static final int BIND_ALREADY_BOUND = 20018;
+    /** 目标账号已同时绑定手机号与邮箱（完整账号），不允许绑定合并 */
+    public static final int TARGET_ACCOUNT_COMPLETE = 20019;
+    /** 后台关闭了账号合并，且目标标识已被其他账号占用 */
+    public static final int MERGE_DISABLED = 20020;
+    /** 双方账号均为推广员，无法绑定合并 */
+    public static final int MERGE_DUAL_DISTRIBUTOR = 20021;
+    /** 短信服务未启用（后台未开启 sms_enabled） */
+    public static final int SMS_NOT_ENABLED = 20022;
+    /** 短信服务未配置（AK/SK/签名/模板缺失） */
+    public static final int SMS_NOT_CONFIGURED = 20023;
+    /** 短信发送失败（阿里云返回错误） */
+    public static final int SMS_SEND_FAILED = 20024;
 
     // ── Product 30001~30099 ──
     public static final int PRODUCT_NOT_FOUND = 30001;

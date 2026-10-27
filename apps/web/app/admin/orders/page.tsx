@@ -114,6 +114,7 @@ export default function AdminOrdersPage() {
   // ── 顶部统计 ──
   const [stats, setStats] = useState<AdminOrderStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
 
   // ── 退款状态 ──
   const [refundTarget, setRefundTarget] = useState<AdminOrderItem | null>(null)
@@ -272,6 +273,26 @@ export default function AdminOrdersPage() {
     }
   }
 
+  /** 导出当前筛选条件下的订单 CSV（含手机号列） */
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      await adminOrderApi.exportOrders({
+        status: statusFilter.length > 0 ? statusFilter.join(",") : undefined,
+        order_type: orderTypeFilter || undefined,
+        payment_method: paymentFilter || undefined,
+        keyword: debouncedSearch || undefined,
+        start_date: dateRange.start,
+        end_date: dateRange.end,
+      })
+      toast.success("导出成功")
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "导出失败")
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
@@ -282,11 +303,12 @@ export default function AdminOrdersPage() {
         </div>
         <button
           type="button"
-          className="flex items-center gap-2 rounded-lg border border-input bg-transparent px-4 py-2.5 text-sm font-medium text-foreground hover:bg-accent transition-colors"
-          onClick={() => toast.info("导出功能开发中")}
+          disabled={exporting}
+          className="flex items-center gap-2 rounded-lg border border-input bg-transparent px-4 py-2.5 text-sm font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          onClick={handleExport}
         >
-          <Download className="h-4 w-4" />
-          导出
+          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          {exporting ? "导出中..." : "导出"}
         </button>
       </div>
 
@@ -330,7 +352,7 @@ export default function AdminOrdersPage() {
         <StatCard
           label="总客户数"
           value={statsLoading && !stats ? "..." : (stats?.total_customers ?? 0).toLocaleString()}
-          hint="按邮箱去重"
+          hint="按联系方式去重"
           icon={Users}
           color="blue"
         />
@@ -496,7 +518,7 @@ export default function AdminOrdersPage() {
                     <td className="px-4 py-3">
                       <div className="flex flex-col gap-0.5">
                         <span className="text-xs text-foreground">{order.username || t("admin.guest")}</span>
-                        <span className="text-xs text-muted-foreground">{order.email}</span>
+                        <span className="text-xs text-muted-foreground">{order.email || order.phone || "-"}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3">

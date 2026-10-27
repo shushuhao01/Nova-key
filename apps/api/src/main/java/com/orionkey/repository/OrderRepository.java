@@ -29,6 +29,9 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     Page<Order> findByUserIdOrderByCreatedAtDesc(UUID userId, Pageable pageable);
 
+    /** 账号合并：取某用户全部订单（迁移 user_id 用） */
+    List<Order> findByUserId(UUID userId);
+
     List<Order> findByEmailOrderByCreatedAtDesc(String email);
 
     /** 未注册用户订购时填写的邮箱（匿名客户，营销邮件受众建议用） */
@@ -83,11 +86,12 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             "AND o.paidAt IS NOT NULL")
     long countPaidOrdersByDistributorAll(@Param("distId") UUID distId);
 
-    /** 某推广员名下、客户邮箱匹配的订单（按创建时间倒序），用于团队-客户聚合购买明细 */
-    @Query("SELECT o FROM Order o WHERE o.referralDistributorId = :distId AND LOWER(o.email) = :email " +
+    /** 某推广员名下、客户联系方式（邮箱或手机号）匹配的订单（按创建时间倒序），用于团队-客户聚合购买明细 */
+    @Query("SELECT o FROM Order o WHERE o.referralDistributorId = :distId " +
+            "AND (LOWER(o.email) = :contact OR o.phone = :contact) " +
             "ORDER BY o.createdAt DESC")
-    List<Order> findDistributorOrdersByEmail(@Param("distId") UUID distId,
-                                             @Param("email") String email);
+    List<Order> findDistributorOrdersByContact(@Param("distId") UUID distId,
+                                               @Param("contact") String contact);
 
     // ── 客户管理（注册用户 / 匿名邮箱统计） ──
 
@@ -103,39 +107,59 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     @Query("SELECT COUNT(DISTINCT o.userId) FROM Order o WHERE o.userId IS NOT NULL AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED)")
     long countPaidRegisteredCustomers();
 
-    /** 成交匿名客户数（按邮箱去重） */
-    @Query("SELECT COUNT(DISTINCT o.email) FROM Order o WHERE o.userId IS NULL AND o.email IS NOT NULL AND o.email <> '' AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED)")
+    /** 成交匿名客户数（优先按手机号、无手机号按邮箱去重） */
+    @Query("SELECT COUNT(DISTINCT COALESCE(NULLIF(o.phone, ''), NULLIF(o.email, ''))) FROM Order o WHERE o.userId IS NULL AND COALESCE(NULLIF(o.phone, ''), NULLIF(o.email, '')) IS NOT NULL AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED)")
     long countPaidAnonymousCustomers();
 
-    /** 匿名客户总数（orders.user_id IS NULL 的邮箱去重） */
-    @Query(value = "SELECT COUNT(DISTINCT email) FROM orders WHERE user_id IS NULL AND email IS NOT NULL AND email <> ''", nativeQuery = true)
-    long countAnonymousEmails();
+    /** 匿名客户总数（orders.user_id IS NULL，优先手机号、无手机号按邮箱去重） */
+    @Query(value = "SELECT COUNT(DISTINCT COALESCE(NULLIF(phone, ''), NULLIF(email, ''))) FROM orders " +
+            "WHERE user_id IS NULL AND COALESCE(NULLIF(phone, ''), NULLIF(email, '')) IS NOT NULL", nativeQuery = true)
+    long countAnonymousContacts();
 
     /** 本月新增匿名客户（首单发生在本月及以后） */
-    @Query(value = "SELECT COUNT(*) FROM (SELECT email FROM orders WHERE user_id IS NULL AND email IS NOT NULL AND email <> '' GROUP BY email HAVING MIN(created_at) >= :since) t", nativeQuery = true)
-    long countNewAnonymousEmails(@Param("since") LocalDateTime since);
+    @Query(value = "SELECT COUNT(*) FROM (SELECT COALESCE(NULLIF(phone, ''), NULLIF(email, '')) AS contact FROM orders " +
+            "WHERE user_id IS NULL AND COALESCE(NULLIF(phone, ''), NULLIF(email, '')) IS NOT NULL " +
+            "GROUP BY COALESCE(NULLIF(phone, ''), NULLIF(email, '')) HAVING MIN(created_at) >= :since) t", nativeQuery = true)
+    long countNewAnonymousContacts(@Param("since") LocalDateTime since);
 
-    /** 匿名客户邮箱分页列表（按最近一次下单倒序） */
-    @Query(value = "SELECT email FROM orders WHERE user_id IS NULL AND email IS NOT NULL AND email <> '' GROUP BY email ORDER BY MAX(created_at) DESC",
-            countQuery = "SELECT COUNT(DISTINCT email) FROM orders WHERE user_id IS NULL AND email IS NOT NULL AND email <> ''",
+    /** 匿名客户联系方式分页列表（手机号优先、无手机号回落到邮箱，按最近一次下单倒序） */
+    @Query(value = "SELECT COALESCE(NULLIF(phone, ''), NULLIF(email, '')) AS contact FROM orders " +
+            "WHERE user_id IS NULL AND COALESCE(NULLIF(phone, ''), NULLIF(email, '')) IS NOT NULL " +
+            "GROUP BY COALESCE(NULLIF(phone, ''), NULLIF(email, '')) ORDER BY MAX(created_at) DESC",
+            countQuery = "SELECT COUNT(DISTINCT COALESCE(NULLIF(phone, ''), NULLIF(email, ''))) FROM orders " +
+                    "WHERE user_id IS NULL AND COALESCE(NULLIF(phone, ''), NULLIF(email, '')) IS NOT NULL",
             nativeQuery = true)
-    Page<String> findAnonymousEmails(Pageable pageable);
+    Page<String> findAnonymousContacts(Pageable pageable);
 
-    /** 匿名客户邮箱分页列表（关键词过滤） */
-    @Query(value = "SELECT email FROM orders WHERE user_id IS NULL AND email IS NOT NULL AND email <> '' AND email LIKE :kw GROUP BY email ORDER BY MAX(created_at) DESC",
-            countQuery = "SELECT COUNT(DISTINCT email) FROM orders WHERE user_id IS NULL AND email IS NOT NULL AND email <> '' AND email LIKE :kw",
+    /** 匿名客户联系方式分页列表（关键词过滤） */
+    @Query(value = "SELECT COALESCE(NULLIF(phone, ''), NULLIF(email, '')) AS contact FROM orders " +
+            "WHERE user_id IS NULL AND COALESCE(NULLIF(phone, ''), NULLIF(email, '')) IS NOT NULL " +
+            "AND LOWER(COALESCE(NULLIF(phone, ''), NULLIF(email, ''))) LIKE :kw " +
+            "GROUP BY COALESCE(NULLIF(phone, ''), NULLIF(email, '')) ORDER BY MAX(created_at) DESC",
+            countQuery = "SELECT COUNT(DISTINCT COALESCE(NULLIF(phone, ''), NULLIF(email, ''))) FROM orders " +
+                    "WHERE user_id IS NULL AND COALESCE(NULLIF(phone, ''), NULLIF(email, '')) IS NOT NULL " +
+                    "AND LOWER(COALESCE(NULLIF(phone, ''), NULLIF(email, ''))) LIKE :kw",
             nativeQuery = true)
-    Page<String> findAnonymousEmailsByKeyword(@Param("kw") String kw, Pageable pageable);
+    Page<String> findAnonymousContactsByKeyword(@Param("kw") String kw, Pageable pageable);
 
     Page<Order> findByUserIdAndStatusOrderByCreatedAtDesc(UUID userId, OrderStatus status, Pageable pageable);
 
     List<Order> findByEmailInOrderByCreatedAtDesc(List<String> emails);
 
-    /** 匿名客户订单（仅 user_id IS NULL，即未注册的购买记录，按邮箱批量取） */
-    List<Order> findByEmailInAndUserIdIsNullOrderByCreatedAtDesc(List<String> emails);
+    /** 订单查询：按手机号批量取（含注册 / 匿名订单） */
+    List<Order> findByPhoneInOrderByCreatedAtDesc(List<String> phones);
 
-    /** 匿名客户订单（仅 user_id IS NULL，详情页用） */
-    List<Order> findByEmailAndUserIdIsNullOrderByCreatedAtDesc(String email);
+    /** 匿名客户订单（仅 user_id IS NULL，按联系方式批量取：优先手机号，无手机号回落到邮箱） */
+    @Query("SELECT o FROM Order o WHERE o.userId IS NULL " +
+            "AND COALESCE(NULLIF(o.phone, ''), NULLIF(o.email, '')) IN :contacts " +
+            "ORDER BY o.createdAt DESC")
+    List<Order> findAnonymousOrdersByContacts(@Param("contacts") Collection<String> contacts);
+
+    /** 匿名客户订单（仅 user_id IS NULL，详情页用：优先手机号，无手机号回落到邮箱） */
+    @Query("SELECT o FROM Order o WHERE o.userId IS NULL " +
+            "AND COALESCE(NULLIF(o.phone, ''), NULLIF(o.email, '')) = :contact " +
+            "ORDER BY o.createdAt DESC")
+    List<Order> findAnonymousOrdersByContact(@Param("contact") String contact);
 
     List<Order> findByIdIn(List<UUID> ids);
 
@@ -150,6 +174,8 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     long countByClientIpAndStatus(String clientIp, OrderStatus status);
 
     long countByEmailAndStatus(String email, OrderStatus status);
+
+    long countByPhoneAndStatus(String phone, OrderStatus status);
 
     /** 悲观写锁：SELECT ... FOR UPDATE，用于防止并发发货等竞态条件 */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -235,16 +261,18 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
                                 @Param("to") LocalDateTime to,
                                 Pageable pageable);
 
-    // 管理后台订单列表 — 带搜索词（按订单ID、邮箱、商品名称或推广员搜索，keyword 保证非 null）
+    // 管理后台订单列表 — 带搜索词（按订单ID、邮箱、手机号、商品名称或推广员搜索，keyword 保证非 null）
     @Query("SELECT DISTINCT o FROM Order o LEFT JOIN OrderItem oi ON oi.orderId = o.id WHERE " +
             "(:statuses IS NULL OR o.status IN :statuses " +
             " OR (:containsRefunded = TRUE AND o.status = com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED)) " +
             "AND (:orderType IS NULL OR o.orderType = :orderType) " +
             "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o.paymentMethod = :paymentMethod) " +
             "AND (:isRiskFlagged IS NULL OR o.riskFlagged = :isRiskFlagged) " +
-            "AND (str(o.id) LIKE :keywordPattern OR o.email LIKE :keywordPattern OR oi.productTitle LIKE :keywordPattern " +
+            "AND (str(o.id) LIKE :keywordPattern OR o.email LIKE :keywordPattern OR o.phone LIKE :keywordPattern " +
+            " OR oi.productTitle LIKE :keywordPattern " +
             " OR o.referralDistributorId IN (SELECT d.id FROM Distributor d WHERE d.distributorCode LIKE :keywordPattern " +
-            "   OR d.userId IN (SELECT u.id FROM User u WHERE u.username LIKE :keywordPattern OR u.email LIKE :keywordPattern))) " +
+            "   OR d.userId IN (SELECT u.id FROM User u WHERE u.username LIKE :keywordPattern OR u.email LIKE :keywordPattern " +
+            "       OR u.phone LIKE :keywordPattern))) " +
             "AND o.createdAt >= :from AND o.createdAt < :to " +
             "ORDER BY o.createdAt DESC")
     Page<Order> findAdminOrdersByKeyword(@Param("statuses") List<OrderStatus> statuses,
@@ -264,7 +292,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             "SUM(CASE WHEN o.status IN (com.orionkey.constant.OrderStatus.PAID, com.orionkey.constant.OrderStatus.DELIVERED, com.orionkey.constant.OrderStatus.COMPLETED) THEN o.actualAmount END), " +
             "COUNT(CASE WHEN o.status IN (com.orionkey.constant.OrderStatus.PAID, com.orionkey.constant.OrderStatus.DELIVERED, com.orionkey.constant.OrderStatus.COMPLETED) THEN 1 END), " +
             "COUNT(CASE WHEN o.status IN (com.orionkey.constant.OrderStatus.PENDING, com.orionkey.constant.OrderStatus.EXPIRED, com.orionkey.constant.OrderStatus.REFUNDED, com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED) THEN 1 END), " +
-            "COUNT(DISTINCT o.email) " +
+            "COUNT(DISTINCT COALESCE(NULLIF(o.email, ''), NULLIF(o.phone, ''))) " +
             "FROM Order o WHERE o.id IN (" +
             "SELECT o2.id FROM Order o2 LEFT JOIN OrderItem oi ON oi.orderId = o2.id WHERE " +
             "(:statuses IS NULL OR o2.status IN :statuses " +
@@ -273,9 +301,11 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o2.paymentMethod = :paymentMethod) " +
             "AND (:isRiskFlagged IS NULL OR o2.riskFlagged = :isRiskFlagged) " +
             "AND (:hasKeyword = FALSE OR str(o2.id) LIKE :keywordPattern OR o2.email LIKE :keywordPattern " +
+            " OR o2.phone LIKE :keywordPattern " +
             " OR oi.productTitle LIKE :keywordPattern " +
             " OR o2.referralDistributorId IN (SELECT d.id FROM Distributor d WHERE d.distributorCode LIKE :keywordPattern " +
-            "   OR d.userId IN (SELECT u.id FROM User u WHERE u.username LIKE :keywordPattern OR u.email LIKE :keywordPattern))) " +
+            "   OR d.userId IN (SELECT u.id FROM User u WHERE u.username LIKE :keywordPattern OR u.email LIKE :keywordPattern " +
+            "       OR u.phone LIKE :keywordPattern))) " +
             ") AND o.createdAt >= :from AND o.createdAt < :to")
     List<Object[]> statAdminOrders(@Param("statuses") List<OrderStatus> statuses,
                                    @Param("containsRefunded") boolean containsRefunded,
@@ -305,7 +335,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             "COUNT(CASE WHEN o.status IN ('PAID','DELIVERED','COMPLETED') THEN 1 END), " +
             "COUNT(CASE WHEN COALESCE(o.refunded_amount, 0) > 0 THEN 1 END), " +
             "COUNT(*), " +
-            "COUNT(DISTINCT o.email) " +
+            "COUNT(DISTINCT COALESCE(NULLIF(o.email, ''), NULLIF(o.phone, ''))) " +
             "FROM orders o WHERE o.created_at >= :from AND o.created_at < :to",
             nativeQuery = true)
     List<Object[]> statSettlement(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);

@@ -51,6 +51,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Public endpoints
                         .requestMatchers("/auth/captcha", "/auth/register", "/auth/login").permitAll()
+                        // 手机号注册 + 登录页默认密码提示（未登录态访问）
+                        .requestMatchers("/auth/register-phone", "/auth/login-hint").permitAll()
                         // 邮箱验证码：忘记密码 / 验证码登录（未登录态访问）
                         .requestMatchers("/auth/email-code/send", "/auth/forgot-password/reset", "/auth/login-by-code").permitAll()
                         .requestMatchers(HttpMethod.GET, "/products/**", "/categories", "/site/config", "/payment-channels", "/currencies").permitAll()

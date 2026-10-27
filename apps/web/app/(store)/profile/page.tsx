@@ -3,7 +3,7 @@
 import React from "react"
 import { useState, useEffect, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
-import { User, Lock, Star, Eye, EyeOff, Save, Ticket, Copy, UserPlus, Gift, Send } from "lucide-react"
+import { User, Lock, Star, Eye, EyeOff, Save, Ticket, Copy, UserPlus, Gift, Send, Phone, Mail } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale } from "@/lib/context"
 import { useAuth } from "@/lib/context"
@@ -12,15 +12,28 @@ import { userApi, marketingApi, distributorApi, authApi, withMockFallback, getAp
 import { mockPointsData } from "@/lib/mock-data"
 import type { PointRecord, MyCouponItem } from "@/types"
 import { cn } from "@/lib/utils"
+import { Modal } from "@/components/ui/modal"
 
 type Tab = "info" | "password" | "points" | "coupons" | "invite"
+type BindType = "phone" | "email"
 
 export default function ProfilePage() {
   const { t } = useLocale()
   const currentUser = useRequireAuth()
-  const { user } = useAuth()
+  const { user, setUser } = useAuth()
   const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState<Tab>("info")
+  const [bindType, setBindType] = useState<BindType | null>(null)
+
+  // 绑定成功后重新拉取个人资料（刷新手机号/邮箱与绑定状态）
+  const refreshProfile = useCallback(async () => {
+    try {
+      const profile = await userApi.getProfile()
+      setUser(profile)
+    } catch {
+      // 忽略刷新失败，弹窗内已提示绑定结果
+    }
+  }, [setUser])
 
   // 支持 ?tab=coupons 直达优惠券中心（如领取成功跳转）
   useEffect(() => {
@@ -29,6 +42,10 @@ export default function ProfilePage() {
       setActiveTab(tabParam as Tab)
     }
   }, [searchParams])
+
+  // 绑定状态（兼容旧版本缓存中缺失 has_phone / has_email 的情况）
+  const hasPhone = user?.has_phone ?? !!user?.phone
+  const hasEmail = user?.has_email ?? !!user?.email
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "info", label: t("profile.info"), icon: <User className="h-4 w-4" /> },
@@ -65,32 +82,104 @@ export default function ProfilePage() {
 
       {/* Info Tab */}
       {activeTab === "info" && (
-        <div className="rounded-lg border border-border bg-card p-5">
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-                <User className="h-8 w-8 text-primary" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-card-foreground">
-                  {user?.username || "Guest"}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {user?.email || "Not logged in"}
-                </p>
-              </div>
+        <div className="space-y-4">
+          {/* 未绑邮箱提示条 */}
+          {user && !hasEmail && (
+            <div className="flex flex-col gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
+                <Mail className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{t("profile.emailUnboundTip")}</span>
+              </p>
+              <button
+                onClick={() => setBindType("email")}
+                className="shrink-0 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-amber-700"
+              >
+                {t("profile.bindEmail")}
+              </button>
             </div>
-            <hr className="border-border" />
-            <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-lg bg-muted/50 p-3">
-                <p className="text-xs text-muted-foreground">{t("profile.pointsBalance")}</p>
-                <p className="text-2xl font-bold text-foreground">{user?.points || 0}</p>
+          )}
+
+          <div className="rounded-lg border border-border bg-card p-5">
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-4">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                  <User className="h-8 w-8 text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-card-foreground">
+                    {user?.username || "Guest"}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {user?.email || "Not logged in"}
+                  </p>
+                </div>
               </div>
-              <div className="rounded-lg bg-muted/50 p-3">
-                <p className="text-xs text-muted-foreground">{t("profile.role")}</p>
-                <p className="text-sm font-medium text-foreground">
-                  {user?.role || "-"}
-                </p>
+              <hr className="border-border" />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground">{t("profile.pointsBalance")}</p>
+                  <p className="text-2xl font-bold text-foreground">{user?.points || 0}</p>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground">{t("profile.role")}</p>
+                  <p className="text-sm font-medium text-foreground">
+                    {user?.role || "-"}
+                  </p>
+                </div>
+              </div>
+              <hr className="border-border" />
+
+              {/* 账号绑定：手机号 / 邮箱（已绑定不可解绑） */}
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <Phone className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{t("profile.bindPhoneTitle")}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {hasPhone ? user?.phone : t("profile.notBound")}
+                      </p>
+                    </div>
+                  </div>
+                  {hasPhone ? (
+                    <span className="shrink-0 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                      {t("profile.boundNoUnbind")}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setBindType("phone")}
+                      className="shrink-0 rounded-md border border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                    >
+                      {t("profile.bindPhone")}
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <Mail className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{t("profile.bindEmailTitle")}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {hasEmail ? user?.email : t("profile.notBound")}
+                      </p>
+                    </div>
+                  </div>
+                  {hasEmail ? (
+                    <span className="shrink-0 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                      {t("profile.boundNoUnbind")}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setBindType("email")}
+                      className="shrink-0 rounded-md border border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                    >
+                      {t("profile.bindEmail")}
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-xs text-muted-foreground">{t("profile.bindHint")}</p>
               </div>
             </div>
           </div>
@@ -108,7 +197,146 @@ export default function ProfilePage() {
 
       {/* Invite Binding Tab */}
       {activeTab === "invite" && <InviteBinding />}
+
+      {/* 绑定手机号 / 邮箱弹窗 */}
+      <BindAccountModal
+        type={bindType}
+        onClose={() => setBindType(null)}
+        onSuccess={refreshProfile}
+      />
     </div>
+  )
+}
+
+function BindAccountModal({
+  type,
+  onClose,
+  onSuccess,
+}: {
+  type: BindType | null
+  onClose: () => void
+  onSuccess: () => Promise<void> | void
+}) {
+  const { t } = useLocale()
+  const [value, setValue] = useState("")
+  const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+
+  // 每次打开 / 切换绑定类型时重置表单
+  useEffect(() => {
+    if (type) {
+      setValue("")
+      setPassword("")
+      setShowPassword(false)
+    }
+  }, [type])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!type) return
+    const trimmed = value.trim()
+    if (type === "phone" && !/^1[3-9]\d{9}$/.test(trimmed)) {
+      toast.error(t("profile.bindInvalidPhone"))
+      return
+    }
+    if (type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      toast.error(t("profile.bindInvalidEmail"))
+      return
+    }
+    if (!password) {
+      toast.error(t("profile.bindPasswordRequired"))
+      return
+    }
+    setIsLoading(true)
+    try {
+      const res =
+        type === "phone"
+          ? await userApi.bindPhone({ phone: trimmed, password })
+          : await userApi.bindEmail({ email: trimmed, password })
+      if (res.idempotent) {
+        toast.success(t("profile.bindIdempotent"))
+      } else if (res.merged) {
+        toast.success(t("profile.bindMergeSuccess"))
+      } else {
+        toast.success(t("profile.bindSuccess"))
+      }
+      await onSuccess()
+      onClose()
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, t))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <Modal open={type !== null} onClose={onClose} className="max-w-md">
+      <form onSubmit={handleSubmit} className="p-5">
+        <h3 className="mb-1 text-base font-semibold text-foreground">
+          {type === "email" ? t("profile.bindEmail") : t("profile.bindPhone")}
+        </h3>
+        <p className="mb-4 text-xs text-muted-foreground">{t("profile.bindMergeHint")}</p>
+
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              {type === "email" ? t("profile.bindEmailTitle") : t("profile.bindPhoneTitle")}
+            </label>
+            <input
+              type={type === "email" ? "email" : "tel"}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={
+                type === "email" ? t("profile.bindEmailPlaceholder") : t("profile.bindPhonePlaceholder")
+              }
+              autoComplete={type === "email" ? "email" : "tel"}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              {t("profile.bindPassword")}
+            </label>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={t("profile.bindPasswordPlaceholder")}
+                autoComplete="current-password"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 pr-10 text-sm text-foreground outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted"
+          >
+            {t("common.cancel")}
+          </button>
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+          >
+            {isLoading ? t("common.loading") : t("profile.bindSubmit")}
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 

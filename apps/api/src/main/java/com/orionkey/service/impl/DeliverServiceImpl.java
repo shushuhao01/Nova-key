@@ -9,6 +9,7 @@ import com.orionkey.repository.*;
 import com.orionkey.service.DeliverService;
 import com.orionkey.service.EmailService;
 import com.orionkey.service.NotificationService;
+import com.orionkey.util.PhoneUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -81,7 +82,30 @@ public class DeliverServiceImpl implements DeliverService {
             emailOrders.forEach(o -> orderIds.add(o.getId()));
         }
 
+        // 手机号查询：开关关闭时忽略 phones（不阻断其他查询条件），全部条件都无效时提示未启用
+        List<String> phones = (List<String>) request.get("phones");
+        boolean phoneQueryIgnored = false;
+        if (phones != null && !phones.isEmpty()) {
+            if (isPhoneQueryEnabled()) {
+                List<String> normalized = phones.stream()
+                        .map(PhoneUtils::normalize)
+                        .filter(PhoneUtils::isValidCnMobile)
+                        .distinct()
+                        .toList();
+                if (!normalized.isEmpty()) {
+                    orderRepository.findByPhoneInOrderByCreatedAtDesc(normalized)
+                            .forEach(o -> orderIds.add(o.getId()));
+                }
+            } else {
+                phoneQueryIgnored = true;
+                log.info("Phone order query disabled, ignore phones: {}", phones);
+            }
+        }
+
         if (orderIds.isEmpty()) {
+            if (phoneQueryIgnored) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "手机号查询未启用");
+            }
             throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在");
         }
 
@@ -123,6 +147,13 @@ public class DeliverServiceImpl implements DeliverService {
             }
             return map;
         }).toList();
+    }
+
+    /** 手机号订单查询开关（后台「客户配置」，缺失按关闭处理） */
+    private boolean isPhoneQueryEnabled() {
+        return siteConfigRepository.findByConfigKey("phone_query_enabled")
+                .map(c -> "true".equalsIgnoreCase(c.getConfigValue()))
+                .orElse(false);
     }
 
     @Override

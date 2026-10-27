@@ -31,4 +31,18 @@ public interface NotificationService {
      * @param vars    模板变量，会自动补充 {site_name}、{time}
      */
     void sendTemplateToEmail(String code, String toEmail, Map<String, Object> vars);
+
+    /**
+     * 向指定手机号发送「功能性」模板短信（如管理员重置密码通知）。
+     * <p>
+     * 与 {@link #sendTemplate(String, Map)} 的区别：收件人是用户本人而非后台通知手机号，
+     * 不走渠道分发、不写系统消息、忽略模板 enabled/channels 开关，同步发送。
+     * 短信模板 CODE 取消息模板的 {@code sms_template_code}，未配置或短信未启用时静默跳过。
+     *
+     * @param code    模板编码（如 ADMIN_RESET_PASSWORD）
+     * @param toPhone 收件人手机号
+     * @param vars    模板变量，会自动补充 {site_name}、{time}
+     * @return 是否实际发送成功
+     */
+    boolean sendTemplateToSms(String code, String toPhone, Map<String, Object> vars);
 }

@@ -1,14 +1,15 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send, Bell, Webhook, CheckCircle2, XCircle, Plus, ChevronLeft, ChevronRight, ChevronDown, RefreshCw, Link2, Eye, EyeOff, Copy } from "lucide-react"
+import { Save, AlertTriangle, Upload, Loader2, ImagePlus, Mail, Send, Bell, Webhook, CheckCircle2, XCircle, Plus, ChevronLeft, ChevronRight, ChevronDown, RefreshCw, Link2, Eye, EyeOff, Copy, Smartphone } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { adminConfigApi, adminProductApi, adminNotificationApi, adminWechatMpApi, withMockFallback, type MpMessageTemplate } from "@/services/api"
 import { mockSiteConfigKVs } from "@/lib/mock-data"
 import { useLocale } from "@/lib/context"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog"
-import type { SiteConfigKV, NotificationTemplateItem, NotificationChannelItem, NotificationTestResult } from "@/types"
+import { SmsTemplateGuideButton } from "@/components/admin/sms-template-guide"
+import type { SiteConfigKV, NotificationTemplateItem, NotificationChannelItem, NotificationTestResult, SmsTestResult } from "@/types"
 
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp", "image/svg+xml"]
 const ALLOWED_IMAGE_ACCEPT = ".jpg,.jpeg,.png,.gif,.webp,.bmp,.svg"
@@ -23,7 +24,67 @@ function validateImageFile(file: File): string | null {
   return null
 }
 
-type TabKey = "basic" | "announcement" | "points" | "contact" | "email" | "maintenance" | "notify" | "wechatMp"
+type TabKey = "basic" | "announcement" | "points" | "contact" | "email" | "sms" | "maintenance" | "notify" | "wechatMp" | "customer"
+
+// 客户配置默认值（与后端 SiteConfigServiceImpl 种子保持一致，用于本地 mock / 未种子时兜底）
+const CUSTOMER_CONFIG_FALLBACK: Record<string, string> = {
+  customer_phone_enabled: "false",
+  phone_login_enabled: "true",
+  phone_register_enabled: "true",
+  phone_purchase_enabled: "true",
+  phone_query_enabled: "true",
+  anonymous_phone_auto_register: "true",
+  phone_force_change_password: "true",
+  account_merge_enabled: "true",
+  phone_code_login_enabled: "false",
+  phone_reset_by_sms_enabled: "false",
+  phone_default_password: "Aa123456",
+  phone_register_daily_limit: "20",
+  phone_code_interval_seconds: "60",
+  phone_code_daily_limit: "10",
+  phone_code_expire_minutes: "10",
+  login_fail_lock_threshold: "5",
+  login_fail_lock_minutes: "15",
+  customer_service_hint: "",
+}
+
+// 客户配置子开关
+const CUSTOMER_SWITCH_ITEMS: { key: string; label: string; desc: string }[] = [
+  { key: "phone_login_enabled", label: "手机号登录 / 自助注册", desc: "前台展示手机号登录与注册入口" },
+  { key: "phone_register_enabled", label: "允许手机号自助注册", desc: "关闭后仅保留手机号登录，不再展示注册入口" },
+  { key: "phone_purchase_enabled", label: "下单支持手机号", desc: "下单页邮箱 / 手机号二选一必填" },
+  { key: "phone_query_enabled", label: "订单查询支持手机号", desc: "查询页可输入手机号查询订单" },
+  { key: "anonymous_phone_auto_register", label: "匿名手机号下单自动建号", desc: "未登录用户用手机号下单时自动创建账号" },
+  { key: "phone_force_change_password", label: "首次登录强制改密", desc: "使用默认密码的账号登录后必须修改密码" },
+  { key: "account_merge_enabled", label: "允许绑定与账号合并", desc: "个人中心绑定手机号 / 邮箱时触发历史数据合并" },
+  { key: "phone_code_login_enabled", label: "手机号验证码登录", desc: "需先在「短信配置」完成配置并启用" },
+  { key: "phone_reset_by_sms_enabled", label: "短信找回密码", desc: "默认关闭，优先引导用户绑定邮箱找回" },
+]
+
+// 客户配置风控数值项
+const CUSTOMER_NUM_ITEMS: { key: string; label: string; suffix: string; desc: string }[] = [
+  { key: "phone_register_daily_limit", label: "手机号注册日上限", suffix: "次 / 天", desc: "单 IP 每日手机号注册次数上限" },
+  { key: "phone_code_interval_seconds", label: "验证码发送间隔", suffix: "秒", desc: "同一手机号两次发送的最小间隔" },
+  { key: "phone_code_daily_limit", label: "验证码日上限", suffix: "次 / 天", desc: "单手机号每日验证码发送次数上限" },
+  { key: "phone_code_expire_minutes", label: "验证码有效期", suffix: "分钟", desc: "验证码失效时间" },
+  { key: "login_fail_lock_threshold", label: "登录失败锁定阈值", suffix: "次", desc: "连续失败达到该次数后锁定账号" },
+  { key: "login_fail_lock_minutes", label: "锁定时长", suffix: "分钟", desc: "账号被锁定的持续时间" },
+]
+
+// 短信模板 CODE 配置项（对应阿里云短信控制台审核通过的模板）
+const SMS_TPL_ITEMS: { key: string; label: string; hint: string }[] = [
+  { key: "sms_tpl_verify_code", label: "通用验证码模板", hint: "手机号注册等通用校验（启用短信时必填）" },
+  { key: "sms_tpl_login_code", label: "登录验证码模板", hint: "登录页「手机验证码」登录" },
+  { key: "sms_tpl_password_reset", label: "找回密码模板", hint: "忘记密码 → 短信重置" },
+  { key: "sms_tpl_bind_phone", label: "绑定手机号模板", hint: "个人中心 → 绑定手机号" },
+]
+
+function withCustomerDefaults(map: Record<string, string>): Record<string, string> {
+  Object.entries(CUSTOMER_CONFIG_FALLBACK).forEach(([key, value]) => {
+    if (map[key] === undefined) map[key] = value
+  })
+  return map
+}
 
 export default function AdminSiteConfigPage() {
   const { t } = useLocale()
@@ -37,6 +98,22 @@ export default function AdminSiteConfigPage() {
   const [testEmailTo, setTestEmailTo] = useState("")
   const [testSending, setTestSending] = useState(false)
   const popupTextareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // 短信配置（sms tab）
+  const [smsLoaded, setSmsLoaded] = useState(false)
+  const [smsSaving, setSmsSaving] = useState(false)
+  const [smsShowSecret, setSmsShowSecret] = useState(false)
+  const [smsTesting, setSmsTesting] = useState(false)
+  const [smsTestResult, setSmsTestResult] = useState<SmsTestResult | null>(null)
+  const [smsTestPhone, setSmsTestPhone] = useState("")
+  const [smsTestTplKey, setSmsTestTplKey] = useState("sms_tpl_verify_code")
+  const [smsSendTesting, setSmsSendTesting] = useState(false)
+  const [smsSendResult, setSmsSendResult] = useState<SmsTestResult | null>(null)
+
+  // 客户配置（customer tab）：默认密码修改需二次确认
+  const [showDefaultPassword, setShowDefaultPassword] = useState(false)
+  const [initialDefaultPassword, setInitialDefaultPassword] = useState("")
+  const [pwdConfirmOpen, setPwdConfirmOpen] = useState(false)
 
   // 消息通知（notify tab）独立数据
   const NOTIFY_PAGE_SIZE = 10
@@ -63,6 +140,7 @@ export default function AdminSiteConfigPage() {
     channels: "DINGTALK,WECOM,EMAIL",
     enabled: false,
     auto_trigger: false,
+    sms_template_code: "",
   })
 
   const loadNotifyTemplates = useCallback(async (page: number, category: string, enabledFilter: string) => {
@@ -121,9 +199,9 @@ export default function AdminSiteConfigPage() {
   const [mpTestResult, setMpTestResult] = useState<{ passed: boolean; items: { name: string; status: string; message: string }[] } | null>(null)
   const mpLoadedRef = useRef(false)
 
-  // 随机字符串（Token / EncodingAESKey 生成）
-  const randomStr = (len: number) => {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+  // 随机字符串（Token / EncodingAESKey / 默认密码生成）
+  const randomStr = (len: number, charset?: string) => {
+    const chars = charset || "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
     if (typeof crypto !== "undefined" && crypto.getRandomValues) {
       const arr = new Uint8Array(len)
       crypto.getRandomValues(arr)
@@ -234,10 +312,13 @@ export default function AdminSiteConfigPage() {
       )
       const map: Record<string, string> = {}
       data.forEach((kv: SiteConfigKV) => { map[kv.config_key] = kv.config_value })
+      withCustomerDefaults(map)
       setConfigMap(map)
+      setInitialDefaultPassword(map["phone_default_password"] ?? "")
     } catch {
       const map: Record<string, string> = {}
       mockSiteConfigKVs.forEach((kv) => { map[kv.config_key] = kv.config_value })
+      withCustomerDefaults(map)
       setConfigMap(map)
     } finally {
       setLoading(false)
@@ -254,6 +335,8 @@ export default function AdminSiteConfigPage() {
   const toggleBool = (key: string) => {
     setConfigMap(prev => ({ ...prev, [key]: prev[key] === "true" ? "false" : "true" }))
   }
+  // 客户配置总开关：关闭时子项置灰且不可编辑
+  const customerPhoneEnabled = getBool("customer_phone_enabled")
 
   const handleSave = async () => {
     setSaving(true)
@@ -275,6 +358,24 @@ export default function AdminSiteConfigPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  // 客户配置保存：默认密码变更需二次确认
+  const handleSaveCustomer = () => {
+    const pwd = getValue("phone_default_password").trim()
+    if (!pwd) {
+      toast.error("默认密码不能为空")
+      return
+    }
+    if (pwd.length < 6) {
+      toast.error("默认密码至少 6 位")
+      return
+    }
+    if (pwd !== initialDefaultPassword) {
+      setPwdConfirmOpen(true)
+      return
+    }
+    handleSave()
   }
 
   const handleToggleMaintenance = async () => {
@@ -318,6 +419,93 @@ export default function AdminSiteConfigPage() {
     }
   }
 
+  // ─── 短信配置（sms tab）操作 ───
+
+  // 首次切换到「短信配置」tab 时加载短信配置（AccessKey Secret 已脱敏为 __SET__）
+  useEffect(() => {
+    if (tab !== "sms" || smsLoaded) return
+    setSmsLoaded(true)
+    adminConfigApi.getSmsConfig()
+      .then((list) => {
+        setConfigMap((prev) => {
+          const next = { ...prev }
+          list.forEach((kv) => { next[kv.config_key] = kv.config_value })
+          return next
+        })
+      })
+      .catch((err: unknown) => {
+        setSmsLoaded(false)
+        toast.error(err instanceof Error ? err.message : "短信配置加载失败")
+      })
+  }, [tab, smsLoaded])
+
+  // 仅提交 sms_ 前缀配置；AccessKey Secret 留空或 __SET__ 表示不修改
+  const buildSmsConfigs = () =>
+    Object.entries(configMap)
+      .filter(([key, value]) => key.startsWith("sms_") && !(key === "sms_access_key_secret" && (value === "" || value === "__SET__")))
+      .map(([config_key, config_value]) => ({ config_key, config_value }))
+
+  const handleSaveSms = async () => {
+    setSmsSaving(true)
+    try {
+      await adminConfigApi.updateSmsConfig({ configs: buildSmsConfigs() })
+      toast.success("短信配置已保存")
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "保存失败")
+    } finally {
+      setSmsSaving(false)
+    }
+  }
+
+  // 先保存当前表单，再用最新配置测试连通
+  const handleTestSmsConnection = async () => {
+    setSmsTesting(true)
+    setSmsTestResult(null)
+    try {
+      await adminConfigApi.updateSmsConfig({ configs: buildSmsConfigs() })
+      const result = await adminConfigApi.testSmsConnection()
+      setSmsTestResult(result)
+      if (result.passed) {
+        toast.success("短信服务连通正常")
+      } else {
+        toast.error(result.message || "短信服务连通测试未通过")
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "连通测试失败")
+    } finally {
+      setSmsTesting(false)
+    }
+  }
+
+  // 测试发送：需先启用短信服务（后端 sendTemplate 会校验启用状态）
+  const handleTestSmsSend = async () => {
+    const phone = smsTestPhone.trim()
+    if (!/^1[3-9]\d{9}$/.test(phone)) {
+      toast.error("请输入正确的手机号")
+      return
+    }
+    if (!getBool("sms_enabled")) {
+      toast.error("请先启用短信服务并保存，再测试发送")
+      return
+    }
+    setSmsSendTesting(true)
+    setSmsSendResult(null)
+    try {
+      await adminConfigApi.updateSmsConfig({ configs: buildSmsConfigs() })
+      const result = await adminConfigApi.testSmsSend({ phone, template_code: getValue(smsTestTplKey).trim() })
+      setSmsSendResult(result)
+      if (result.passed) {
+        toast.success("测试短信已发送，请查收")
+      } else {
+        toast.error(result.message || "测试短信发送失败")
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "测试短信发送失败")
+    } finally {
+      setSmsSendTesting(false)
+    }
+  }
+
   // ─── 消息通知（notify tab）操作 ───
 
   const updateChannel = (type: string, patch: Partial<NotificationChannelItem>) => {
@@ -343,6 +531,15 @@ export default function AdminSiteConfigPage() {
   }
 
   const handleSaveNotify = async () => {
+    // 勾选短信渠道时必须填写短信模板 CODE
+    const missingSmsCode = notifyTemplates.find(
+      (t) => (t.channels || "").split(",").map(s => s.trim()).filter(Boolean).includes("SMS")
+        && !(t.sms_template_code ?? "").trim()
+    )
+    if (missingSmsCode) {
+      toast.error(`模板「${missingSmsCode.name}」勾选了短信渠道，请填写短信模板 CODE`)
+      return
+    }
     setNotifySaved(true)
     try {
       for (const ch of notifyChannels) {
@@ -351,10 +548,12 @@ export default function AdminSiteConfigPage() {
           enabled: ch.enabled,
           ...(ch.channel_type === "EMAIL"
             ? { email_to: ch.email_to ?? "" }
-            : {
-                webhook_url: ch.webhook_url ?? "",
-                ...(ch.channel_type === "DINGTALK" ? { secret: ch.secret ?? "" } : {}),
-              }),
+            : ch.channel_type === "SMS"
+              ? { phone_to: ch.phone_to ?? "" }
+              : {
+                  webhook_url: ch.webhook_url ?? "",
+                  ...(ch.channel_type === "DINGTALK" ? { secret: ch.secret ?? "" } : {}),
+                }),
         })
       }
       for (const t of notifyTemplates) {
@@ -363,6 +562,7 @@ export default function AdminSiteConfigPage() {
           channels: t.channels,
           title: t.title,
           content: t.content,
+          sms_template_code: t.sms_template_code ?? "",
         })
       }
       toast.success("通知配置已保存")
@@ -404,6 +604,7 @@ export default function AdminSiteConfigPage() {
       channels: "DINGTALK,WECOM,EMAIL",
       enabled: false,
       auto_trigger: false,
+      sms_template_code: "",
     })
     setNotifyCreateOpen(true)
   }
@@ -421,6 +622,11 @@ export default function AdminSiteConfigPage() {
       toast.error("模板编码与名称不能为空")
       return
     }
+    const smsSelected = createForm.channels.split(",").map(s => s.trim()).filter(Boolean).includes("SMS")
+    if (smsSelected && !createForm.sms_template_code.trim()) {
+      toast.error("勾选短信渠道时必须填写短信模板 CODE")
+      return
+    }
     setNotifyCreating(true)
     try {
       await adminNotificationApi.createTemplate({
@@ -432,6 +638,7 @@ export default function AdminSiteConfigPage() {
         channels: createForm.channels,
         enabled: createForm.enabled,
         auto_trigger: createForm.auto_trigger,
+        sms_template_code: createForm.sms_template_code.trim(),
       })
       toast.success("模板创建成功")
       setNotifyCreateOpen(false)
@@ -476,9 +683,11 @@ export default function AdminSiteConfigPage() {
           { key: "points" as const, label: t("admin.pointsSettings") },
           { key: "contact" as const, label: t("admin.contactTab") },
           { key: "email" as const, label: t("admin.emailSettings") },
+          { key: "sms" as const, label: "短信配置" },
           { key: "maintenance" as const, label: t("admin.maintenanceTab") },
           { key: "notify" as const, label: "消息通知" },
           { key: "wechatMp" as const, label: "公众号配置" },
+          { key: "customer" as const, label: "客户配置" },
         ]).map((tabItem) => (
           <button
             key={tabItem.key}
@@ -1131,6 +1340,264 @@ export default function AdminSiteConfigPage() {
         </div>
       )}
 
+      {/* 短信配置 */}
+      {tab === "sms" && (
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          <div className="flex flex-col gap-5 max-w-xl">
+            <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4">
+              <div className="flex items-start gap-3">
+                <Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-blue-500" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">阿里云短信服务</p>
+                  <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                    用于手机验证码登录、找回密码、绑定手机号与管理员短信通知。
+                    请先在阿里云开通「短信服务」并创建 AccessKey（建议使用 RAM 子账号，授予
+                    <code className="rounded bg-muted px-1">AliyunDysmsFullAccess</code>），
+                    并在「国内消息 → 签名管理 / 模板管理」完成签名与模板审核。
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 启用开关 */}
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-sm font-medium text-foreground">启用短信服务</label>
+                <p className="text-xs text-muted-foreground">关闭后前台无手机验证码入口，通知短信渠道也不会发送</p>
+              </div>
+              <button
+                type="button"
+                className={cn(
+                  "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                  getBool("sms_enabled") ? "bg-primary" : "bg-muted"
+                )}
+                onClick={() => toggleBool("sms_enabled")}
+              >
+                <span className={cn(
+                  "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                  getBool("sms_enabled") && "translate-x-5"
+                )} />
+              </button>
+            </div>
+
+            {/* AccessKey ID */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">AccessKey ID</label>
+              <input
+                type="text"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="LTAI5t..."
+                value={getValue("sms_access_key_id")}
+                onChange={(e) => setValue("sms_access_key_id", e.target.value)}
+              />
+            </div>
+
+            {/* AccessKey Secret */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">AccessKey Secret</label>
+              <div className="flex gap-2">
+                <input
+                  type={smsShowSecret ? "text" : "password"}
+                  autoComplete="new-password"
+                  className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={getValue("sms_access_key_secret") === "__SET__" ? "已设置，留空则不修改" : "阿里云 AccessKey Secret"}
+                  value={getValue("sms_access_key_secret") === "__SET__" ? "" : getValue("sms_access_key_secret")}
+                  onChange={(e) => setValue("sms_access_key_secret", e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-input bg-background text-muted-foreground hover:bg-accent transition-colors"
+                  onClick={() => setSmsShowSecret(v => !v)}
+                  title={smsShowSecret ? "隐藏" : "显示"}
+                >
+                  {smsShowSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">出于安全考虑不显示已保存的 Secret；留空表示不修改</p>
+            </div>
+
+            {/* 签名 + 地域 */}
+            <div className="flex gap-3">
+              <div className="flex flex-1 flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">短信签名</label>
+                <input
+                  type="text"
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="如：Nova key"
+                  value={getValue("sms_sign_name")}
+                  onChange={(e) => setValue("sms_sign_name", e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">需与阿里云审核通过的签名名称完全一致</p>
+              </div>
+              <div className="flex w-44 flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">地域</label>
+                <div className="relative">
+                  <select
+                    className="h-10 w-full appearance-none rounded-lg border border-input bg-background pl-3 pr-8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    value={getValue("sms_region") || "cn-hangzhou"}
+                    onChange={(e) => setValue("sms_region", e.target.value)}
+                  >
+                    <option value="cn-hangzhou">华东1（杭州）</option>
+                    <option value="cn-shanghai">华东2（上海）</option>
+                    <option value="cn-qingdao">华北1（青岛）</option>
+                    <option value="cn-beijing">华北2（北京）</option>
+                    <option value="cn-shenzhen">华南1（深圳）</option>
+                    <option value="cn-chengdu">西南1（成都）</option>
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                </div>
+              </div>
+            </div>
+
+            {/* 管理员手机号 */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">管理员手机号</label>
+              <input
+                type="tel"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="13800138000"
+                value={getValue("sms_admin_phone")}
+                onChange={(e) => setValue("sms_admin_phone", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">「消息通知」短信渠道的默认接收号码，RAM 只读接口权限不足时也用它做连通验证</p>
+            </div>
+
+            {/* 模板 CODE */}
+            <div className="flex flex-col gap-5 border-t border-border pt-5">
+              <div>
+                <p className="text-sm font-medium text-foreground">短信模板 CODE</p>
+                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                  在阿里云「国内消息 → 模板管理」申请通过后填写模板 CODE（如 <code className="rounded bg-muted px-1">SMS_123456789</code>）。
+                  点击右侧「申请模板」可查看该模板的建议正文、变量名与示例值，并一键复制申请信息。
+                </p>
+              </div>
+              {SMS_TPL_ITEMS.map((item) => (
+                <div key={item.key} className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-foreground">{item.label}</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      className="h-10 flex-1 rounded-lg border border-input bg-background px-3 font-mono text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder="SMS_123456789"
+                      value={getValue(item.key)}
+                      onChange={(e) => setValue(item.key, e.target.value)}
+                    />
+                    <SmsTemplateGuideButton guideKey={item.key} />
+                  </div>
+                  <p className="text-xs text-muted-foreground">{item.hint}</p>
+                </div>
+              ))}
+              <div className="rounded-lg border border-border p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">管理员重置密码通知模板</p>
+                    <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                      管理员在「客户管理」重置用户密码时，可同时用短信通知用户。阿里云模板不允许出现明文密码，
+                      因此按「密码已重置」文案申请；审核通过后到「消息通知」中为
+                      <code className="mx-1 rounded bg-muted px-1">ADMIN_RESET_PASSWORD</code>模板填写该 CODE。
+                    </p>
+                  </div>
+                  <SmsTemplateGuideButton guideKey="notification:ADMIN_RESET_PASSWORD" label="查看重置密码模板" />
+                </div>
+              </div>
+            </div>
+
+            {/* 测试连通 */}
+            <div className="rounded-lg border border-border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium text-foreground">测试连通</p>
+                  <p className="mt-1 text-xs text-muted-foreground">保存当前配置并调用阿里云只读接口校验 AccessKey 是否有效，不发送短信、不产生费用</p>
+                </div>
+                <button
+                  type="button"
+                  className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                  onClick={handleTestSmsConnection}
+                  disabled={smsTesting}
+                >
+                  {smsTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  {smsTesting ? "测试中..." : "测试连通"}
+                </button>
+              </div>
+              {smsTestResult && (
+                <div className={cn(
+                  "mt-3 flex items-start gap-2 rounded-lg border px-3 py-2",
+                  smsTestResult.passed ? "border-emerald-500/40 bg-emerald-500/5" : "border-red-500/40 bg-red-500/5"
+                )}>
+                  {smsTestResult.passed
+                    ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                    : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />}
+                  <span className={cn("text-xs leading-relaxed", smsTestResult.passed ? "text-emerald-600" : "text-red-500")}>
+                    {smsTestResult.message}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* 测试发送 */}
+            <div className="rounded-lg border border-border p-4">
+              <p className="text-sm font-medium text-foreground">发送测试短信</p>
+              <p className="mt-1 text-xs text-muted-foreground">需先启用短信服务并填写签名与模板 CODE；发送成功会扣除真实短信条数</p>
+              <div className="mt-3 flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <input
+                    type="tel"
+                    className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="接收手机号，如 13800138000"
+                    value={smsTestPhone}
+                    onChange={(e) => setSmsTestPhone(e.target.value)}
+                  />
+                  <div className="relative w-40">
+                    <select
+                      className="h-10 w-full appearance-none rounded-lg border border-input bg-background pl-3 pr-8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      value={smsTestTplKey}
+                      onChange={(e) => setSmsTestTplKey(e.target.value)}
+                    >
+                      {SMS_TPL_ITEMS.map((item) => (
+                        <option key={item.key} value={item.key}>{item.label}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="flex w-fit items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  onClick={handleTestSmsSend}
+                  disabled={smsSendTesting}
+                >
+                  {smsSendTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {smsSendTesting ? "发送中..." : "发送测试短信"}
+                </button>
+              </div>
+              {smsSendResult && (
+                <div className={cn(
+                  "mt-3 flex items-start gap-2 rounded-lg border px-3 py-2",
+                  smsSendResult.passed ? "border-emerald-500/40 bg-emerald-500/5" : "border-red-500/40 bg-red-500/5"
+                )}>
+                  {smsSendResult.passed
+                    ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                    : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />}
+                  <span className={cn("text-xs leading-relaxed", smsSendResult.passed ? "text-emerald-600" : "text-red-500")}>
+                    {smsSendResult.message}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className="flex w-fit items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+              onClick={handleSaveSms}
+              disabled={smsSaving}
+            >
+              <Save className="h-4 w-4" />
+              {smsSaving ? t("admin.saving") : t("admin.saveSettings")}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Maintenance */}
       {tab === "maintenance" && (
         <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
@@ -1215,9 +1682,15 @@ export default function AdminSiteConfigPage() {
                         type="button"
                         className={cn(
                           "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-                          ch.enabled ? "bg-primary" : "bg-muted"
+                          ch.enabled ? "bg-primary" : "bg-muted",
+                          ch.channel_type === "SMS" && !getBool("sms_enabled") && "cursor-not-allowed opacity-50"
                         )}
-                        onClick={() => toggleChannelEnabled(ch.channel_type)}
+                        disabled={ch.channel_type === "SMS" && !getBool("sms_enabled")}
+                        title={ch.channel_type === "SMS" && !getBool("sms_enabled") ? "请先在「短信配置」启用短信服务" : undefined}
+                        onClick={() => {
+                          if (ch.channel_type === "SMS" && !getBool("sms_enabled")) return
+                          toggleChannelEnabled(ch.channel_type)
+                        }}
                       >
                         <span className={cn(
                           "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
@@ -1236,6 +1709,23 @@ export default function AdminSiteConfigPage() {
                           onChange={(e) => updateChannel(ch.channel_type, { email_to: e.target.value })}
                         />
                         <p className="text-xs text-muted-foreground">邮件将复用「邮箱设置」tab 中的 SMTP 发件配置</p>
+                      </div>
+                    ) : ch.channel_type === "SMS" ? (
+                      <div className="mt-3 flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">通知接收手机号</label>
+                        <input
+                          type="tel"
+                          placeholder={getValue("sms_admin_phone") || "13800138000"}
+                          className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          value={ch.phone_to ?? ""}
+                          onChange={(e) => updateChannel(ch.channel_type, { phone_to: e.target.value })}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          短信复用「短信配置」中的签名与 AccessKey，正文取模板中填写的短信模板 CODE；留空则不发送通知短信
+                        </p>
+                        {!getBool("sms_enabled") && (
+                          <p className="text-xs text-amber-600">短信服务未启用，请先到「短信配置」完成配置并启用</p>
+                        )}
                       </div>
                     ) : (
                       <div className="mt-3 flex flex-col gap-1.5">
@@ -1407,6 +1897,28 @@ export default function AdminSiteConfigPage() {
                         )
                       })}
                     </div>
+                    {(t.channels || "").split(",").map(s => s.trim()).filter(Boolean).includes("SMS") && (
+                      <div className="mt-3 flex flex-col gap-1.5 border-t border-border pt-3">
+                        <label className="text-xs font-medium text-muted-foreground">
+                          短信模板 CODE <span className="text-red-500">*</span>
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            placeholder="SMS_123456789"
+                            className="h-10 w-full max-w-xs rounded-lg border border-input bg-background px-3 font-mono text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                            value={t.sms_template_code ?? ""}
+                            onChange={(e) => updateTemplate(t.id, { sms_template_code: e.target.value })}
+                          />
+                          <SmsTemplateGuideButton
+                            guideKey={t.code === "ADMIN_RESET_PASSWORD" ? "notification:ADMIN_RESET_PASSWORD" : "notification:CUSTOM"}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          短信正文与变量须与阿里云审核通过的模板逐字一致，否则发送失败；未填写时保存会被拒绝
+                        </p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1809,6 +2321,204 @@ export default function AdminSiteConfigPage() {
         </div>
       )}
 
+      {/* 客户配置 */}
+      {tab === "customer" && (
+        <div className="flex flex-col gap-6">
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex flex-col gap-4">
+              <div className="flex items-start justify-between gap-6">
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold text-foreground">手机号能力总开关</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    开启后前台展示手机号登录 / 注册 / 下单 / 查询入口；关闭后完全回到仅邮箱模式。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={cn(
+                    "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                    customerPhoneEnabled ? "bg-primary" : "bg-muted"
+                  )}
+                  onClick={() => toggleBool("customer_phone_enabled")}
+                >
+                  <span className={cn(
+                    "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                    customerPhoneEnabled && "translate-x-5"
+                  )} />
+                </button>
+              </div>
+              {!customerPhoneEnabled && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <p className="text-xs text-amber-600">已关闭，前台保持仅邮箱模式；以下子开关暂不可编辑。</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className={cn("rounded-xl border border-border bg-card p-6 shadow-sm", !customerPhoneEnabled && "opacity-60")}>
+            <h2 className="text-base font-semibold text-foreground">功能开关</h2>
+            <p className="mt-1 text-xs text-muted-foreground">总开关关闭时，以下子开关不生效。</p>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+              {CUSTOMER_SWITCH_ITEMS.map((item) => (
+                <div key={item.key} className="flex items-start justify-between gap-3 rounded-lg border border-border px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">{item.label}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{item.desc}</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!customerPhoneEnabled}
+                    className={cn(
+                      "relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors",
+                      getBool(item.key) ? "bg-primary" : "bg-muted",
+                      !customerPhoneEnabled && "cursor-not-allowed"
+                    )}
+                    onClick={() => toggleBool(item.key)}
+                  >
+                    <span className={cn(
+                      "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                      getBool(item.key) && "translate-x-5"
+                    )} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className={cn("rounded-xl border border-border bg-card p-6 shadow-sm", !customerPhoneEnabled && "opacity-60")}>
+            <h2 className="text-base font-semibold text-foreground">默认密码</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              匿名手机号下单自动注册、手机号初始密码均使用该值。修改后仅影响后续新建账号，不影响已注册用户。
+            </p>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center max-w-2xl">
+              <div className="relative min-w-0 flex-1">
+                <input
+                  type={showDefaultPassword ? "text" : "password"}
+                  disabled={!customerPhoneEnabled}
+                  className="h-10 w-full rounded-lg border border-input bg-background pl-3 pr-10 font-mono text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed"
+                  value={getValue("phone_default_password")}
+                  onChange={(e) => setValue("phone_default_password", e.target.value)}
+                />
+                <button
+                  type="button"
+                  disabled={!customerPhoneEnabled}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed"
+                  onClick={() => setShowDefaultPassword(v => !v)}
+                  title={showDefaultPassword ? "隐藏" : "显示"}
+                >
+                  {showDefaultPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!customerPhoneEnabled}
+                  className="inline-flex h-10 shrink-0 items-center gap-1 rounded-lg border border-input px-3 text-xs font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => {
+                    setValue("phone_default_password", randomStr(12, "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"))
+                    setShowDefaultPassword(true)
+                  }}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  随机生成
+                </button>
+                <button
+                  type="button"
+                  disabled={!customerPhoneEnabled}
+                  className="inline-flex h-10 shrink-0 items-center gap-1 rounded-lg border border-input px-3 text-xs font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => copyText(getValue("phone_default_password"), "默认密码")}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  复制
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className={cn("rounded-xl border border-border bg-card p-6 shadow-sm", !customerPhoneEnabled && "opacity-60")}>
+            <h2 className="text-base font-semibold text-foreground">风控参数</h2>
+            <p className="mt-1 text-xs text-muted-foreground">限制手机号注册与验证码发送频率，防止恶意刷取。</p>
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 max-w-3xl">
+              {CUSTOMER_NUM_ITEMS.map((item) => (
+                <div key={item.key} className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-foreground">{item.label}</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      disabled={!customerPhoneEnabled}
+                      className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed"
+                      value={getValue(item.key)}
+                      onChange={(e) => setValue(item.key, e.target.value)}
+                    />
+                    <span className="shrink-0 text-xs text-muted-foreground">{item.suffix}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className={cn("rounded-xl border border-border bg-card p-6 shadow-sm", !customerPhoneEnabled && "opacity-60")}>
+            <h2 className="text-base font-semibold text-foreground">客服提示文案</h2>
+            <p className="mt-1 text-xs text-muted-foreground">绑定失败、账号合并受限等场景下展示给用户的提示文案。</p>
+            <textarea
+              disabled={!customerPhoneEnabled}
+              className="mt-4 min-h-24 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed"
+              placeholder="如：绑定失败请联系客服处理（客服邮箱 / Telegram）"
+              value={getValue("customer_service_hint")}
+              onChange={(e) => setValue("customer_service_hint", e.target.value)}
+            />
+          </div>
+
+          <div>
+            <button
+              type="button"
+              className="flex w-fit items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+              onClick={handleSaveCustomer}
+              disabled={saving}
+            >
+              <Save className="h-4 w-4" />
+              {saving ? t("admin.saving") : t("admin.saveSettings")}
+            </button>
+          </div>
+
+          <Dialog open={pwdConfirmOpen} onOpenChange={setPwdConfirmOpen}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>确认修改默认密码？</DialogTitle>
+                <DialogDescription>
+                  新密码仅对之后新建的账号生效，已注册用户不受影响。请确认新密码为
+                  <span className="mx-1 font-mono font-medium text-foreground">{getValue("phone_default_password")}</span>
+                  ，如有需要请先复制保存。
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <button
+                  type="button"
+                  className="inline-flex h-10 items-center rounded-lg border border-input px-4 text-sm font-medium text-foreground hover:bg-accent"
+                  onClick={() => setPwdConfirmOpen(false)}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-10 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                  onClick={() => {
+                    setInitialDefaultPassword(getValue("phone_default_password"))
+                    setPwdConfirmOpen(false)
+                    handleSave()
+                  }}
+                >
+                  确认修改并保存
+                </button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      )}
+
       {/* 新增模板弹窗 */}
       <Dialog open={notifyCreateOpen} onOpenChange={setNotifyCreateOpen}>
         <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
@@ -1886,6 +2596,24 @@ export default function AdminSiteConfigPage() {
                 ))}
               </div>
             </div>
+            {createForm.channels.split(",").map(s => s.trim()).filter(Boolean).includes("SMS") && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">
+                  短信模板 CODE <span className="text-red-500">*</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="SMS_123456789"
+                    className="h-10 flex-1 rounded-lg border border-input bg-background px-3 font-mono text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    value={createForm.sms_template_code}
+                    onChange={(e) => setCreateForm(f => ({ ...f, sms_template_code: e.target.value }))}
+                  />
+                  <SmsTemplateGuideButton guideKey="notification:CUSTOM" />
+                </div>
+                <p className="text-xs text-muted-foreground">勾选短信渠道时必须填写，未填写将无法创建</p>
+              </div>
+            )}
             <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
               <div>
                 <label className="text-sm font-medium text-foreground">启用模板</label>
