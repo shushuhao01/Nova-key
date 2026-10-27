@@ -418,6 +418,8 @@ export interface SiteConfig {
   contact_address?: string
   wechat_kefu_link?: string
   wechat_qrcode?: string
+  wecom_group_link?: string
+  wecom_group_qrcode?: string
   points_enabled: boolean
   points_rate: number
   maintenance_enabled: boolean

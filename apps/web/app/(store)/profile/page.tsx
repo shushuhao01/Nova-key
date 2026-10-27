@@ -112,11 +112,13 @@ export default function ProfilePage() {
                 </div>
                 <div>
                   <h2 className="text-lg font-semibold text-card-foreground">
-                    {user?.username || "Guest"}
+                    {user?.username || "-"}
                   </h2>
-                  <p className="text-sm text-muted-foreground">
-                    {user?.email || "Not logged in"}
-                  </p>
+                  {(user?.email || user?.phone) && (
+                    <p className="text-sm text-muted-foreground">
+                      {user?.email || user?.phone}
+                    </p>
+                  )}
                 </div>
               </div>
               <hr className="border-border" />

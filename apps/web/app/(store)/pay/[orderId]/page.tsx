@@ -470,6 +470,8 @@ export default function PaymentPage({ params }: { params: Promise<{ orderId: str
       setUser(result.user)
       await refreshCart()
       if (result.must_change_password === true) {
+        // 支付成功页豁免本次强制改密：打标后刷新仍保持登录态，正常登录页不受此标记影响
+        localStorage.setItem("defer_pwd_session", "1")
         toast.success(t("payment.autoLoginDeferred"))
         router.push("/profile")
         return

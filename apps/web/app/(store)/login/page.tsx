@@ -79,6 +79,8 @@ export default function LoginPage() {
 
   // 强制修改初始密码弹窗（不可关闭）
   const [forceOpen, setForceOpen] = useState(false)
+  // 未改密前不写入登录态，仅暂存本次登录返回的 token 供改密接口使用
+  const [forceToken, setForceToken] = useState("")
   const [forceOld, setForceOld] = useState("")
   const [forceNew, setForceNew] = useState("")
   const [forceConfirm, setForceConfirm] = useState("")
@@ -109,17 +111,16 @@ export default function LoginPage() {
   }, [smsCountdown])
 
   const finishLogin = async (result: AuthResult, remember: boolean) => {
-    setToken(result.token)
-    setUser(result.user)
-
     if (remember) {
       localStorage.setItem("rememberMe", "true")
     } else {
       localStorage.removeItem("rememberMe")
     }
 
-    // 使用默认密码登录：必须先修改初始密码才能继续
+    // 使用默认密码登录：必须先修改初始密码才建立登录态
+    // 未改密前 token 只暂存在内存中，刷新/离开页面即失效，避免绕过强制改密
     if (result.must_change_password === true) {
+      setForceToken(result.token)
       setForceOld(phonePassword || password)
       setForceNew("")
       setForceConfirm("")
@@ -127,6 +128,8 @@ export default function LoginPage() {
       return
     }
 
+    setToken(result.token)
+    setUser(result.user)
     await refreshCart()
     toast.success(t("auth.loginSuccess"))
     router.push(redirectTo || "/")
@@ -363,13 +366,17 @@ export default function LoginPage() {
 
     setForceSubmitting(true)
     try {
-      const result = await authApi.forceChangePassword({
-        old_password: forceOld,
-        new_password: forceNew,
-        confirm_password: forceConfirm,
-      })
+      const result = await authApi.forceChangePassword(
+        {
+          old_password: forceOld,
+          new_password: forceNew,
+          confirm_password: forceConfirm,
+        },
+        forceToken
+      )
       setToken(result.token)
       setUser(result.user)
+      setForceToken("")
       toast.success(t("auth.changePasswordSuccess"))
       setForceOpen(false)
       await refreshCart()

@@ -4,7 +4,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useMemo, t
 import { type Locale, getDictionary, type TranslationKey } from "./i18n"
 import type { UserProfile, CartItem, SiteConfig } from "@/types"
 import { clearToken, clearSessionToken, cartApi, siteApi, currencyApi, withMockFallback } from "@/services/api"
-import { mockCartData, mockSiteConfig } from "./mock-data"
+import { mockCartData } from "./mock-data"
 import { initCurrencySymbols } from "./utils"
 
 // ============================================================
@@ -307,7 +307,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem("userProfile")
     if (saved) {
       try {
-        setUserState(JSON.parse(saved))
+        const cached = JSON.parse(saved) as UserProfile
+        // 未完成强制改密的登录态不作为已登录恢复（支付成功页的豁免会话除外），避免刷新绕过强制改密
+        if (cached.must_change_password === true && localStorage.getItem("defer_pwd_session") !== "1") {
+          localStorage.removeItem("userProfile")
+          localStorage.removeItem("auth_token")
+        } else {
+          setUserState(cached)
+        }
       } catch (e) {
         console.error("Failed to parse saved user profile:", e)
       }
@@ -413,14 +420,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
     let cancelled = false
     async function fetchConfig() {
       try {
-        const config = await withMockFallback(
-          () => siteApi.getConfig(),
-          () => mockSiteConfig
-        )
+        const config = await siteApi.getConfig()
         if (!cancelled) setSiteConfig(config)
-      } catch {
-        // use mock as last resort
-        if (!cancelled) setSiteConfig(mockSiteConfig)
+      } catch (err) {
+        // 站点配置不做 mock 兜底：避免未配置的联系方式（如 Telegram）被演示数据填充后展示给用户
+        console.warn("[SiteConfig] 加载失败，使用空配置:", err)
+        if (!cancelled) setSiteConfig(null)
       } finally {
         if (!cancelled) setSiteConfigLoading(false)
       }

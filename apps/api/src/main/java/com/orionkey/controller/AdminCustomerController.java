@@ -74,4 +74,15 @@ public class AdminCustomerController {
         adminCustomerService.toggleRegistered(id, isDeleted);
         return ApiResponse.success();
     }
+
+    /** 解绑客户邮箱 / 手机号（需填写解绑理由，理由写入操作日志） */
+    @LogOperation(action = "customer.unbind", targetType = "CUSTOMER", targetId = "#id",
+            detail = "'解绑客户' + (#request['field'] == 'email' ? '邮箱' : '手机号') + '，理由：' + #request['reason']")
+    @PostMapping("/registered/{id}/unbind")
+    public ApiResponse<Void> unbindContact(@PathVariable UUID id, @RequestBody Map<String, Object> request) {
+        adminCustomerService.unbindContact(id,
+                request.get("field") == null ? null : request.get("field").toString(),
+                request.get("reason") == null ? null : request.get("reason").toString());
+        return ApiResponse.success();
+    }
 }

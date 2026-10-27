@@ -26,6 +26,9 @@ public interface AdminCustomerService {
     /** 封禁 / 解禁注册客户（isDeleted 0/1） */
     void toggleRegistered(UUID id, int isDeleted);
 
+    /** 管理员解绑客户联系方式（field 仅支持 email / phone），reason 为必填解绑理由 */
+    void unbindContact(UUID id, String field, String reason);
+
     /**
      * 管理员重置客户密码：随机 12 位新密码，旧 token 全部失效并解锁账号；
      * 应答一次性返回新密码（不落库明文），并尽力通过邮件/短信通知用户。

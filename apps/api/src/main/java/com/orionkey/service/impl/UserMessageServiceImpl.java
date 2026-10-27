@@ -76,6 +76,22 @@ public class UserMessageServiceImpl implements UserMessageService {
     }
 
     @Override
+    public void sendDirectMessage(UUID userId, String email, UserMessageCategory category, String title, String content) {
+        if (userId == null) return;
+        try {
+            UserMessage msg = new UserMessage();
+            msg.setUserId(userId);
+            msg.setEmail(email);
+            msg.setCategory(category == null ? UserMessageCategory.SYSTEM : category);
+            msg.setTitle(title);
+            msg.setContent(content);
+            messageRepository.save(msg);
+        } catch (Exception e) {
+            log.error("Failed to save direct user message for {}: {}", userId, e.getMessage());
+        }
+    }
+
+    @Override
     public long unreadCount(UUID userId) {
         return messageRepository.countByUserIdAndReadFalse(userId);
     }

@@ -13,6 +13,9 @@ public interface UserMessageService {
     /** 发送用户消息（写库 + 可选邮件同步） */
     void sendUserMessage(UUID userId, String email, String templateCode, Map<String, Object> vars);
 
+    /** 直接写入站内消息（不依赖通知模板开关，用于系统/管理员操作通知） */
+    void sendDirectMessage(UUID userId, String email, UserMessageCategory category, String title, String content);
+
     /** 未读数 */
     long unreadCount(UUID userId);
 

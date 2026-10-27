@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import {
   Search, ChevronLeft, ChevronRight, Eye, Ban, CheckCircle2, Megaphone, Users, UserRound,
   ShoppingBag, CreditCard, Wallet, PlusCircle, X, UserX, UserCheck, Mail, Clock,
-  Phone, KeyRound, Copy,
+  Phone, KeyRound, Copy, Unlink,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
@@ -50,6 +50,10 @@ export default function AdminCustomersPage() {
   const [resetTarget, setResetTarget] = useState<RegisteredCustomerItem | null>(null)
   const [resetLoading, setResetLoading] = useState(false)
   const [resetResult, setResetResult] = useState<AdminResetPasswordResult | null>(null)
+
+  const [unbindTarget, setUnbindTarget] = useState<{ field: "email" | "phone" } | null>(null)
+  const [unbindReason, setUnbindReason] = useState("")
+  const [unbindLoading, setUnbindLoading] = useState(false)
 
   const fetchOverview = useCallback(async () => {
     try {
@@ -183,6 +187,34 @@ export default function AdminCustomersPage() {
       toast.error(err instanceof Error ? err.message : "重置密码失败")
     } finally {
       setResetLoading(false)
+    }
+  }
+
+  const openUnbind = (field: "email" | "phone") => {
+    setUnbindTarget({ field })
+    setUnbindReason("")
+  }
+
+  const handleUnbindContact = async () => {
+    if (!unbindTarget || !detailId) return
+    const reason = unbindReason.trim()
+    if (!reason) return
+    setUnbindLoading(true)
+    try {
+      await adminCustomerApi.unbindContact(detailId, { field: unbindTarget.field, reason })
+      setUnbindTarget(null)
+      setUnbindReason("")
+      toast.success(t("admin.unbindSuccess"))
+      const data = await withMockFallback<OrderDetailData>(
+        () => adminCustomerApi.registeredDetail(detailId, { page: orderPage, page_size: ITEMS_PER_PAGE }),
+        () => detailData ?? ({ orders: { list: [], pagination: { page: orderPage, page_size: ITEMS_PER_PAGE, total: 0 } } }) as unknown as OrderDetailData
+      )
+      setDetailData(data)
+      fetchList()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "解绑失败")
+    } finally {
+      setUnbindLoading(false)
     }
   }
 
@@ -575,15 +607,27 @@ export default function AdminCustomersPage() {
             <div className="flex flex-col gap-5 p-6">
               {/* Customer summary */}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                {detailData && [
-                  { label: t("admin.customerEmail"), value: detailData.email || "—" },
-                  { label: t("admin.customerPhone"), value: detailData.phone || "—" },
+                {detailData && ([
+                  { label: t("admin.customerEmail"), value: detailData.email || "—", field: "email" as const, bound: Boolean(detailData.email) },
+                  { label: t("admin.customerPhone"), value: detailData.phone || "—", field: "phone" as const, bound: Boolean(detailData.phone) },
                   { label: t("admin.customerOrderCount"), value: String(detailData.order_count ?? 0) },
                   { label: t("admin.customerPaidCount"), value: String(detailData.paid_count ?? 0) },
                   { label: t("admin.customerTotalSpent"), value: currency(Number(detailData.total_spent ?? 0)) },
-                ].map(item => (
+                ] as Array<{ label: string; value: string; field?: "email" | "phone"; bound?: boolean }>).map(item => (
                   <div key={item.label} className="rounded-lg border border-border bg-muted/20 p-3">
-                    <p className="text-xs text-muted-foreground">{item.label}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground">{item.label}</p>
+                      {detailId && item.field && item.bound && (
+                        <button
+                          type="button"
+                          onClick={() => openUnbind(item.field!)}
+                          title={item.field === "email" ? t("admin.customerUnbindEmail") : t("admin.customerUnbindPhone")}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Unlink className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                     <p className="mt-1 truncate font-medium text-foreground">{item.value}</p>
                   </div>
                 ))}
@@ -675,6 +719,66 @@ export default function AdminCustomersPage() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unbind contact modal */}
+      {unbindTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => { if (!unbindLoading) setUnbindTarget(null) }}
+          />
+          <div className="relative w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
+            <div className="flex items-center gap-2">
+              <Unlink className="h-5 w-5 text-destructive" />
+              <h2 className="text-lg font-bold text-foreground">
+                {unbindTarget.field === "email" ? t("admin.customerUnbindEmail") : t("admin.customerUnbindPhone")}
+              </h2>
+            </div>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{t("admin.unbindWarning")}</p>
+            <div className="mt-4 rounded-lg border border-border bg-muted/20 p-3">
+              <p className="text-xs text-muted-foreground">
+                {unbindTarget.field === "email" ? t("admin.customerEmail") : t("admin.customerPhone")}
+              </p>
+              <p className="mt-0.5 truncate font-medium text-foreground">
+                {(unbindTarget.field === "email" ? detailData?.email : detailData?.phone) || "—"}
+              </p>
+            </div>
+            <div className="mt-4">
+              <label className="mb-1.5 block text-xs font-medium text-foreground">
+                {t("admin.unbindReasonLabel")} <span className="text-destructive">*</span>
+              </label>
+              <textarea
+                value={unbindReason}
+                onChange={(e) => setUnbindReason(e.target.value)}
+                rows={3}
+                placeholder={t("admin.unbindReasonPlaceholder")}
+                className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+              />
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setUnbindTarget(null)}
+                disabled={unbindLoading}
+                className="rounded-lg border border-input px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={handleUnbindContact}
+                disabled={!unbindReason.trim() || unbindLoading}
+                className="flex items-center gap-1.5 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+              >
+                {unbindLoading && (
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-destructive-foreground border-t-transparent" />
+                )}
+                {t("admin.unbindConfirm")}
+              </button>
             </div>
           </div>
         </div>

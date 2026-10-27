@@ -94,6 +94,16 @@ INSERT INTO site_configs (id, config_key, config_value, config_group, created_at
 SELECT gen_random_uuid(), 'wechat_qrcode', '', 'contact', NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'wechat_qrcode');
 
+-- 企业微信群链接（留空则不显示）
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'wecom_group_link', '', 'contact', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'wecom_group_link');
+
+-- 企业微信群二维码（留空则不显示）
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+SELECT gen_random_uuid(), 'wecom_group_qrcode', '', 'contact', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM site_configs WHERE config_key = 'wecom_group_qrcode');
+
 -- 积分功能总开关 (true/false)
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
 SELECT gen_random_uuid(), 'points_enabled', 'false', 'site', NOW(), NOW()

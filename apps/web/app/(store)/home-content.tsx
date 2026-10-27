@@ -7,6 +7,8 @@ import {
   SquareCheckBig,
   ClipboardList,
   ShieldCheck,
+  MessageCircle,
+  X,
 } from "lucide-react"
 import { useLocale, useSearch, useSiteConfig } from "@/lib/context"
 import { ProductCard } from "@/components/store/product-card"
@@ -27,6 +29,7 @@ export function HomeContent({ products, categories, siteSlogan, siteDescription 
   const { searchQuery, sortBy, inStockOnly, priceMin, priceMax } = useSearch()
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [wecomQrOpen, setWecomQrOpen] = useState(false)
 
   const trustBadges = [
     { icon: SquareCheckBig, label: t("home.trustAuto"), color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-100 dark:bg-emerald-900/40" },
@@ -91,18 +94,71 @@ export function HomeContent({ products, categories, siteSlogan, siteDescription 
           <p className="mt-3 text-sm text-muted-foreground">
             {siteDescription}
           </p>
-          {config?.contact_telegram_group && (
-            <a
-              href={config.contact_telegram_group}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="tg-ghost-btn mt-6 inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold text-[#2AABEE] transition-all active:scale-[0.97]"
-            >
-              <img src="/images/telegram.png" alt="" className="h-4 w-4" loading="lazy" decoding="async" />
-              <span>{t("home.joinTelegram")}</span>
-            </a>
+          {(config?.contact_telegram_group || config?.wecom_group_link || config?.wecom_group_qrcode) && (
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              {config?.contact_telegram_group && (
+                <a
+                  href={config.contact_telegram_group}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="tg-ghost-btn inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold text-[#2AABEE] transition-all active:scale-[0.97]"
+                >
+                  <img src="/images/telegram.png" alt="" className="h-4 w-4" loading="lazy" decoding="async" />
+                  <span>{t("home.joinTelegram")}</span>
+                </a>
+              )}
+              {config?.wecom_group_link ? (
+                <a
+                  href={config.wecom_group_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="wecom-ghost-btn inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold text-[#07C160] transition-all active:scale-[0.97]"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  <span>{t("home.joinWecomGroup")}</span>
+                </a>
+              ) : config?.wecom_group_qrcode ? (
+                <button
+                  type="button"
+                  onClick={() => setWecomQrOpen(true)}
+                  className="wecom-ghost-btn inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold text-[#07C160] transition-all active:scale-[0.97]"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  <span>{t("home.joinWecomGroup")}</span>
+                </button>
+              ) : null}
+            </div>
           )}
         </div>
+
+        {/* 企业微信群二维码弹窗 */}
+        {wecomQrOpen && config?.wecom_group_qrcode && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            onClick={() => setWecomQrOpen(false)}
+          >
+            <div
+              className="relative w-full max-w-xs rounded-2xl border border-border bg-card p-5 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setWecomQrOpen(false)}
+                className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <p className="mb-3 text-center text-sm font-semibold text-foreground">{t("home.joinWecomGroup")}</p>
+              <img
+                src={config.wecom_group_qrcode}
+                alt={t("home.joinWecomGroup")}
+                className="mx-auto h-52 w-52 rounded-lg border border-border bg-white object-contain"
+              />
+              <p className="mt-3 text-center text-xs text-muted-foreground">{t("floating.longPressHint")}</p>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Controls */}

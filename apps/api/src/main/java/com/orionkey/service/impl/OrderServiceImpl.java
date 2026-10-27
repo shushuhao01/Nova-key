@@ -27,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -55,6 +56,9 @@ public class OrderServiceImpl implements OrderService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final ObjectMapper objectMapper;
+
+    /** 手机号自动建号的登录名随机段 */
+    private static final SecureRandom USERNAME_RANDOM = new SecureRandom();
 
     @Override
     @Transactional
@@ -688,19 +692,17 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    /** 手机号自动建号的登录名：p_<手机号>，冲突时追加序号 */
+    /** 手机号自动建号的登录名：p + 4 位随机数字 + 手机尾号 4 位（纯字母+数字），避免暴露完整手机号 */
     private String resolvePhoneUsername(String phone) {
-        String base = "p_" + phone;
-        if (!userRepository.existsByUsername(base)) {
-            return base;
-        }
-        for (int i = 1; i <= 3; i++) {
-            String candidate = base + "_" + i;
+        String tail = phone != null && phone.length() >= 4 ? phone.substring(phone.length() - 4) : "";
+        for (int i = 0; i < 5; i++) {
+            String candidate = "p" + String.format("%04d", USERNAME_RANDOM.nextInt(10_000)) + tail;
             if (!userRepository.existsByUsername(candidate)) {
                 return candidate;
             }
         }
-        return base + "_" + System.currentTimeMillis();
+        // 极端兜底：仍冲突则用随机 6 位数字拼接，避免建号失败
+        return "p" + String.format("%06d", USERNAME_RANDOM.nextInt(1_000_000)) + tail;
     }
 
     private String getConfigString(String key, String defaultValue) {

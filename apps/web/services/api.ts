@@ -207,9 +207,10 @@ function consumeTurnstileToken(): string | null {
 
 async function request<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  authToken?: string
 ): Promise<T> {
-  const token = getToken()
+  const token = authToken || getToken()
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
@@ -357,9 +358,9 @@ export const authApi = {
   /** 登录页默认密码提示（后端限流 10 次/分/IP） */
   loginHint: () =>
     request<LoginHintResult>("/auth/login-hint"),
-  /** 默认密码登录后强制修改密码，返回新登录态 */
-  forceChangePassword: (data: { old_password: string; new_password: string; confirm_password: string }) =>
-    request<AuthResult>("/auth/force-change-password", { method: "POST", body: JSON.stringify(data) }),
+  /** 默认密码登录后强制修改密码，返回新登录态；token 为尚未落盘的临时登录态 */
+  forceChangePassword: (data: { old_password: string; new_password: string; confirm_password: string }, token?: string) =>
+    request<AuthResult>("/auth/force-change-password", { method: "POST", body: JSON.stringify(data) }, token),
   /** 登录；defer_force_change 仅支付成功页自动登录使用（本次会话豁免强制改密，下次正常登录仍强制） */
   login: (data: { account: string; password: string; defer_force_change?: boolean }) =>
     request<AuthResult>("/auth/login", { method: "POST", body: JSON.stringify(data) }),
@@ -918,6 +919,9 @@ export const adminCustomerApi = {
   /** 管理员重置客户密码：返回新密码（一次性展示，不落库明文） */
   resetPassword: (id: string) =>
     request<import("@/types").AdminResetPasswordResult>(`/admin/customers/registered/${id}/reset-password`, { method: "POST" }),
+  /** 管理员解绑客户邮箱 / 手机号（理由必填，写入操作日志） */
+  unbindContact: (id: string, data: { field: "email" | "phone"; reason: string }) =>
+    request<null>(`/admin/customers/registered/${id}/unbind`, { method: "POST", body: JSON.stringify(data) }),
 }
 
 // ============================================================

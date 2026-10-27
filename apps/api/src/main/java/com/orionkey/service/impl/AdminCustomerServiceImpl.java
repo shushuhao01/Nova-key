@@ -3,6 +3,7 @@ package com.orionkey.service.impl;
 import com.orionkey.common.PageResult;
 import com.orionkey.constant.DistributorStatus;
 import com.orionkey.constant.ErrorCode;
+import com.orionkey.constant.UserMessageCategory;
 import com.orionkey.constant.UserRole;
 import com.orionkey.context.RequestContext;
 import com.orionkey.entity.Distributor;
@@ -18,6 +19,7 @@ import com.orionkey.repository.SiteConfigRepository;
 import com.orionkey.repository.UserRepository;
 import com.orionkey.service.AdminCustomerService;
 import com.orionkey.service.NotificationService;
+import com.orionkey.service.UserMessageService;
 import com.orionkey.service.WechatMpConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +52,7 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
     private final WechatMpConfigService wechatMpConfigService;
     private final SiteConfigRepository siteConfigRepository;
     private final NotificationService notificationService;
+    private final UserMessageService userMessageService;
     private final PasswordEncoder passwordEncoder;
 
     @Value("${app.base-url:https://noepay.cn}")
@@ -292,6 +295,55 @@ public class AdminCustomerServiceImpl implements AdminCustomerService {
     }
 
     // ═══════════ 辅助 ═══════════
+
+    @Override
+    @Transactional
+    public void unbindContact(UUID id, String field, String reason) {
+        String type = field == null ? "" : field.trim().toLowerCase();
+        if (!"email".equals(type) && !"phone".equals(type)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "解绑类型仅支持邮箱或手机号");
+        }
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "请填写解绑理由");
+        }
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "客户不存在"));
+        if (user.getRole() != UserRole.USER) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "仅支持解绑普通客户联系方式");
+        }
+        if ("email".equals(type)) {
+            if (user.getEmail() == null || user.getEmail().isBlank()) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "该客户未绑定邮箱");
+            }
+            String oldEmail = user.getEmail();
+            user.setEmail(null);
+            userRepository.save(user);
+            notifyUnbind(user, "邮箱", oldEmail, reason.trim());
+        } else {
+            if (user.getPhone() == null || user.getPhone().isBlank()) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "该客户未绑定手机号");
+            }
+            String oldPhone = user.getPhone();
+            user.setPhone(null);
+            user.setPhoneRegisteredAt(null);
+            userRepository.save(user);
+            notifyUnbind(user, "手机号", oldPhone, reason.trim());
+        }
+        log.info("Unbind {} for customer {} by {}, reason={}", type, user.getUsername(), RequestContext.getUserId(), reason.trim());
+    }
+
+    /** 解绑联系方式后向用户消息中心（前台铃铛）发送通知 */
+    private void notifyUnbind(User user, String fieldLabel, String oldValue, String reason) {
+        try {
+            String title = "联系方式解绑通知";
+            String content = "您的" + fieldLabel + "（" + oldValue + "）已被管理员解绑。解绑理由：" + reason
+                    + "。如需帮助，请联系客服。";
+            userMessageService.sendDirectMessage(user.getId(), user.getEmail(), UserMessageCategory.SYSTEM, title, content);
+        } catch (Exception e) {
+            // 通知失败不应影响解绑主流程
+            log.warn("Failed to notify unbind message for user {}: {}", user.getId(), e.getMessage());
+        }
+    }
 
     @Override
     @Transactional

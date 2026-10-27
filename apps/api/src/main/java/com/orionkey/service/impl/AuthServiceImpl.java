@@ -68,8 +68,8 @@ public class AuthServiceImpl implements AuthService {
     private final DistributionService distributionService;
     private final SmsCodeService smsCodeService;
 
-    /** 手机号注册的默认用户名前缀：p_<phone> */
-    private static final String PHONE_USERNAME_PREFIX = "p_";
+    /** 手机号注册的默认用户名前缀：p<随机数字><手机尾号> */
+    private static final String PHONE_USERNAME_PREFIX = "p";
     /** 单 IP 注册计数（按自然日），配合 site_configs.phone_register_daily_limit 限流 */
     private static final Map<String, IpRegisterCounter> REGISTER_IP_COUNTERS = new ConcurrentHashMap<>();
 
@@ -612,20 +612,17 @@ public class AuthServiceImpl implements AuthService {
         }
     }
 
-    /** 手机号注册用户名：p_&lt;phone&gt;，冲突时追加 4 位随机，最多重试 3 次 */
+    /** 手机号注册用户名：p + 4 位随机数字 + 手机尾号 4 位（纯字母+数字），避免暴露完整手机号；冲突时重新随机 */
     private String resolvePhoneUsername(String phone) {
-        String base = PHONE_USERNAME_PREFIX + phone;
-        if (!userRepository.existsByUsername(base)) {
-            return base;
-        }
-        for (int i = 0; i < 3; i++) {
-            String candidate = base + "_" + String.format("%04d", CODE_RANDOM.nextInt(10_000));
+        String tail = phone != null && phone.length() >= 4 ? phone.substring(phone.length() - 4) : "";
+        for (int i = 0; i < 5; i++) {
+            String candidate = PHONE_USERNAME_PREFIX + String.format("%04d", CODE_RANDOM.nextInt(10_000)) + tail;
             if (!userRepository.existsByUsername(candidate)) {
                 return candidate;
             }
         }
-        // 极端兜底：仍冲突则用当前时间毫秒拼接，避免注册失败
-        return base + "_" + System.currentTimeMillis();
+        // 极端兜底：仍冲突则用随机 6 位数字拼接，避免注册失败
+        return PHONE_USERNAME_PREFIX + String.format("%06d", CODE_RANDOM.nextInt(1_000_000)) + tail;
     }
 
     /** 获取（并按自然日重置）当前 IP 的注册计数器，超出日上限直接拒绝 */

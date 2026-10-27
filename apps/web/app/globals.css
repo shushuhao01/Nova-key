@@ -305,6 +305,28 @@ body {
   box-shadow: 0 4px 12px rgba(0, 136, 204, 0.15);
 }
 
+/* 企业微信群入口按钮（绿色） */
+.wecom-ghost-btn {
+  background: rgba(7, 193, 96, 0.04);
+  border: 1px solid rgba(7, 193, 96, 0.25);
+  box-shadow: 0 2px 6px rgba(7, 193, 96, 0.05);
+}
+.wecom-ghost-btn:hover {
+  background: rgba(7, 193, 96, 0.09);
+  border-color: rgba(7, 193, 96, 0.35);
+  box-shadow: 0 4px 12px rgba(7, 193, 96, 0.12);
+}
+.dark .wecom-ghost-btn {
+  background: rgba(7, 193, 96, 0.08);
+  border-color: rgba(7, 193, 96, 0.3);
+  box-shadow: 0 2px 6px rgba(7, 193, 96, 0.08);
+}
+.dark .wecom-ghost-btn:hover {
+  background: rgba(7, 193, 96, 0.14);
+  border-color: rgba(7, 193, 96, 0.4);
+  box-shadow: 0 4px 12px rgba(7, 193, 96, 0.16);
+}
+
 /* Utility: scheme-driven glow shadow on buttons */
 .scheme-glow {
   --tw-shadow-color: hsl(var(--scheme-glow) / 0.25);

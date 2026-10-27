@@ -95,6 +95,7 @@ export default function AdminSiteConfigPage() {
   const [logoUploading, setLogoUploading] = useState(false)
   const [popupUploading, setPopupUploading] = useState(false)
   const [wechatUploading, setWechatUploading] = useState(false)
+  const [wecomUploading, setWecomUploading] = useState(false)
   const [testEmailTo, setTestEmailTo] = useState("")
   const [testSending, setTestSending] = useState(false)
   const popupTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -1042,6 +1043,56 @@ export default function AdminSiteConfigPage() {
                 onChange={(e) => setValue("contact_telegram_group", e.target.value)}
               />
               <p className="text-xs text-muted-foreground">{t("admin.contactTelegramGroupHint")}</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">{t("admin.wecomGroupLink")}</label>
+              <input
+                type="text"
+                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="https://work.weixin.qq.com/..."
+                value={getValue("wecom_group_link")}
+                onChange={(e) => setValue("wecom_group_link", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("admin.wecomGroupLinkHint")}</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">{t("admin.wecomGroupQrcode")}</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="https://..."
+                  value={getValue("wecom_group_qrcode")}
+                  onChange={(e) => setValue("wecom_group_qrcode", e.target.value)}
+                />
+                <label className={cn("flex h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-accent transition-colors", wecomUploading && "pointer-events-none opacity-50")}>
+                  {wecomUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  上传
+                  <input
+                    type="file"
+                    accept={ALLOWED_IMAGE_ACCEPT}
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      const err = validateImageFile(file)
+                      if (err) { toast.error(err); e.target.value = ""; return }
+                      setWecomUploading(true)
+                      try {
+                        const result = await adminProductApi.uploadImage(file)
+                        setValue("wecom_group_qrcode", result.url)
+                        toast.success("上传成功")
+                      } catch (err: unknown) {
+                        toast.error(err instanceof Error ? err.message : "上传失败")
+                      } finally {
+                        setWecomUploading(false)
+                        e.target.value = ""
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground">{t("admin.wecomGroupQrcodeHint")}</p>
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium text-foreground">{t("admin.contactPhone")}</label>

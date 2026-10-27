@@ -29,9 +29,9 @@ VALUES (RANDOM_UUID(), 'police_number', '', 'site', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
 VALUES (RANDOM_UUID(), 'contact_email', 'support@novakey.com', 'contact', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
-VALUES (RANDOM_UUID(), 'contact_telegram', '@novakey', 'contact', NOW(), NOW());
+VALUES (RANDOM_UUID(), 'contact_telegram', '', 'contact', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
-VALUES (RANDOM_UUID(), 'contact_telegram_group', 'https://t.me/+P3w53nfrAhpkMjFh', 'contact', NOW(), NOW());
+VALUES (RANDOM_UUID(), 'contact_telegram_group', '', 'contact', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
 VALUES (RANDOM_UUID(), 'contact_phone', '', 'contact', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
@@ -40,6 +40,10 @@ INSERT INTO site_configs (id, config_key, config_value, config_group, created_at
 VALUES (RANDOM_UUID(), 'wechat_kefu_link', '', 'contact', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
 VALUES (RANDOM_UUID(), 'wechat_qrcode', '', 'contact', NOW(), NOW());
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+VALUES (RANDOM_UUID(), 'wecom_group_link', '', 'contact', NOW(), NOW());
+INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
+VALUES (RANDOM_UUID(), 'wecom_group_qrcode', '', 'contact', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)
 VALUES (RANDOM_UUID(), 'points_enabled', 'false', 'site', NOW(), NOW());
 INSERT INTO site_configs (id, config_key, config_value, config_group, created_at, updated_at)

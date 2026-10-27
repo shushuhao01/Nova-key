@@ -27,7 +27,7 @@ public class SiteConfigServiceImpl implements SiteConfigService {
             "site_name", "site_slogan", "site_description", "logo_url", "favicon_url",
             "announcement_enabled", "announcement", "popup_enabled", "popup_content",
             "contact_email", "contact_telegram", "contact_telegram_group", "contact_phone", "contact_address",
-            "wechat_kefu_link", "wechat_qrcode",
+            "wechat_kefu_link", "wechat_qrcode", "wecom_group_link", "wecom_group_qrcode",
             "points_enabled", "points_rate",
             "maintenance_enabled", "maintenance_message", "footer_text", "github_url", "custom_css",
             "copyright", "icp_number", "police_number",
@@ -48,7 +48,7 @@ public class SiteConfigServiceImpl implements SiteConfigService {
             "announcement_enabled", "announcement", "popup_enabled", "popup_content",
             // 联系方式
             "contact_email", "contact_telegram", "contact_telegram_group", "contact_phone", "contact_address",
-            "wechat_kefu_link", "wechat_qrcode",
+            "wechat_kefu_link", "wechat_qrcode", "wecom_group_link", "wecom_group_qrcode",
             // 版权 / 备案
             "copyright", "icp_number", "police_number",
             // 积分
