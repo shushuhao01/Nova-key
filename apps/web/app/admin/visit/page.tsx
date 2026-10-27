@@ -44,6 +44,7 @@ import {
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { adminVisitApi, type VisitQueryParams } from "@/services/api"
+import { confirmDialog } from "@/components/ui/confirm-dialog"
 import type {
   VisitAnalytics,
   VisitLogItem,
@@ -833,10 +834,12 @@ function ChannelsPanel({
   }
 
   const removeChannel = async (link: ChannelLink) => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`确认删除渠道「${link.name || link.code}」？此操作不可恢复。`)
-    ) {
+    if (!(await confirmDialog({
+      title: "删除渠道",
+      description: `确认删除渠道「${link.name || link.code}」？此操作不可恢复。`,
+      confirmText: "删除",
+      danger: true,
+    }))) {
       return
     }
     setDeletingId(link.id)

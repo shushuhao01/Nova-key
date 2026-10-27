@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
 import { toast } from "sonner"
 import { adminMarketingApi, adminProductApi, uploadApi } from "@/services/api"
+import { confirmDialog, promptDialog } from "@/components/ui/confirm-dialog"
 import type {
   MarketingCouponItem, CouponPayload, MarketingEmailItem, EmailPayload,
   RecipientsResult, CouponScope, CouponType,
@@ -255,7 +256,12 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
   }
 
   const handleCancel = async (c: MarketingCouponItem) => {
-    if (!window.confirm(t("admin.couponCancelConfirm"))) return
+    if (!(await confirmDialog({
+      title: "取消优惠券",
+      description: t("admin.couponCancelConfirm"),
+      confirmText: "取消优惠券",
+      danger: true,
+    }))) return
     try {
       await adminMarketingApi.cancelCoupon(c.id)
       toast.success(t("admin.save"))
@@ -266,7 +272,12 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
   }
 
   const handleDelete = async (c: MarketingCouponItem) => {
-    if (!window.confirm(t("admin.deleteMessage"))) return
+    if (!(await confirmDialog({
+      title: "删除优惠券",
+      description: t("admin.deleteMessage"),
+      confirmText: "删除",
+      danger: true,
+    }))) return
     try {
       await adminMarketingApi.deleteCoupon(c.id)
       toast.success(t("admin.delete"))
@@ -787,7 +798,11 @@ function EmailsTab({ searchParams, router }: { searchParams: ReturnType<typeof u
   }
 
   const handleSend = async (c: MarketingEmailItem) => {
-    if (!window.confirm(t("admin.sendEmailConfirm"))) return
+    if (!(await confirmDialog({
+      title: "发送邮件",
+      description: t("admin.sendEmailConfirm"),
+      confirmText: "发送",
+    }))) return
     setSending(c.id)
     try {
       const res = await adminMarketingApi.sendEmail(c.id)
@@ -805,7 +820,12 @@ function EmailsTab({ searchParams, router }: { searchParams: ReturnType<typeof u
   }
 
   const handleDelete = async (c: MarketingEmailItem) => {
-    if (!window.confirm(t("admin.deleteMessage"))) return
+    if (!(await confirmDialog({
+      title: "删除邮件",
+      description: t("admin.deleteMessage"),
+      confirmText: "删除",
+      danger: true,
+    }))) return
     try {
       await adminMarketingApi.deleteEmail(c.id)
       toast.success(t("admin.delete"))
@@ -1526,8 +1546,13 @@ function RichTextEditor({ value, onChange }: { value: string; onChange: (html: s
       })
   }
 
-  const insertLink = () => {
-    const url = window.prompt(t("admin.linkPrompt"), "https://")
+  const insertLink = async () => {
+    const url = await promptDialog({
+      title: t("admin.editorLink"),
+      description: t("admin.linkPrompt"),
+      confirmText: "插入",
+      input: { label: "链接地址", placeholder: "https://", defaultValue: "https://" },
+    })
     if (url) exec("createLink", url)
   }
 

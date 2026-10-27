@@ -519,7 +519,8 @@ public class OrderServiceImpl implements OrderService {
                     "product", product,
                     "quantity", totalQty,
                     "amount", amount != null ? amount.toPlainString() : "0",
-                    "payment_method", paymentMethodLabel(order.getPaymentMethod())));
+                    "payment_method", paymentMethodLabel(order.getPaymentMethod()),
+                    "promoter", distributionService.getPromoterDisplayName(order.getReferralDistributorId())));
         } catch (Exception e) {
             log.warn("Order created notification failed: {}", e.getMessage());
         }

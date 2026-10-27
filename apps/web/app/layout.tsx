@@ -5,6 +5,7 @@ import { Toaster } from "sonner"
 import { AppProviders } from "@/lib/context"
 import { ThemeScript } from "./theme-script"
 import { DynamicFavicon } from "@/components/dynamic-favicon"
+import { ConfirmDialogHost } from "@/components/ui/confirm-dialog"
 import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
@@ -51,6 +52,7 @@ export default function RootLayout({
         <AppProviders>
           <DynamicFavicon />
           {children}
+          <ConfirmDialogHost />
           <Toaster position="top-center" richColors closeButton />
         </AppProviders>
       </body>

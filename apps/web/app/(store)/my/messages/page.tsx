@@ -10,6 +10,7 @@ import { useLocale } from "@/lib/context"
 import { useRequireAuth } from "@/lib/hooks"
 import { userMessageApi, getApiErrorMessage } from "@/services/api"
 import { cn } from "@/lib/utils"
+import { confirmDialog } from "@/components/ui/confirm-dialog"
 
 const PAGE_SIZE = 10
 
@@ -128,7 +129,12 @@ export default function MessagesPage() {
       toast.info("没有可清空的消息")
       return
     }
-    if (!window.confirm("确认清空所有消息？此操作不可撤销。")) return
+    if (!(await confirmDialog({
+      title: "清空消息",
+      description: "确认清空所有消息？此操作不可撤销。",
+      confirmText: "清空",
+      danger: true,
+    }))) return
     setOperating(true)
     try {
       await userMessageApi.clearAll()

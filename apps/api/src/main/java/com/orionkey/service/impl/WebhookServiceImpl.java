@@ -731,7 +731,8 @@ public class WebhookServiceImpl implements WebhookService {
             notificationService.sendTemplate("ORDER_PAID", Map.of(
                     "order_no", order.getId().toString().substring(0, 8),
                     "amount", amount != null ? amount.toPlainString() : "0",
-                    "payment_method", paymentMethodLabel(order.getPaymentMethod())));
+                    "payment_method", paymentMethodLabel(order.getPaymentMethod()),
+                    "promoter", distributionService.getPromoterDisplayName(order.getReferralDistributorId())));
         } catch (Exception e) {
             log.warn("Order paid notification failed: {}", e.getMessage());
         }

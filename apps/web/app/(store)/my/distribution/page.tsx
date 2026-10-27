@@ -14,6 +14,7 @@ import { useLocale } from "@/lib/context"
 import { useRequireAuth } from "@/lib/hooks"
 import { distributorApi, wechatMpApi, getApiErrorMessage } from "@/services/api"
 import { cn } from "@/lib/utils"
+import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { PosterModal } from "@/components/store/poster-modal"
 import { OrderStatusBadge } from "@/components/shared/order-status-badge"
 
@@ -1409,7 +1410,12 @@ function WithdrawalsTab({ balance }: { balance: number }) {
   }, [fetchWechat])
 
   const handleUnbind = async () => {
-    if (!window.confirm("确定解绑微信？解绑后需重新绑定才能申请提现。")) return
+    if (!(await confirmDialog({
+      title: "解绑微信",
+      description: "确定解绑微信？解绑后需重新绑定才能申请提现。",
+      confirmText: "解绑",
+      danger: true,
+    }))) return
     try {
       await distributorApi.unbindWechat()
       toast.success("已解绑微信")
@@ -2200,7 +2206,7 @@ function RulesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
 
   const enabledTiers = (rules?.tiers || []).filter((t) => t.enabled !== false)
   const tierText = enabledTiers.length > 0
-    ? enabledTiers.map((t) => ({ order: t.tier_order, pct: `${t.rate}%` }))
+    ? enabledTiers.map((t) => ({ order: t.tier_order, pct: fmtRate(t.rate) }))
     : null
 
   return (

@@ -122,6 +122,19 @@ public class AdminDistributionController {
         return ApiResponse.success();
     }
 
+    /** 某推广员的专属配置：阶梯佣金（无配置回退全局） + 推广商品范围 */
+    @GetMapping("/distributors/{id}/advanced-config")
+    public ApiResponse<?> getDistributorAdvancedConfig(@PathVariable UUID id) {
+        return ApiResponse.success(distributionService.adminGetDistributorAdvancedConfig(id));
+    }
+
+    @PutMapping("/distributors/{id}/advanced-config")
+    public ApiResponse<?> updateDistributorAdvancedConfig(@PathVariable UUID id,
+                                                          @RequestBody Map<String, Object> request) {
+        distributionService.adminUpdateDistributorAdvancedConfig(id, request);
+        return ApiResponse.success();
+    }
+
     // ── 商品佣金配置（列表内推广统计随上方快捷日期区间 from/to 变化） ──
     @GetMapping("/products")
     public ApiResponse<?> listProductCommissions(

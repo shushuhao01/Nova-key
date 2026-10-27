@@ -50,6 +50,8 @@ public class DistributionServiceImpl implements DistributionService {
     private final DistributorRepository distributorRepository;
     private final DistributionRuleRepository ruleRepository;
     private final CommissionTierRepository tierRepository;
+    private final DistributorCommissionTierRepository distributorCommissionTierRepository;
+    private final DistributorProductScopeRepository distributorProductScopeRepository;
     private final ProductCommissionRepository productCommissionRepository;
     private final DistributorProductRateRepository distributorProductRateRepository;
     private final CustomerBindingRepository customerBindingRepository;
@@ -84,7 +86,22 @@ public class DistributionServiceImpl implements DistributionService {
     private static final LocalDateTime RANGE_TO_MAX = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
 
     // ════════════════════════════════════════════════════════════════
-    //  ── 分销员 ──
+
+    @Override
+    public String getPromoterDisplayName(UUID distributorId) {
+        if (distributorId == null) return "-";
+        Distributor d = distributorRepository.findById(distributorId).orElse(null);
+        if (d == null) return "-";
+        String name = d.getUserId() != null
+                ? userRepository.findById(d.getUserId())
+                    .map(u -> u.getUsername() != null && !u.getUsername().isBlank() ? u.getUsername() : u.getEmail())
+                    .orElse(null)
+                : null;
+        if (name == null || name.isBlank()) name = d.getDistributorCode();
+        return name != null && !name.isBlank() ? name : "-";
+    }
+
+    // ── 分销员 ──
     // ════════════════════════════════════════════════════════════════
 
     @Override
@@ -1263,13 +1280,17 @@ public class DistributionServiceImpl implements DistributionService {
 
     @Override
     @Transactional(readOnly = true)
-    public Map<String, Object> listPromotionProducts(int page, int pageSize) {
+    public Map<String, Object> listPromotionProducts(UUID userId, int page, int pageSize) {
         DistributionRule rule = getOrCreateRule();
+        // 当前用户若为推广员，按该推广员的推广商品范围过滤（未配置则沿用系统默认）
+        Distributor distributor = userId != null
+                ? distributorRepository.findByUserId(userId).orElse(null) : null;
         // 分销员可推广商品：仅展示已开启分销（存在 product_commission 且未排除）的商品，与首页显示相互独立
         List<Product> all = productRepository.findEnabledProducts(Pageable.unpaged()).getContent();
         // 仅展示已开启分销（存在 product_commission 且未排除）的商品，最新添加的排在前面
         List<Product> distributable = all.stream()
                 .filter(p -> isProductDistributable(p.getId()))
+                .filter(p -> distributor == null || isDistributorProductAllowed(distributor, p.getId()))
                 .sorted(Comparator.comparing(Product::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
         List<Map<String, Object>> items = paginate(distributable, page, pageSize).stream().map(p -> {
@@ -1372,6 +1393,9 @@ public class DistributionServiceImpl implements DistributionService {
         }
         if (!isProductDistributable(productId)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "该商品未开启分销，无法生成推广链接");
+        }
+        if (!isDistributorProductAllowed(d, productId)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "该商品不在你的可推广范围内");
         }
         PromotionLink link = promotionLinkRepository.findByDistributorIdAndProductId(d.getId(), productId).orElse(null);
         if (link == null) {
@@ -2504,11 +2528,11 @@ public class DistributionServiceImpl implements DistributionService {
                 }
             }
 
-            // 阶梯佣金
+            // 阶梯佣金（优先该推广员的专属阶梯，未配置则回退全局）
             int tierOrder = (binding != null ? binding.getPurchaseCount() : 0) + 1;
             BigDecimal tierRate = BigDecimal.ONE;
             if (rule.isTierEnabled()) {
-                tierRate = resolveTierRate(tierOrder);
+                tierRate = resolveTierRate(distId, tierOrder);
             }
 
             // 遍历订单项计算佣金
@@ -2524,6 +2548,12 @@ public class DistributionServiceImpl implements DistributionService {
                 // 检查商品是否被排除
                 if (isProductExcluded(oi.getProductId())) {
                     log.info("Product {} is excluded, skip commission for order item", oi.getProductId());
+                    continue;
+                }
+                // 推广员级商品范围：黑名单排除 / 白名单限定
+                if (!isDistributorProductAllowed(d, oi.getProductId())) {
+                    log.info("Product {} is out of distributor {} scope, skip commission for order item",
+                            oi.getProductId(), distId);
                     continue;
                 }
 
@@ -3022,6 +3052,152 @@ public class DistributionServiceImpl implements DistributionService {
         log.info("Commission tiers updated: {} tiers", tiers.size());
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> listEffectiveCommissionTiers(UUID userId) {
+        if (userId != null) {
+            Distributor d = distributorRepository.findByUserId(userId).orElse(null);
+            if (d != null) {
+                List<DistributorCommissionTier> custom = distributorCommissionTierRepository
+                        .findByDistributorIdOrderByTierOrderAsc(d.getId());
+                if (!custom.isEmpty()) {
+                    return custom.stream().map(this::distributorTierToMap).toList();
+                }
+            }
+        }
+        return listCommissionTiers();
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  ── 推广员级配置（阶梯佣金 / 推广商品范围） ──
+    // ════════════════════════════════════════════════════════════════
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> adminGetDistributorAdvancedConfig(UUID distributorId) {
+        Distributor d = distributorRepository.findById(distributorId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "分销员不存在"));
+        DistributionRule rule = getOrCreateRule();
+
+        List<Map<String, Object>> globalTiers = listCommissionTiers();
+        List<DistributorCommissionTier> customTiers = distributorCommissionTierRepository
+                .findByDistributorIdOrderByTierOrderAsc(d.getId());
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("distributor_id", d.getId());
+        m.put("tier_enabled", rule.isTierEnabled());
+        m.put("tier_customized", !customTiers.isEmpty());
+        m.put("tiers", customTiers.isEmpty()
+                ? globalTiers
+                : customTiers.stream().map(this::distributorTierToMap).toList());
+        m.put("global_tiers", globalTiers);
+
+        m.put("product_scope_mode", d.getProductScopeMode() != null ? d.getProductScopeMode() : "ALL");
+        m.put("product_scope_ids", distributorProductScopeRepository.findByDistributorId(d.getId()).stream()
+                .map(DistributorProductScope::getProductId).toList());
+
+        // 可配置商品候选：系统已开启分佣的商品（未额外配置时即可推广的商品范围）
+        List<Map<String, Object>> products = productRepository.findEnabledProducts(Pageable.unpaged()).getContent().stream()
+                .filter(p -> isProductDistributable(p.getId()))
+                .sorted(Comparator.comparing(Product::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .map(p -> {
+                    Map<String, Object> pm = new LinkedHashMap<>();
+                    pm.put("product_id", p.getId());
+                    pm.put("product_title", p.getTitle());
+                    pm.put("cover_url", p.getCoverUrl());
+                    pm.put("base_price", p.getBasePrice());
+                    return pm;
+                }).toList();
+        m.put("products", products);
+        return m;
+    }
+
+    @Override
+    @Transactional
+    public void adminUpdateDistributorAdvancedConfig(UUID distributorId, Map<String, Object> request) {
+        Distributor d = distributorRepository.findById(distributorId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "分销员不存在"));
+
+        // ── 阶梯佣金：tier_customized=true 使用专属配置，false 删除专属配置回退全局 ──
+        if (request.containsKey("tier_customized")) {
+            boolean customized = toBool(request.get("tier_customized"), false);
+            distributorCommissionTierRepository.deleteByDistributorId(d.getId());
+            if (customized) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> tiers = request.get("tiers") instanceof List
+                        ? (List<Map<String, Object>>) request.get("tiers") : List.of();
+                if (tiers.isEmpty()) {
+                    throw new BusinessException(ErrorCode.BAD_REQUEST, "请至少配置一档阶梯佣金");
+                }
+                Set<Integer> orders = new HashSet<>();
+                for (Map<String, Object> tier : tiers) {
+                    int order = toInt(tier.get("tier_order"), 1);
+                    if (order < 1) {
+                        throw new BusinessException(ErrorCode.BAD_REQUEST, "购买次序必须大于 0");
+                    }
+                    if (!orders.add(order)) {
+                        throw new BusinessException(ErrorCode.BAD_REQUEST, "购买次序 " + order + " 重复");
+                    }
+                    BigDecimal rate = toBigDecimal(tier.get("rate"), BigDecimal.ONE);
+                    if (rate.compareTo(BigDecimal.ZERO) < 0 || rate.compareTo(BigDecimal.ONE) > 0) {
+                        throw new BusinessException(ErrorCode.BAD_REQUEST, "阶梯佣金比例需在 0-100% 之间");
+                    }
+                    DistributorCommissionTier t = new DistributorCommissionTier();
+                    t.setDistributorId(d.getId());
+                    t.setTierOrder(order);
+                    t.setRate(rate.setScale(4, RoundingMode.HALF_UP));
+                    t.setEnabled(toBool(tier.get("enabled"), true));
+                    distributorCommissionTierRepository.save(t);
+                }
+            }
+        }
+
+        // ── 推广商品范围：ALL=系统默认，BLACKLIST=不允许推广，WHITELIST=仅允许推广 ──
+        if (request.containsKey("product_scope_mode")) {
+            String mode = request.get("product_scope_mode") != null
+                    ? request.get("product_scope_mode").toString().toUpperCase() : "ALL";
+            if (!"ALL".equals(mode) && !"BLACKLIST".equals(mode) && !"WHITELIST".equals(mode)) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "推广商品范围类型不合法");
+            }
+            distributorProductScopeRepository.deleteByDistributorId(d.getId());
+            if (!"ALL".equals(mode)) {
+                @SuppressWarnings("unchecked")
+                List<Object> ids = request.get("product_scope_ids") instanceof List
+                        ? (List<Object>) request.get("product_scope_ids") : List.of();
+                if (ids.isEmpty()) {
+                    throw new BusinessException(ErrorCode.BAD_REQUEST, "请至少选择一个商品");
+                }
+                Set<UUID> saved = new HashSet<>();
+                for (Object o : ids) {
+                    if (o == null) continue;
+                    UUID pid;
+                    try {
+                        pid = UUID.fromString(o.toString());
+                    } catch (Exception ex) {
+                        continue;
+                    }
+                    if (!saved.add(pid)) continue;
+                    DistributorProductScope scope = new DistributorProductScope();
+                    scope.setDistributorId(d.getId());
+                    scope.setProductId(pid);
+                    distributorProductScopeRepository.save(scope);
+                }
+            }
+            d.setProductScopeMode(mode);
+            distributorRepository.save(d);
+        }
+        log.info("Distributor {} advanced config updated", distributorId);
+    }
+
+    private Map<String, Object> distributorTierToMap(DistributorCommissionTier t) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", t.getId());
+        m.put("tier_order", t.getTierOrder());
+        m.put("rate", t.getRate());
+        m.put("enabled", t.isEnabled());
+        return m;
+    }
+
     // ════════════════════════════════════════════════════════════════
     //  ── 辅助方法 ──
     // ════════════════════════════════════════════════════════════════
@@ -3116,6 +3292,41 @@ public class DistributionServiceImpl implements DistributionService {
         return productCommissionRepository.findByProductId(productId)
                 .map(pc -> !pc.isExcluded())
                 .orElse(false);
+    }
+
+    private BigDecimal resolveTierRate(UUID distributorId, int tierOrder) {
+        List<DistributorCommissionTier> custom = distributorCommissionTierRepository
+                .findByDistributorIdAndEnabledTrueOrderByTierOrderAsc(distributorId);
+        if (custom.isEmpty()) {
+            // 未单独配置：沿用全局阶梯
+            return resolveTierRate(tierOrder);
+        }
+        for (DistributorCommissionTier t : custom) {
+            if (t.getTierOrder() == tierOrder) {
+                return t.getRate();
+            }
+        }
+        // 超出该推广员最后一档：不再返佣
+        log.info("Distributor {} tier order {} exceeds max custom tier {}, no commission",
+                distributorId, tierOrder, custom.get(custom.size() - 1).getTierOrder());
+        return BigDecimal.ZERO;
+    }
+
+    /** 推广员级推广商品范围判断（ALL=默认全部，BLACKLIST=排除表内商品，WHITELIST=仅表内商品） */
+    private boolean isDistributorProductAllowed(Distributor d, UUID productId) {
+        String mode = d.getProductScopeMode();
+        if (mode == null || mode.isBlank() || "ALL".equalsIgnoreCase(mode)) {
+            return true;
+        }
+        boolean configured = distributorProductScopeRepository
+                .existsByDistributorIdAndProductId(d.getId(), productId);
+        if ("WHITELIST".equalsIgnoreCase(mode)) {
+            return configured;
+        }
+        if ("BLACKLIST".equalsIgnoreCase(mode)) {
+            return !configured;
+        }
+        return true;
     }
 
     private BigDecimal resolveTierRate(int tierOrder) {

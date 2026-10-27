@@ -38,11 +38,11 @@ public class DistributorController {
         return ApiResponse.success(distributionService.getDistributorProfile(RequestContext.getUserId()));
     }
 
-    // ── 分销规则（前台查看，含阶梯佣金配置） ──
+    // ── 分销规则（前台查看，阶梯佣金按当前推广员生效配置返回） ──
     @GetMapping("/rules")
     public ApiResponse<?> getRules() {
         Map<String, Object> rules = distributionService.getRules();
-        rules.put("tiers", distributionService.listCommissionTiers());
+        rules.put("tiers", distributionService.listEffectiveCommissionTiers(RequestContext.getUserId()));
         return ApiResponse.success(rules);
     }
 
@@ -57,7 +57,7 @@ public class DistributorController {
     public ApiResponse<?> listPromotionProducts(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(value = "page_size", defaultValue = "20") int pageSize) {
-        return ApiResponse.success(distributionService.listPromotionProducts(page, pageSize));
+        return ApiResponse.success(distributionService.listPromotionProducts(RequestContext.getUserId(), page, pageSize));
     }
 
     @GetMapping("/products/mine")

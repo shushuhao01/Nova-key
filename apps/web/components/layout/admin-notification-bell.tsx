@@ -5,6 +5,7 @@ import { Bell, CheckCheck, ChevronDown, ChevronUp, Loader2, Trash2 } from "lucid
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { adminNotificationApi } from "@/services/api"
+import { confirmDialog } from "@/components/ui/confirm-dialog"
 import type { SystemMessageItem } from "@/types"
 
 function formatTime(iso: string): string {
@@ -113,7 +114,12 @@ export function AdminNotificationBell() {
   }
 
   const handleClear = async () => {
-    if (!window.confirm("确认清空全部系统消息？此操作不可恢复。")) return
+    if (!(await confirmDialog({
+      title: "清空系统消息",
+      description: "确认清空全部系统消息？此操作不可恢复。",
+      confirmText: "清空",
+      danger: true,
+    }))) return
     try {
       await adminNotificationApi.clearMessages()
       setMessages([])

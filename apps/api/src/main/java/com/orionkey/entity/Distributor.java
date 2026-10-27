@@ -83,4 +83,13 @@ public class Distributor extends BaseEntity {
     /** 邀请码（用于下级扫码加入） */
     @Column(length = 16)
     private String inviteCode;
+
+    /**
+     * 推广商品范围：
+     * ALL = 系统默认（所有已开启分佣的商品均可推广）；
+     * BLACKLIST = 不参与推广指定商品；
+     * WHITELIST = 仅允许推广指定商品。
+     */
+    @Column(length = 20, columnDefinition = "varchar(20) default 'ALL'")
+    private String productScopeMode = "ALL";
 }

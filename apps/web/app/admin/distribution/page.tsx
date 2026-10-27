@@ -12,6 +12,7 @@ import {
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { adminDistributionApi } from "@/services/api"
+import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { OrderStatusBadge } from "@/components/shared/order-status-badge"
 import type { OrderStatus } from "@/types"
 
@@ -592,6 +593,7 @@ function DistributorsTab({ dateVersion }: { dateVersion: number }) {
   const [rateModal, setRateModal] = useState<Distributor | null>(null)
   const [detailModal, setDetailModal] = useState<Distributor | null>(null)
   const [teamModal, setTeamModal] = useState<{ d: Distributor; mode: TeamMode } | null>(null)
+  const [statusModal, setStatusModal] = useState<{ d: Distributor; status: DistributorStatus } | null>(null)
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -622,22 +624,8 @@ function DistributorsTab({ dateVersion }: { dateVersion: number }) {
 
   const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
 
-  const handleStatus = async (d: Distributor, status: DistributorStatus, reason?: string) => {
-    const actionLabel = distributorStatusMap[status].label
-    if (status === "REJECTED" || status === "DISABLED") {
-      const input = window.prompt(`请输入${actionLabel}原因`, reason || "")
-      if (input === null) return
-      reason = input
-    } else {
-      if (!window.confirm(`确认${actionLabel}该分销员？`)) return
-    }
-    try {
-      await adminDistributionApi.updateDistributorStatus(d.id, status, reason)
-      toast.success(`${actionLabel}成功`)
-      fetchList()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "操作失败")
-    }
+  const handleStatus = (d: Distributor, status: DistributorStatus) => {
+    setStatusModal({ d, status })
   }
 
   const effectiveRate = (d: Distributor) => d.custom_rate != null ? d.custom_rate : d.default_rate
@@ -810,6 +798,15 @@ function DistributorsTab({ dateVersion }: { dateVersion: number }) {
           <Pager page={currentPage} totalPages={totalPages} onChange={setCurrentPage} />
         </div>
       </div>
+
+      {statusModal && (
+        <DistributorStatusModal
+          distributor={statusModal.d}
+          status={statusModal.status}
+          onClose={() => setStatusModal(null)}
+          onSaved={() => { setStatusModal(null); fetchList() }}
+        />
+      )}
 
       {rateModal && (
         <RateEditModal
@@ -1355,6 +1352,122 @@ function CustomerOrdersModal({ distributorId, customer, onClose }: {
   )
 }
 
+/** 推广员状态变更弹窗（审核通过 / 拒绝 / 禁用 / 解禁），替代浏览器原生 confirm/prompt */
+function DistributorStatusModal({ distributor, status, onClose, onSaved }: {
+  distributor: Distributor
+  status: DistributorStatus
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const actionText = status === "APPROVED"
+    ? (distributor.status === "DISABLED" ? "解禁" : "审核通过")
+    : status === "REJECTED" ? "拒绝" : "禁用"
+  const needReason = status === "REJECTED" || status === "DISABLED"
+  const [reason, setReason] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  const handleConfirm = async () => {
+    const trimmed = reason.trim()
+    if (needReason && !trimmed) {
+      toast.error(`请输入${actionText}原因`)
+      return
+    }
+    setSaving(true)
+    try {
+      await adminDistributionApi.updateDistributorStatus(distributor.id, status, needReason ? trimmed : undefined)
+      toast.success(`${actionText}成功`)
+      onSaved()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-foreground">{actionText}推广员</h2>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mb-4 rounded-lg bg-muted/40 p-3 text-sm">
+          <p className="font-medium text-foreground">{distributor.username || distributor.email || "推广员"}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{distributor.email || distributor.phone || "—"}</p>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          确认{actionText}该推广员？
+          {status === "DISABLED" && "禁用后该推广员将无法继续推广与申请提现。"}
+          {status === "REJECTED" && "拒绝后该推广员需重新提交申请。"}
+        </p>
+        {needReason && (
+          <div className="mt-4">
+            <label className="mb-1.5 block text-sm font-medium text-foreground">{actionText}原因</label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              placeholder={`请输入${actionText}原因`}
+              className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+        )}
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="h-10 rounded-lg border border-input px-4 text-sm font-medium text-foreground hover:bg-accent">取消</button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={handleConfirm}
+            className={cn(
+              "inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-all disabled:opacity-50",
+              needReason
+                ? "bg-red-500 text-white hover:brightness-110"
+                : "bg-primary text-primary-foreground hover:brightness-110"
+            )}
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            确认{actionText}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface AdvancedTier {
+  tier_order: number
+  rate: number
+  enabled?: boolean
+}
+
+interface AdvancedProduct {
+  product_id: string
+  product_title: string
+  cover_url: string | null
+  base_price: number
+}
+
+interface DistributorAdvancedConfig {
+  tier_enabled?: boolean
+  tier_customized?: boolean
+  tiers?: AdvancedTier[]
+  global_tiers?: AdvancedTier[]
+  product_scope_mode?: string
+  product_scope_ids?: string[]
+  products?: AdvancedProduct[]
+}
+
+type ScopeMode = "ALL" | "BLACKLIST" | "WHITELIST"
+
+/** 系数（0.8）→ 百分比输入值（80） */
+function coefToPct(n: number | null | undefined): string {
+  const v = (Number(n) || 0) * 100
+  return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2)))
+}
+
 function RateEditModal({ distributor, onClose, onSaved }: {
   distributor: Distributor
   onClose: () => void
@@ -1368,6 +1481,81 @@ function RateEditModal({ distributor, onClose, onSaved }: {
   )
   const [saving, setSaving] = useState(false)
 
+  // ── 推广员专属配置：阶梯佣金 + 推广商品范围 ──
+  const [advLoading, setAdvLoading] = useState(true)
+  const [tierEnabled, setTierEnabled] = useState(false)
+  const [tierCustomized, setTierCustomized] = useState(false)
+  const [globalTiers, setGlobalTiers] = useState<AdvancedTier[]>([])
+  const [tiers, setTiers] = useState<{ tier_order: string; rate_pct: string }[]>([])
+  const [scopeMode, setScopeMode] = useState<ScopeMode>("ALL")
+  const [scopeIds, setScopeIds] = useState<string[]>([])
+  const [products, setProducts] = useState<AdvancedProduct[]>([])
+  const [productKeyword, setProductKeyword] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+    setAdvLoading(true)
+    adminDistributionApi
+      .getDistributorAdvancedConfig(distributor.id)
+      .then((cfg: DistributorAdvancedConfig) => {
+        if (cancelled) return
+        setTierEnabled(!!cfg.tier_enabled)
+        setTierCustomized(!!cfg.tier_customized)
+        setGlobalTiers((cfg.global_tiers || []).map((t) => ({ tier_order: t.tier_order, rate: Number(t.rate) })))
+        setTiers((cfg.tiers || []).map((t) => ({ tier_order: String(t.tier_order), rate_pct: coefToPct(t.rate) })))
+        const mode: ScopeMode =
+          cfg.product_scope_mode === "BLACKLIST" || cfg.product_scope_mode === "WHITELIST"
+            ? cfg.product_scope_mode
+            : "ALL"
+        setScopeMode(mode)
+        setScopeIds(cfg.product_scope_ids || [])
+        setProducts(cfg.products || [])
+      })
+      .catch(() => {
+        if (!cancelled) toast.error("推广员专属配置加载失败")
+      })
+      .finally(() => {
+        if (!cancelled) setAdvLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [distributor.id])
+
+  const filteredProducts = useMemo(() => {
+    const kw = productKeyword.trim().toLowerCase()
+    if (!kw) return products
+    return products.filter((p) => p.product_title.toLowerCase().includes(kw))
+  }, [products, productKeyword])
+
+  const toggleScopeProduct = (productId: string) => {
+    setScopeIds((prev) =>
+      prev.includes(productId) ? prev.filter((id) => id !== productId) : [...prev, productId]
+    )
+  }
+
+  const handleCustomize = (customized: boolean) => {
+    if (customized && tiers.length === 0) {
+      setTiers(globalTiers.map((t) => ({ tier_order: String(t.tier_order), rate_pct: coefToPct(t.rate) })))
+    }
+    setTierCustomized(customized)
+  }
+
+  const updateTier = (idx: number, patch: Partial<{ tier_order: string; rate_pct: string }>) => {
+    setTiers((prev) => prev.map((t, i) => (i === idx ? { ...t, ...patch } : t)))
+  }
+
+  const addTier = () => {
+    setTiers((prev) => {
+      const maxOrder = prev.reduce((m, t) => Math.max(m, parseInt(t.tier_order, 10) || 0), 0)
+      return [...prev, { tier_order: String(maxOrder + 1), rate_pct: "0" }]
+    })
+  }
+
+  const removeTier = (idx: number) => {
+    setTiers((prev) => prev.filter((_, i) => i !== idx))
+  }
+
   const handleSave = async () => {
     const cr = customRate === "" ? null : parseFloat(customRate)
     const sr = subRate === "" ? null : parseFloat(subRate)
@@ -1379,10 +1567,52 @@ function RateEditModal({ distributor, onClose, onSaved }: {
       toast.error("下级佣金比例需在 0-100 之间")
       return
     }
+
+    // 阶梯佣金校验
+    const tierPayload: { tier_order: number; rate: number; enabled: boolean }[] = []
+    if (tierCustomized) {
+      if (tiers.length === 0) {
+        toast.error("请至少配置一档阶梯佣金")
+        return
+      }
+      const orders = new Set<number>()
+      for (const t of tiers) {
+        const order = parseInt(t.tier_order, 10)
+        const pct = parseFloat(t.rate_pct)
+        if (!order || order < 1) {
+          toast.error("购买次序必须为大于 0 的整数")
+          return
+        }
+        if (orders.has(order)) {
+          toast.error(`购买次序 ${order} 重复`)
+          return
+        }
+        if (Number.isNaN(pct) || pct < 0 || pct > 100) {
+          toast.error("阶梯佣金比例需在 0-100 之间")
+          return
+        }
+        orders.add(order)
+        tierPayload.push({ tier_order: order, rate: Number((pct / 100).toFixed(4)), enabled: true })
+      }
+      tierPayload.sort((a, b) => a.tier_order - b.tier_order)
+    }
+
+    // 推广商品范围校验
+    if (scopeMode !== "ALL" && scopeIds.length === 0) {
+      toast.error("请至少选择一个商品，或改为系统默认")
+      return
+    }
+
     setSaving(true)
     try {
       await adminDistributionApi.updateDistributorRate(distributor.id, cr ?? undefined, sr ?? undefined)
-      toast.success("佣金比例已更新")
+      await adminDistributionApi.updateDistributorAdvancedConfig(distributor.id, {
+        tier_customized: tierCustomized,
+        tiers: tierPayload,
+        product_scope_mode: scopeMode,
+        product_scope_ids: scopeMode === "ALL" ? [] : scopeIds,
+      })
+      toast.success("推广员配置已更新")
       onSaved()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "保存失败")
@@ -1391,55 +1621,324 @@ function RateEditModal({ distributor, onClose, onSaved }: {
     }
   }
 
+  const scopeOptions: { key: ScopeMode; label: string; desc: string; icon: ReactNode }[] = [
+    { key: "ALL", label: "系统默认", desc: "全部已开启分佣的商品", icon: <Package className="h-4 w-4" /> },
+    { key: "BLACKLIST", label: "不允许推广", desc: "排除指定商品", icon: <Ban className="h-4 w-4" /> },
+    { key: "WHITELIST", label: "仅允许推广", desc: "只开放指定商品", icon: <ShieldCheck className="h-4 w-4" /> },
+  ]
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-foreground">编辑佣金比例</h2>
+      <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <h2 className="text-lg font-bold text-foreground">编辑推广员配置</h2>
           <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="mb-4 rounded-lg bg-muted/40 p-3 text-sm">
-          <p className="font-medium text-foreground">{distributor.username}</p>
-          <p className="mt-1 text-xs text-muted-foreground">默认佣金比例：{distributor.default_rate.toFixed(2)}%</p>
-        </div>
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">自定义佣金比例 (%)</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step="0.01"
-              value={customRate}
-              onChange={(e) => setCustomRate(e.target.value)}
-              placeholder={`默认 ${distributor.default_rate}`}
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">留空则使用默认比例</p>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="mb-5 rounded-lg bg-muted/40 p-3 text-sm">
+            <p className="font-medium text-foreground">{distributor.username}</p>
+            <p className="mt-1 text-xs text-muted-foreground">默认佣金比例：{distributor.default_rate.toFixed(2)}%</p>
           </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">下级佣金比例 (%)</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step="0.01"
-              value={subRate}
-              onChange={(e) => setSubRate(e.target.value)}
-              placeholder="0"
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">分销员下级产生的佣金分成比例，留空表示 0</p>
+
+          <div className="flex flex-col gap-6">
+            {/* 基础佣金比例 */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">自定义佣金比例 (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={customRate}
+                  onChange={(e) => setCustomRate(e.target.value)}
+                  placeholder={`默认 ${distributor.default_rate}`}
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">留空则使用默认比例</p>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">下级佣金比例 (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={subRate}
+                  onChange={(e) => setSubRate(e.target.value)}
+                  placeholder="0"
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">下级产生的佣金分成比例，留空表示 0</p>
+              </div>
+            </div>
+
+            {/* 阶梯佣金 */}
+            <div className="rounded-xl border border-border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Layers className="h-4 w-4 text-primary" />
+                  同一客户多次购买阶梯佣金
+                </h3>
+                <span className={cn(
+                  "rounded-full px-2 py-0.5 text-xs font-medium",
+                  tierCustomized ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                )}>
+                  {tierCustomized ? "推广员专属" : "平台默认"}
+                </span>
+              </div>
+
+              {!tierEnabled && (
+                <p className="mt-2 rounded-md bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-600">
+                  平台当前未启用阶梯佣金，该配置将在平台启用后生效
+                </p>
+              )}
+
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => handleCustomize(false)}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+                    !tierCustomized
+                      ? "border-primary bg-primary/5 text-foreground"
+                      : "border-border text-muted-foreground hover:bg-accent"
+                  )}
+                >
+                  <span className="font-medium">使用平台默认阶梯</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">跟随全局规则设置</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCustomize(true)}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+                    tierCustomized
+                      ? "border-primary bg-primary/5 text-foreground"
+                      : "border-border text-muted-foreground hover:bg-accent"
+                  )}
+                >
+                  <span className="font-medium">为该推广员单独配置</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">以此为准，覆盖全局阶梯</span>
+                </button>
+              </div>
+
+              <div className="mt-3">
+                {advLoading ? (
+                  <div className="flex items-center justify-center py-6">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : tierCustomized ? (
+                  <div className="flex flex-col gap-2">
+                    {tiers.length === 0 ? (
+                      <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+                        暂未配置阶梯，点击下方「新增档位」添加
+                      </p>
+                    ) : (
+                      tiers.map((t, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">第</span>
+                          <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={t.tier_order}
+                            onChange={(e) => updateTier(idx, { tier_order: e.target.value })}
+                            className="h-9 w-16 rounded-lg border border-input bg-background px-2 text-center text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          />
+                          <span className="text-xs text-muted-foreground">次购买</span>
+                          <span className="text-xs text-muted-foreground">佣金比例</span>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step="0.01"
+                              value={t.rate_pct}
+                              onChange={(e) => updateTier(idx, { rate_pct: e.target.value })}
+                              className="h-9 w-24 rounded-lg border border-input bg-background pl-2 pr-7 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                            />
+                            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeTier(idx)}
+                            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-red-500/10 hover:text-red-600"
+                            title="删除该档位"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                    <button
+                      type="button"
+                      onClick={addTier}
+                      className="inline-flex h-9 w-fit items-center gap-1.5 rounded-lg border border-dashed border-border px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      新增档位
+                    </button>
+                  </div>
+                ) : globalTiers.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+                    平台暂未配置阶梯佣金，可在「规则设置」中添加
+                  </p>
+                ) : (
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/30 text-left text-xs text-muted-foreground">
+                          <th className="px-3 py-2 font-medium">购买次数</th>
+                          <th className="px-3 py-2 font-medium">佣金比例</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {globalTiers.map((t) => (
+                          <tr key={t.tier_order} className="border-b border-border/50 last:border-0">
+                            <td className="px-3 py-2 text-foreground">第 {t.tier_order} 次</td>
+                            <td className="px-3 py-2 font-medium text-primary">{coefToPct(t.rate)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <p className="mt-2 text-xs text-muted-foreground">
+                同一客户在该推广员名下多次购买时按次序匹配比例，超出最后一档不再返佣（0%）
+              </p>
+            </div>
+
+            {/* 推广商品范围 */}
+            <div className="rounded-xl border border-border p-4">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <ShoppingBag className="h-4 w-4 text-primary" />
+                推广商品范围
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                未额外配置时沿用系统设置（已开启分佣的商品均可推广）；额外配置后以此为准
+              </p>
+
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {scopeOptions.map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setScopeMode(opt.key)}
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-left transition-colors",
+                      scopeMode === opt.key
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:bg-accent"
+                    )}
+                  >
+                    <span className={cn(
+                      "flex items-center gap-1.5 text-sm font-medium",
+                      scopeMode === opt.key ? "text-foreground" : "text-muted-foreground"
+                    )}>
+                      {opt.icon}
+                      {opt.label}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+
+              {advLoading ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : scopeMode !== "ALL" ? (
+                <div className="mt-3 flex flex-col gap-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={productKeyword}
+                      onChange={(e) => setProductKeyword(e.target.value)}
+                      placeholder="搜索商品名称"
+                      className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>已选 {scopeIds.length} / {products.length} 个商品</span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setScopeIds((prev) => Array.from(new Set([...prev, ...filteredProducts.map((p) => p.product_id)])))}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        全选当前
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScopeIds([])}
+                        className="font-medium text-muted-foreground hover:underline"
+                      >
+                        清空
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
+                    {filteredProducts.length === 0 ? (
+                      <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+                        {products.length === 0 ? "暂无可配置的分佣商品" : "没有匹配的商品"}
+                      </p>
+                    ) : (
+                      filteredProducts.map((p) => {
+                        const checked = scopeIds.includes(p.product_id)
+                        return (
+                          <button
+                            key={p.product_id}
+                            type="button"
+                            onClick={() => toggleScopeProduct(p.product_id)}
+                            className="flex w-full items-center gap-3 border-b border-border/50 px-3 py-2 text-left last:border-0 hover:bg-accent/50"
+                          >
+                            <span className={cn(
+                              "flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border",
+                              checked ? "border-primary bg-primary text-primary-foreground" : "border-input bg-background"
+                            )}>
+                              {checked && <Check className="h-3 w-3" />}
+                            </span>
+                            {p.cover_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={p.cover_url} alt={p.product_title} className="h-8 w-8 flex-shrink-0 rounded object-cover" />
+                            ) : (
+                              <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
+                                <Package className="h-4 w-4" />
+                              </span>
+                            )}
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm text-foreground">{p.product_title}</span>
+                              <span className="block text-xs text-muted-foreground">¥{Number(p.base_price || 0).toFixed(2)}</span>
+                            </span>
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {scopeMode === "BLACKLIST"
+                      ? "勾选的商品将不允许该推广员推广，也不会产生佣金"
+                      : "仅勾选的商品允许该推广员推广，其他商品不产生佣金"}
+                  </p>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
-        <div className="mt-6 flex justify-end gap-3">
+
+        <div className="flex justify-end gap-3 border-t border-border px-6 py-4">
           <button type="button" onClick={onClose} className="h-10 rounded-lg border border-input px-4 text-sm font-medium text-foreground hover:bg-accent">取消</button>
           <button
             type="button"
-            disabled={saving}
+            disabled={saving || advLoading}
             onClick={handleSave}
             className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
           >
@@ -2481,7 +2980,11 @@ function WithdrawalsTab({ dateFrom, dateTo, dateVersion }: { dateFrom?: string; 
   const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE))
 
   const handleApprove = async (w: Withdrawal) => {
-    if (!window.confirm(`确认通过该提现申请？金额 ${fmtMoney(w.amount)}`)) return
+    if (!(await confirmDialog({
+      title: "通过提现申请",
+      description: `确认通过该提现申请？金额 ${fmtMoney(w.amount)}`,
+      confirmText: "通过",
+    }))) return
     try {
       await adminDistributionApi.approveWithdrawal(w.id)
       toast.success("已通过提现申请")

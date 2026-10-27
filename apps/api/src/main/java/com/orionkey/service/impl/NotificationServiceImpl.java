@@ -136,11 +136,11 @@ public class NotificationServiceImpl implements NotificationService {
                         ALL_CHANNELS, true, 14),
                 template("ORDER_CREATED", "新订单提交", "ORDER",
                         "新订单提交通知",
-                        "{site_name}：新订单 {order_no}\n商品：{product} x{quantity}\n金额：¥{amount}\n支付方式：{payment_method}\n提交时间：{time}",
+                        "{site_name}：新订单 {order_no}\n商品：{product} x{quantity}\n金额：¥{amount}\n支付方式：{payment_method}\n推广员：{promoter}\n提交时间：{time}",
                         ALL_CHANNELS, false, 20),
                 template("ORDER_PAID", "订单支付成功", "ORDER",
                         "订单支付成功通知",
-                        "{site_name}：订单 {order_no} 已支付 ¥{amount}（{payment_method}），等待自动发货。\n支付时间：{time}",
+                        "{site_name}：订单 {order_no} 已支付 ¥{amount}（{payment_method}），等待自动发货。\n推广员：{promoter}\n支付时间：{time}",
                         ALL_CHANNELS, false, 30),
                 template("ORDER_DELIVERED", "订单发货完成", "ORDER",
                         "订单发货通知",
@@ -250,6 +250,29 @@ public class NotificationServiceImpl implements NotificationService {
         // 历史遗留模板：DATA_SUMMARY 无任何业务触发路径（日报由 DAILY_REPORT 承担），
         // 保留只会让管理员启用后收不到消息，故直接清理
         templateRepository.findByCode("DATA_SUMMARY").ifPresent(templateRepository::delete);
+        upgradeOrderTemplatesWithPromoter();
+    }
+
+    /**
+     * 存量订单模板补充推广员字段：仅当内容中缺少 {promoter} 时插入一行，不覆盖管理员已有自定义内容。
+     */
+    private void upgradeOrderTemplatesWithPromoter() {
+        String line = "推广员：{promoter}";
+        for (Map.Entry<String, String> e : Map.of(
+                "ORDER_CREATED", "提交时间：",
+                "ORDER_PAID", "支付时间：").entrySet()) {
+            templateRepository.findByCode(e.getKey()).ifPresent(t -> {
+                String content = t.getContent();
+                if (content == null || content.contains("{promoter}")) return;
+                int idx = content.lastIndexOf(e.getValue());
+                String updated = idx >= 0
+                        ? content.substring(0, idx) + line + "\n" + content.substring(idx)
+                        : content + (content.endsWith("\n") ? "" : "\n") + line;
+                t.setContent(updated);
+                templateRepository.save(t);
+                log.info("Notification template {} upgraded with promoter field", e.getKey());
+            });
+        }
     }
 
     private Map<String, Object> template(String code, String name, String category, String title,

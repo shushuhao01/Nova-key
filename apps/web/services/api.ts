@@ -1036,6 +1036,13 @@ export const adminDistributionApi = {
     return request<PaginatedData<any>>(`/admin/distribution/distributors?${qs}`)
   },
   getDistributor: (id: string) => request<any>(`/admin/distribution/distributors/${id}`),
+  getDistributorAdvancedConfig: (id: string) =>
+    request<any>(`/admin/distribution/distributors/${id}/advanced-config`),
+  updateDistributorAdvancedConfig: (id: string, data: Record<string, any>) =>
+    request<void>(`/admin/distribution/distributors/${id}/advanced-config`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
   listSubordinates: (id: string, params: { keyword?: string; page?: number; page_size?: number }) => {
     const qs = buildQuery(params)
     return request<PaginatedData<any>>(`/admin/distribution/distributors/${id}/subordinates?${qs}`)

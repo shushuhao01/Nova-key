@@ -8,6 +8,9 @@ import java.util.UUID;
 
 public interface DistributionService {
 
+    /** 订单推广员展示名（用户名 > 邮箱 > 分销编号）；无推广员返回 "-" */
+    String getPromoterDisplayName(UUID distributorId);
+
     // ── 分销员 ──
     Map<String, Object> applyDistributor(UUID userId, String inviteCode);
     Map<String, Object> getDistributorProfile(UUID userId);
@@ -62,7 +65,7 @@ public interface DistributionService {
     Map<String, Object> adminRecentDistributionOrders(LocalDate from, LocalDate to, int limit);
 
     // ── 前台：推广商品 ──
-    Map<String, Object> listPromotionProducts(int page, int pageSize);
+    Map<String, Object> listPromotionProducts(UUID userId, int page, int pageSize);
     Map<String, Object> listMyPromotionProducts(UUID userId, int page, int pageSize);
     Map<String, Object> generatePromotionLink(UUID userId, UUID productId);
     Map<String, Object> generateStoreLink(UUID userId);
@@ -139,4 +142,11 @@ public interface DistributionService {
     // ── 阶梯佣金配置 ──
     List<Map<String, Object>> listCommissionTiers();
     void updateCommissionTiers(List<Map<String, Object>> tiers);
+
+    /** 某推广员当前生效的阶梯佣金（有专属配置用专属，否则用全局） */
+    List<Map<String, Object>> listEffectiveCommissionTiers(UUID userId);
+
+    // ── 推广员级配置（阶梯佣金 / 推广商品范围） ──
+    Map<String, Object> adminGetDistributorAdvancedConfig(UUID distributorId);
+    void adminUpdateDistributorAdvancedConfig(UUID distributorId, Map<String, Object> request);
 }

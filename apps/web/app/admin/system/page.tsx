@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 import { useLocale, useAuth } from "@/lib/context"
 import { toast } from "sonner"
 import { adminSystemApi, withMockFallback } from "@/services/api"
+import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { mockSystemStaffList, mockSystemRoleList, mockPermissionList } from "@/lib/mock-data"
 import type { SystemStaffItem, SystemRoleItem, PermissionItem } from "@/types"
 
@@ -187,9 +188,13 @@ export default function AdminSystemPage() {
 
   const toggleStaff = async (staff: SystemStaffItem) => {
     const next: 0 | 1 = staff.is_deleted ? 0 : 1
-    const ok = window.confirm(
-      t("admin.toggleStaffMsg").replace("{action}", next === 1 ? t("admin.disable") : t("admin.enable"))
-    )
+    const action = next === 1 ? t("admin.disable") : t("admin.enable")
+    const ok = await confirmDialog({
+      title: `${action}员工`,
+      description: t("admin.toggleStaffMsg").replace("{action}", action),
+      confirmText: action,
+      danger: next === 1,
+    })
     if (!ok) return
     try {
       await withMockFallback(
@@ -204,7 +209,12 @@ export default function AdminSystemPage() {
   }
 
   const deleteStaff = async (staff: SystemStaffItem) => {
-    if (!window.confirm(t("admin.deleteStaffMsg"))) return
+    if (!(await confirmDialog({
+      title: "删除员工",
+      description: t("admin.deleteStaffMsg"),
+      confirmText: "删除",
+      danger: true,
+    }))) return
     try {
       await withMockFallback(
         () => adminSystemApi.deleteStaff(staff.id),
@@ -312,7 +322,12 @@ export default function AdminSystemPage() {
   }
 
   const deleteRole = async (role: SystemRoleItem) => {
-    if (!window.confirm(t("admin.deleteRoleMsg"))) return
+    if (!(await confirmDialog({
+      title: "删除角色",
+      description: t("admin.deleteRoleMsg"),
+      confirmText: "删除",
+      danger: true,
+    }))) return
     try {
       await withMockFallback(
         () => adminSystemApi.deleteRole(role.id),

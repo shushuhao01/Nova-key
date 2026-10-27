@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
 import { toast } from "sonner"
 import { adminLogApi, withMockFallback } from "@/services/api"
+import { confirmDialog } from "@/components/ui/confirm-dialog"
 import { mockOperationLogList } from "@/lib/mock-data"
 import type { OperationLog, OperationLogCleanupConfig } from "@/types"
 
@@ -144,7 +145,12 @@ export default function AdminOperationLogsPage() {
   }
 
   const handleCleanupNow = async () => {
-    if (!window.confirm(`确定立即清理超过 ${cleanupConfig.hours} 小时的操作日志？该操作不可恢复。`)) return
+    if (!(await confirmDialog({
+      title: "立即清理日志",
+      description: `确定立即清理超过 ${cleanupConfig.hours} 小时的操作日志？该操作不可恢复。`,
+      confirmText: "清理",
+      danger: true,
+    }))) return
     setCleanupRunning(true)
     try {
       const res = await adminLogApi.cleanupNow()
