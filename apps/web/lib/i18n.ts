@@ -439,6 +439,10 @@ const zh = {
   "profile.inviteUnboundAt": "解绑时间",
   "profile.bindingHistoryEmpty": "暂无绑定记录",
   "profile.bindingHistoryHint": "绑定成功后可在此查看绑定关系、绑定记录与解绑时间",
+  "profile.recentOrders": "购买记录",
+  "profile.viewAll": "查看全部",
+  "profile.ordersTotal": "共 {count} 笔订单",
+  "profile.loadMoreRemaining": "加载更多（剩余 {count} 条）",
 
   // My Orders
   "myOrders.title": "购买记录",
@@ -1534,6 +1538,10 @@ const en: Record<keyof typeof zh, string> = {
   "profile.inviteUnboundAt": "Unbound at",
   "profile.bindingHistoryEmpty": "No binding records",
   "profile.bindingHistoryHint": "View your binding relationship, history and unbinding time here",
+  "profile.recentOrders": "Purchase History",
+  "profile.viewAll": "View All",
+  "profile.ordersTotal": "{count} orders in total",
+  "profile.loadMoreRemaining": "Load more ({count} left)",
 
   // My Orders
   "myOrders.title": "My Orders",

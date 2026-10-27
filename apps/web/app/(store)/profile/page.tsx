@@ -2,17 +2,19 @@
 
 import React from "react"
 import { useState, useEffect, useCallback } from "react"
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { User, Lock, Star, Eye, EyeOff, Save, Ticket, Copy, UserPlus, Gift, Send, Phone, Mail } from "lucide-react"
+import { User, Lock, Star, Eye, EyeOff, Save, Ticket, Copy, UserPlus, Gift, Send, Phone, Mail, ChevronRight, Package } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale } from "@/lib/context"
 import { useAuth } from "@/lib/context"
 import { useRequireAuth } from "@/lib/hooks"
 import { userApi, marketingApi, distributorApi, authApi, withMockFallback, getApiErrorMessage } from "@/services/api"
 import { mockPointsData } from "@/lib/mock-data"
-import type { PointRecord, MyCouponItem } from "@/types"
+import type { PointRecord, MyCouponItem, OrderBrief } from "@/types"
 import { cn } from "@/lib/utils"
 import { Modal } from "@/components/ui/modal"
+import { OrderCard } from "@/components/shared/order-card"
 
 type Tab = "info" | "password" | "points" | "coupons" | "invite"
 type BindType = "phone" | "email"
@@ -186,6 +188,9 @@ export default function ProfilePage() {
               </div>
             </div>
           </div>
+
+          {/* 最近购买记录：默认最新 5 条，可加载更多，右上角进入完整购买记录 */}
+          <RecentOrders />
         </div>
       )}
 
@@ -1022,6 +1027,110 @@ function InviteBinding() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 最近购买记录：默认展示最新 5 条，支持加载更多，右上角进入完整购买记录页 */
+function RecentOrders() {
+  const { t } = useLocale()
+  const [orders, setOrders] = useState<OrderBrief[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const pageSize = 5
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchFirstPage() {
+      setLoading(true)
+      try {
+        const data = await userApi.getOrders({ page: 1, page_size: pageSize })
+        if (!cancelled) {
+          setOrders(data.list)
+          setTotal(data.pagination.total)
+          setPage(1)
+        }
+      } catch {
+        if (!cancelled) {
+          setOrders([])
+          setTotal(0)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    fetchFirstPage()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const loadMore = async () => {
+    const nextPage = page + 1
+    setLoadingMore(true)
+    try {
+      const data = await userApi.getOrders({ page: nextPage, page_size: pageSize })
+      setOrders((prev) => [...prev, ...data.list])
+      setTotal(data.pagination.total)
+      setPage(nextPage)
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, t))
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  const remaining = Math.max(0, total - orders.length)
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-card-foreground">{t("profile.recentOrders")}</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t("profile.ordersTotal").replace("{count}", String(total))}
+          </p>
+        </div>
+        <Link
+          href="/my/orders"
+          className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-primary hover:underline"
+        >
+          {t("profile.viewAll")}
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          {t("common.loading")}
+        </div>
+      ) : orders.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
+          <Package className="h-8 w-8 opacity-40" />
+          <p className="text-sm">{t("common.noData")}</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {orders.map((order) => (
+            <OrderCard key={order.id} order={order} />
+          ))}
+          {remaining > 0 && (
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="mt-1 inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+            >
+              {loadingMore ? (
+                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              ) : null}
+              {t("profile.loadMoreRemaining").replace("{count}", String(remaining))}
+            </button>
+          )}
         </div>
       )}
     </div>
