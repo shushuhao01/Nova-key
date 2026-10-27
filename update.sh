@@ -154,7 +154,13 @@ cd /www/wwwroot/nova-key/apps/web
 info "清理构建缓存..."
 rm -rf .next
 info "开始构建..."
-if pnpm build 2>&1 | tail -n 8 | sed 's/^/  /'; then
+# 注意：不能写成 `pnpm build | tail`，管道会吞掉 pnpm 的退出码导致构建失败仍被判定为成功
+set +e
+pnpm build > /tmp/nova-key-web-build.log 2>&1
+BUILD_EXIT=$?
+set -e
+tail -n 8 /tmp/nova-key-web-build.log | sed 's/^/  /'
+if [ "$BUILD_EXIT" -eq 0 ] && [ -f .next/BUILD_ID ]; then
     BUILD_TIME=$(ls -la .next/BUILD_ID | awk '{print $6, $7, $8}')
     ok "前端构建完成 ($BUILD_TIME)"
     # 验证关键字段是否已编译
@@ -164,7 +170,9 @@ if pnpm build 2>&1 | tail -n 8 | sed 's/^/  /'; then
         warn "未找到 coupon_quantity（可能字段名有变化）"
     fi
 else
-    fail "前端构建失败！"
+    fail "前端构建失败！完整日志: /tmp/nova-key-web-build.log"
+    info "最近 30 行构建日志:"
+    tail -n 30 /tmp/nova-key-web-build.log | sed 's/^/    /'
     exit 1
 fi
 
@@ -178,17 +186,29 @@ if [ -n "$OLD_WEB_PID" ]; then
 else
     info "无旧前端进程"
 fi
-info "等待宝塔守护进程拉起前端..."
-sleep 5
 
-# 如果宝塔没拉起，手动启动
-if ! ss -ltnp | grep -q ':3001'; then
-    warn "宝塔未自动拉起，手动启动..."
-    cd /www/wwwroot/nova-key/apps/web
-    nohup env BACKEND_URL=http://127.0.0.1:8083 node node_modules/next/dist/bin/next start -p 3001 >> /www/wwwroot/nova-key/logs/web.log 2>&1 &
-    info "等待手动启动完成..."
-    sleep 5
-fi
+# 等旧进程释放端口（最多 5 秒）
+for _ in $(seq 1 5); do
+    ss -ltnp | grep -q ':3001' || break
+    sleep 1
+done
+
+# 宝塔不会自动拉起前端（无守护进程），直接手动启动；setsid 保证脚本退出后进程不被回收
+warn "手动启动前端..."
+cd /www/wwwroot/nova-key/apps/web
+setsid nohup env BACKEND_URL=http://127.0.0.1:8083 \
+    node node_modules/next/dist/bin/next start -p 3001 \
+    >> /www/wwwroot/nova-key/logs/web.log 2>&1 < /dev/null &
+info "等待前端监听 3001（最多 30 秒）..."
+
+web_wait=0
+while [ $web_wait -lt 30 ]; do
+    ss -ltnp | grep -q ':3001' && break
+    sleep 1
+    web_wait=$((web_wait + 1))
+    printf "\r  ${ARROW} 等待中... ${web_wait}/30s"
+done
+echo ""
 
 # ─────────────────────────────────────────
 section "验证前端服务"
@@ -205,7 +225,8 @@ if ss -ltnp | grep -q ':3001'; then
     fi
 else
     fail "前端 3001 端口未监听！"
-    info "查看日志: tail -n 30 /www/wwwroot/nova-key/logs/web.log"
+    info "最近 30 行前端日志:"
+    tail -n 30 /www/wwwroot/nova-key/logs/web.log 2>/dev/null | sed 's/^/    /'
     exit 1
 fi
 
