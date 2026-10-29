@@ -1067,7 +1067,7 @@ function RecipientsModal({ campaignId, title, onClose }: { campaignId: string; t
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border border-border bg-card shadow-2xl">
+      <div className="relative flex max-h-[85vh] w-full max-w-5xl flex-col rounded-xl border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div>
             <h2 className="text-lg font-bold text-foreground">{t("admin.recipientsTitle")}</h2>
@@ -1103,17 +1103,17 @@ function RecipientsModal({ campaignId, title, onClose }: { campaignId: string; t
           </div>
         </div>
         <p className="border-b border-border px-6 py-2 text-xs text-muted-foreground">{t("admin.emailTrackingHint")}</p>
-        <div className="overflow-y-auto">
-          <table className="w-full text-sm">
+        <div className="overflow-auto">
+          <table className="w-full min-w-[880px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.recipientEmail")}</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.recipientUsername")}</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.recipientCode")}</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.statusLabel")}</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.recipientOpened")}</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.recipientClicked")}</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.recipientSentAt")}</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.recipientEmail")}</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.recipientUsername")}</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.recipientCode")}</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.statusLabel")}</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.recipientOpened")}</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.recipientClicked")}</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.recipientSentAt")}</th>
               </tr>
             </thead>
             <tbody>
@@ -1126,37 +1126,37 @@ function RecipientsModal({ campaignId, title, onClose }: { campaignId: string; t
                   <tr key={idx} className="border-b border-border/50 last:border-0">
                     <td className="px-4 py-3 text-foreground">{r.email}</td>
                     <td className="px-4 py-3 text-muted-foreground">{r.username || "—"}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-foreground">{r.code || "—"}</td>
-                    <td className="px-4 py-3">
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-foreground">{r.code || "—"}</td>
+                    <td className="whitespace-nowrap px-4 py-3">
                       {r.bounced === 1 ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-xs font-medium text-rose-600" title={r.bounce_reason || ""}>
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-rose-500/10 px-2 py-0.5 text-xs font-medium text-rose-600" title={r.bounce_reason || ""}>
                           <Ban className="h-3 w-3" /> {t("admin.recipientBounced")}
                         </span>
                       ) : r.delivered === 1 ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600">
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600">
                           <CheckCircle2 className="h-3 w-3" /> {t("admin.recipientDelivered")}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500" title={r.error || ""}>
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500" title={r.error || ""}>
                           <XCircle className="h-3 w-3" /> {t("admin.recipientFailed")}
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-xs">
+                    <td className="whitespace-nowrap px-4 py-3 text-xs">
                       {r.opened_at ? (
                         <span className="text-sky-600" title={new Date(r.opened_at).toLocaleString()}>{t("admin.recipientOpened")}</span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-xs">
+                    <td className="whitespace-nowrap px-4 py-3 text-xs">
                       {r.clicked_at ? (
                         <span className="text-amber-600" title={new Date(r.clicked_at).toLocaleString()}>{t("admin.recipientClicked")}</span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                    <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
                       {r.sent_at ? new Date(r.sent_at).toLocaleString() : "—"}
                     </td>
                   </tr>
@@ -1308,7 +1308,7 @@ function EmailDetailModal({ id, onClose }: { id: string; onClose: () => void }) 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col rounded-xl border border-border bg-card shadow-2xl">
+      <div className="relative flex max-h-[90vh] w-full max-w-5xl flex-col rounded-xl border border-border bg-card shadow-2xl">
         {/* 头部 */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div className="min-w-0">
@@ -1395,16 +1395,16 @@ function EmailDetailModal({ id, onClose }: { id: string; onClose: () => void }) 
                 </div>
                 <div className="overflow-hidden rounded-lg border border-border">
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full min-w-[880px] text-sm">
                       <thead>
                         <tr className="border-b border-border bg-muted/30">
-                          <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientEmail")}</th>
-                          <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientUsername")}</th>
-                          <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientCode")}</th>
-                          <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.statusLabel")}</th>
-                          <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientOpened")}</th>
-                          <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientClicked")}</th>
-                          <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientSentAt")}</th>
+                          <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientEmail")}</th>
+                          <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientUsername")}</th>
+                          <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientCode")}</th>
+                          <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.statusLabel")}</th>
+                          <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientOpened")}</th>
+                          <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientClicked")}</th>
+                          <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium text-muted-foreground">{t("admin.recipientSentAt")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1417,37 +1417,37 @@ function EmailDetailModal({ id, onClose }: { id: string; onClose: () => void }) 
                             <tr key={idx} className="border-b border-border/50 last:border-0">
                               <td className="px-4 py-2.5 text-foreground">{r.email}</td>
                               <td className="px-4 py-2.5 text-muted-foreground">{r.username || "—"}</td>
-                              <td className="px-4 py-2.5 font-mono text-xs text-foreground">{r.code || "—"}</td>
-                              <td className="px-4 py-2.5">
+                              <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-foreground">{r.code || "—"}</td>
+                              <td className="whitespace-nowrap px-4 py-2.5">
                                 {r.bounced === 1 ? (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-xs font-medium text-rose-600" title={r.bounce_reason || ""}>
+                                  <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-rose-500/10 px-2 py-0.5 text-xs font-medium text-rose-600" title={r.bounce_reason || ""}>
                                     <Ban className="h-3 w-3" /> {t("admin.recipientBounced")}
                                   </span>
                                 ) : r.delivered === 1 ? (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600">
+                                  <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600">
                                     <CheckCircle2 className="h-3 w-3" /> {t("admin.recipientDelivered")}
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500" title={r.error || ""}>
+                                  <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500" title={r.error || ""}>
                                     <XCircle className="h-3 w-3" /> {t("admin.recipientFailed")}
                                   </span>
                                 )}
                               </td>
-                              <td className="px-4 py-2.5 text-xs">
+                              <td className="whitespace-nowrap px-4 py-2.5 text-xs">
                                 {r.opened_at ? (
                                   <span className="text-sky-600" title={new Date(r.opened_at).toLocaleString()}>{t("admin.recipientOpened")}</span>
                                 ) : (
                                   <span className="text-muted-foreground">—</span>
                                 )}
                               </td>
-                              <td className="px-4 py-2.5 text-xs">
+                              <td className="whitespace-nowrap px-4 py-2.5 text-xs">
                                 {r.clicked_at ? (
                                   <span className="text-amber-600" title={new Date(r.clicked_at).toLocaleString()}>{t("admin.recipientClicked")}</span>
                                 ) : (
                                   <span className="text-muted-foreground">—</span>
                                 )}
                               </td>
-                              <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                              <td className="whitespace-nowrap px-4 py-2.5 text-xs text-muted-foreground">
                                 {r.sent_at ? new Date(r.sent_at).toLocaleString() : "—"}
                               </td>
                             </tr>

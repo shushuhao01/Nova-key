@@ -99,6 +99,9 @@ export default function AdminSiteConfigPage() {
   const [testEmailTo, setTestEmailTo] = useState("")
   const [testSending, setTestSending] = useState(false)
   const [imapChecking, setImapChecking] = useState(false)
+  // 邮件密码明文查看（SMTP / IMAP）：已保存的密码由后端脱敏为 __SET__，点击眼睛时再按需取回明文
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({})
+  const [revealingSecret, setRevealingSecret] = useState<string | null>(null)
   const popupTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   // 短信配置（sms tab）
@@ -365,6 +368,50 @@ export default function AdminSiteConfigPage() {
       toast.error(err instanceof Error ? err.message : "保存失败")
     } finally {
       setSaving(false)
+    }
+  }
+
+  // 读取后台已保存的密码明文（仅用于查看 / 复制）
+  const fetchSecret = async (key: string): Promise<string | null> => {
+    setRevealingSecret(key)
+    try {
+      const res = await adminConfigApi.revealSecret(key)
+      return res?.value ?? ""
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "读取密码失败")
+      return null
+    } finally {
+      setRevealingSecret(null)
+    }
+  }
+
+  const handleToggleSecret = async (key: string) => {
+    if (revealedSecrets[key]) {
+      setRevealedSecrets((prev) => ({ ...prev, [key]: false }))
+      return
+    }
+    // 已保存的密码被脱敏为 __SET__，先取回明文填回输入框再展示
+    if (!getValue(key) || getValue(key) === "__SET__") {
+      const secret = await fetchSecret(key)
+      if (secret === null) return
+      setValue(key, secret)
+    }
+    setRevealedSecrets((prev) => ({ ...prev, [key]: true }))
+  }
+
+  const handleCopySecret = async (key: string) => {
+    let value = getValue(key)
+    if (!value || value === "__SET__") {
+      const secret = await fetchSecret(key)
+      if (!secret) return
+      value = secret
+      setValue(key, secret)
+    }
+    try {
+      await navigator.clipboard.writeText(value)
+      toast.success("已复制到剪贴板")
+    } catch {
+      toast.error("复制失败，请点击眼睛图标查看后手动复制")
     }
   }
 
@@ -1285,15 +1332,38 @@ export default function AdminSiteConfigPage() {
             {/* 授权码 */}
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium text-foreground">SMTP 授权码 / 密码</label>
-              <input
-                type="password"
-                autoComplete="new-password"
-                className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder={getValue("smtp_password") === "__SET__" ? "已设置，留空则不修改" : "邮箱的 SMTP 授权码"}
-                value={getValue("smtp_password") === "__SET__" ? "" : getValue("smtp_password")}
-                onChange={(e) => setValue("smtp_password", e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">出于安全考虑不显示已保存的授权码；留空表示不修改</p>
+              <div className="relative">
+                <input
+                  type={revealedSecrets["smtp_password"] ? "text" : "password"}
+                  autoComplete="new-password"
+                  className="h-10 w-full rounded-lg border border-input bg-background pl-3 pr-20 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={getValue("smtp_password") === "__SET__" ? "已设置，留空则不修改" : "邮箱的 SMTP 授权码"}
+                  value={getValue("smtp_password") === "__SET__" ? "" : getValue("smtp_password")}
+                  onChange={(e) => setValue("smtp_password", e.target.value)}
+                />
+                <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSecret("smtp_password")}
+                    disabled={revealingSecret === "smtp_password"}
+                    title={revealedSecrets["smtp_password"] ? "隐藏密码" : "查看已保存的密码明文"}
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                  >
+                    {revealingSecret === "smtp_password"
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : revealedSecrets["smtp_password"] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCopySecret("smtp_password")}
+                    title="复制密码"
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">点击眼睛图标可查看已保存的密码明文并复制；留空表示不修改</p>
             </div>
 
             {/* 发件人信息 */}
@@ -1472,15 +1542,38 @@ export default function AdminSiteConfigPage() {
               {/* 密码 */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-foreground">IMAP 授权码 / 密码</label>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder={getValue("imap_password") === "__SET__" ? "已设置，留空则不修改" : "邮箱的 IMAP 授权码"}
-                  value={getValue("imap_password") === "__SET__" ? "" : getValue("imap_password")}
-                  onChange={(e) => setValue("imap_password", e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">出于安全考虑不显示已保存的授权码；留空表示不修改</p>
+                <div className="relative">
+                  <input
+                    type={revealedSecrets["imap_password"] ? "text" : "password"}
+                    autoComplete="new-password"
+                    className="h-10 w-full rounded-lg border border-input bg-background pl-3 pr-20 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder={getValue("imap_password") === "__SET__" ? "已设置，留空则不修改" : "邮箱的 IMAP 授权码"}
+                    value={getValue("imap_password") === "__SET__" ? "" : getValue("imap_password")}
+                    onChange={(e) => setValue("imap_password", e.target.value)}
+                  />
+                  <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleSecret("imap_password")}
+                      disabled={revealingSecret === "imap_password"}
+                      title={revealedSecrets["imap_password"] ? "隐藏密码" : "查看已保存的密码明文"}
+                      className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                    >
+                      {revealingSecret === "imap_password"
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : revealedSecrets["imap_password"] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCopySecret("imap_password")}
+                      title="复制密码"
+                      className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">点击眼睛图标可查看已保存的密码明文并复制；留空表示不修改</p>
               </div>
 
               <div className="flex flex-col gap-1.5">

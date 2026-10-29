@@ -82,6 +82,19 @@ public class AdminSiteConfigController {
         }
     }
 
+    /** 查看已保存的邮箱密码明文（仅限邮箱密码类配置项，供管理员查看/复制） */
+    @LogOperation(action = "config.update", targetType = "SITE_CONFIG", detail = "'查看邮件密码明文'")
+    @GetMapping("/secret")
+    public ApiResponse<Map<String, Object>> revealSecret(@RequestParam("key") String key) {
+        if (!"smtp_password".equals(key) && !"imap_password".equals(key)) {
+            return ApiResponse.error(400, "不支持的配置项");
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("key", key);
+        data.put("value", siteConfigService.getValue(key, ""));
+        return ApiResponse.success(data);
+    }
+
     /** 立即拉取退信邮箱（IMAP），解析 DSN 退信并回写收件人退信状态 */
     @LogOperation(action = "config.update", targetType = "SITE_CONFIG", detail = "'检查退信邮箱'")
     @PostMapping("/email/imap-check")

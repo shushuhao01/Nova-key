@@ -1009,6 +1009,9 @@ export const adminConfigApi = {
   // 立即拉取退信邮箱（IMAP），解析 DSN 退信并回写收件人状态
   checkImap: () =>
     request<{ processed: number }>("/admin/site-config/email/imap-check", { method: "POST" }),
+  // 查看已保存的邮箱密码明文（仅 smtp_password / imap_password）
+  revealSecret: (key: string) =>
+    request<{ key: string; value: string }>(`/admin/site-config/secret?key=${encodeURIComponent(key)}`),
   // 短信配置（config_group = sms）
   getSmsConfig: () =>
     request<SiteConfigKV[]>("/admin/site-config/sms"),
