@@ -501,7 +501,7 @@ export interface MarketingCampaignItem {
   title: string
   subject: string
   content: string
-  audience_type: 'ALL_USERS' | 'USER_IDS' | 'EMAILS'
+  audience_type: 'ALL_USERS' | 'USER_IDS' | 'EMAILS' | 'CUSTOM_EMAILS'
   target_json: string | null
   status: 'DRAFT' | 'SENT'
   sent_count: number
@@ -616,7 +616,7 @@ export interface MarketingEmailItem {
   title: string
   subject: string | null
   content: string | null
-  audience_type: 'ALL_USERS' | 'USER_IDS' | 'EMAILS'
+  audience_type: 'ALL_USERS' | 'USER_IDS' | 'EMAILS' | 'CUSTOM_EMAILS'
   target_json: string | null
   status: 'DRAFT' | 'SCHEDULED' | 'SENT'
   sent_count: number
@@ -639,7 +639,7 @@ export interface EmailPayload {
   title: string
   subject?: string | null
   content?: string | null
-  audience_type: 'ALL_USERS' | 'USER_IDS' | 'EMAILS'
+  audience_type: 'ALL_USERS' | 'USER_IDS' | 'EMAILS' | 'CUSTOM_EMAILS'
   target_json?: string | null
   send_at?: string | null
   coupon_ref_id?: string | null

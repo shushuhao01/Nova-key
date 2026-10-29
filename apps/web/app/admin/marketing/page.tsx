@@ -19,7 +19,7 @@ import type {
 
 const ITEMS_PER_PAGE = 10
 
-type AudienceType = "ALL_USERS" | "USER_IDS" | "EMAILS"
+type AudienceType = "ALL_USERS" | "USER_IDS" | "EMAILS" | "CUSTOM_EMAILS"
 
 interface ProductOption { id: string; title: string }
 
@@ -1303,6 +1303,7 @@ function EmailDetailModal({ id, onClose }: { id: string; onClose: () => void }) 
     ALL_USERS: t("admin.audienceAll"),
     USER_IDS: t("admin.audienceUsers"),
     EMAILS: t("admin.audienceEmails"),
+    CUSTOM_EMAILS: t("admin.audienceCustomEmails"),
   } as Record<string, string>)[email?.audience_type || "ALL_USERS"]
 
   return (
@@ -1515,8 +1516,8 @@ function EmailFormModal({ form, setForm, coupons, saving, onClose, onSave }: {
     const isNew = !form.id
     const wasEmpty = !form.targets.trim()
     upd("audience_type", v)
-    // 新建邮件首次切换受众时自动加载系统数据（可清空后手动输入）
-    if (isNew && wasEmpty && v !== "ALL_USERS") {
+    // 新建邮件首次切换受众时自动加载系统数据（手动输入邮箱不预填）
+    if (isNew && wasEmpty && (v === "USER_IDS" || v === "EMAILS")) {
       loadSuggestions(v, true)
     }
   }
@@ -1620,6 +1621,7 @@ function EmailFormModal({ form, setForm, coupons, saving, onClose, onSave }: {
                 { v: "ALL_USERS" as AudienceType, label: t("admin.audienceAll") },
                 { v: "USER_IDS" as AudienceType, label: t("admin.audienceUsers") },
                 { v: "EMAILS" as AudienceType, label: t("admin.audienceEmails") },
+                { v: "CUSTOM_EMAILS" as AudienceType, label: t("admin.audienceCustomEmails") },
               ]).map(opt => (
                 <button
                   key={opt.v}
@@ -1639,23 +1641,31 @@ function EmailFormModal({ form, setForm, coupons, saving, onClose, onSave }: {
                 <textarea
                   value={form.targets}
                   onChange={(e) => upd("targets", e.target.value)}
-                  placeholder={form.audience_type === "USER_IDS" ? t("admin.targetUsersHint") : t("admin.targetEmailsHint")}
+                  placeholder={
+                    form.audience_type === "USER_IDS"
+                      ? t("admin.targetUsersHint")
+                      : form.audience_type === "CUSTOM_EMAILS"
+                        ? t("admin.targetCustomEmailsHint")
+                        : t("admin.targetEmailsHint")
+                  }
                   className="h-24 w-full rounded-lg border border-input bg-background p-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 />
-                <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => loadSuggestions(form.audience_type, true)}
-                    disabled={loadingSuggestions}
-                    className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary disabled:opacity-60"
-                  >
-                    <Users className="h-3 w-3" />
-                    {loadingSuggestions
-                      ? t("common.loading")
-                      : (form.audience_type === "USER_IDS" ? t("admin.loadAllUsers") : t("admin.loadAllAnonymous"))}
-                  </button>
-                  <span className="text-xs text-muted-foreground">{t("admin.suggestionsHint")}</span>
-                </div>
+                {form.audience_type !== "CUSTOM_EMAILS" && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => loadSuggestions(form.audience_type, true)}
+                      disabled={loadingSuggestions}
+                      className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary disabled:opacity-60"
+                    >
+                      <Users className="h-3 w-3" />
+                      {loadingSuggestions
+                        ? t("common.loading")
+                        : (form.audience_type === "USER_IDS" ? t("admin.loadAllUsers") : t("admin.loadAllAnonymous"))}
+                    </button>
+                    <span className="text-xs text-muted-foreground">{t("admin.suggestionsHint")}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>

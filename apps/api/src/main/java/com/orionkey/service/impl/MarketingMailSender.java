@@ -80,6 +80,12 @@ public class MarketingMailSender {
     /** 匹配 href="..." 属性（用于把站内链接改写为追踪跳转） */
     private static final Pattern HREF_PATTERN = Pattern.compile("href=\"([^\"]*)\"", Pattern.CASE_INSENSITIVE);
 
+    /** 纯文本中的裸链接（正文里直接写出来的 URL） */
+    private static final Pattern BARE_URL_PATTERN = Pattern.compile("https?://[^\\s<>\"'，。；）)]+");
+
+    /** HTML 标签，用于跳过属性区域，避免把 href/src 里的 URL 再包一层链接 */
+    private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]*>");
+
     private String renderForRecipient(MarketingCampaign c, MarketingServiceImpl.Recipient r, MarketingCampaign coupon,
                                       String code, String siteUrl, String siteName, UUID recipientId) {
         String html = c.getContent() == null ? "" : c.getContent();
@@ -102,10 +108,60 @@ public class MarketingMailSender {
         }
         // 站内链接改为追踪跳转（记录点击），并在末尾插入 1x1 追踪像素（记录打开）
         if (recipientId != null) {
+            // 正文里直接输入的裸链接（如"点击可达{claim_url}"）没有 <a> 标签，
+            // 邮件客户端会自动识别成链接但不会经过追踪接口，这里先补成 <a> 再统一改写
+            html = linkifyBareUrls(html);
             html = rewriteInternalLinks(html, siteUrl, recipientId);
             html = appendTrackingPixel(html, siteUrl, recipientId);
         }
         return html;
+    }
+
+    /** 把正文中裸写的链接补成 <a> 标签（已在 <a> 内的文本跳过，避免嵌套） */
+    private String linkifyBareUrls(String html) {
+        Matcher tag = HTML_TAG_PATTERN.matcher(html);
+        StringBuilder out = new StringBuilder(html.length() + 256);
+        int last = 0;
+        int anchorDepth = 0;
+        while (tag.find()) {
+            String text = html.substring(last, tag.start());
+            out.append(anchorDepth > 0 ? text : linkifyText(text));
+            String t = tag.group();
+            if (t.matches("(?i)<a(\\s[^>]*)?>")) {
+                anchorDepth++;
+            } else if (t.matches("(?i)</a\\s*>")) {
+                anchorDepth = Math.max(0, anchorDepth - 1);
+            }
+            out.append(t);
+            last = tag.end();
+        }
+        String tail = html.substring(last);
+        out.append(anchorDepth > 0 ? tail : linkifyText(tail));
+        return out.toString();
+    }
+
+    private String linkifyText(String text) {
+        if (text == null || text.isEmpty() || !text.contains("http")) {
+            return text;
+        }
+        Matcher m = BARE_URL_PATTERN.matcher(text);
+        StringBuilder sb = new StringBuilder(text.length() + 64);
+        while (m.find()) {
+            String url = m.group();
+            // 末尾的中英文标点不属于链接，单独放回
+            String trail = "";
+            while (!url.isEmpty() && ".,;:!?、，。；：！？".indexOf(url.charAt(url.length() - 1)) >= 0) {
+                trail = url.charAt(url.length() - 1) + trail;
+                url = url.substring(0, url.length() - 1);
+            }
+            if (url.length() <= "https://".length()) {
+                continue;
+            }
+            m.appendReplacement(sb, Matcher.quoteReplacement(
+                    "<a href=\"" + url + "\" style=\"color:#ea580c;\">" + url + "</a>" + trail));
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     /** 把邮件中的站内链接改写为 /api/marketing/track/click 跳转，用于统计点击 */

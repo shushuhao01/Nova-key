@@ -273,7 +273,7 @@ public class MarketingServiceImpl implements MarketingService {
             c.setContent(body.get("content") == null ? null : String.valueOf(body.get("content")));
         }
         String audience = str(body.get("audience_type"));
-        if (audience == null || !List.of("ALL_USERS", "USER_IDS", "EMAILS").contains(audience)) {
+        if (audience == null || !List.of("ALL_USERS", "USER_IDS", "EMAILS", "CUSTOM_EMAILS").contains(audience)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "请选择受众类型");
         }
         c.setAudienceType(audience);
@@ -703,7 +703,7 @@ public class MarketingServiceImpl implements MarketingService {
                     }
                 }
             }
-            case "EMAILS" -> {
+            case "EMAILS", "CUSTOM_EMAILS" -> {
                 List<String> emails = parseStringList(c.getTargetJson());
                 for (String e : emails) {
                     String email = e.trim().toLowerCase();
