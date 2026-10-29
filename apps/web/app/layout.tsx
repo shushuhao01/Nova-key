@@ -1,14 +1,11 @@
 import React from "react"
 import type { Metadata, Viewport } from "next"
-import { Inter } from "next/font/google"
 import { Toaster } from "sonner"
 import { AppProviders } from "@/lib/context"
 import { ThemeScript } from "./theme-script"
 import { DynamicFavicon } from "@/components/dynamic-favicon"
 import { ConfirmDialogHost } from "@/components/ui/confirm-dialog"
 import "./globals.css"
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"),
@@ -48,7 +45,7 @@ export default function RootLayout({
       <head>
         <ThemeScript />
       </head>
-      <body className={`${inter.variable} font-sans antialiased`} suppressHydrationWarning>
+      <body className="font-sans antialiased" suppressHydrationWarning>
         <AppProviders>
           <DynamicFavicon />
           {children}
