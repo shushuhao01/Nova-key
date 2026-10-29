@@ -36,7 +36,7 @@ public class MarketingCampaign extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String content;
 
-    /** 受众类型：ALL_USERS 全部注册用户 / USER_IDS 指定用户 / EMAILS 指定邮箱 */
+    /** 受众类型：ALL_USERS 全部用户（注册 + 匿名订单邮箱）/ USER_IDS 指定注册用户 / EMAILS 指定邮箱（匿名客户） */
     @Column(nullable = false)
     private String audienceType = "ALL_USERS";
 

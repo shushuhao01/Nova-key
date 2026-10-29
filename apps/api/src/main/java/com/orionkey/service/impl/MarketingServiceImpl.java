@@ -440,12 +440,19 @@ public class MarketingServiceImpl implements MarketingService {
         String audience = c.getAudienceType() == null ? "ALL_USERS" : c.getAudienceType();
         switch (audience) {
             case "ALL_USERS" -> {
+                // 全部用户：注册用户（有邮箱）+ 匿名订单邮箱（未注册客户）
                 for (User u : userRepository.findAll()) {
                     if (u.getIsDeleted() == 0 && u.getEmail() != null && !u.getEmail().isBlank()) {
                         String email = u.getEmail().toLowerCase();
                         if (seen.add(email)) {
                             list.add(new Recipient(u.getId(), email, u.getUsername()));
                         }
+                    }
+                }
+                for (String raw : orderRepository.findDistinctAnonymousEmails()) {
+                    String email = raw == null ? "" : raw.trim().toLowerCase();
+                    if (!email.isBlank() && seen.add(email)) {
+                        list.add(new Recipient(null, email, email.split("@")[0]));
                     }
                 }
             }
