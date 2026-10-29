@@ -454,7 +454,7 @@ export default function AdminOrdersPage() {
       {/* Table */}
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[1200px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.orderNo")}</th>
@@ -464,9 +464,9 @@ export default function AdminOrdersPage() {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">推广员</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.amount")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.orderSource")}</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.paymentMethod")}</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">设备</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.statusLabel")}</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.paymentMethod")}</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">设备</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.statusLabel")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.time")}</th>
                 <th className="px-4 py-3 text-right font-medium text-muted-foreground">{t("admin.actions")}</th>
               </tr>
@@ -544,16 +544,16 @@ export default function AdminOrdersPage() {
                         {order.order_type === "CART" ? t("admin.cartOrder") : t("admin.directOrder")}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1.5 text-foreground">
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-foreground">
                         <PaymentIcon method={order.payment_method} className="h-4 w-4" />
                         {getPaymentLabel(order.payment_method)}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="text-xs text-muted-foreground">{order.device || "-"}</span>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <span className="whitespace-nowrap text-xs text-muted-foreground">{order.device || "-"}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="whitespace-nowrap px-4 py-3">
                       <OrderStatusBadge status={order.status} />
                     </td>
                     <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
