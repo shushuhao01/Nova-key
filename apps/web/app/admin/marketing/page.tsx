@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import {
   Megaphone, Plus, Search, Pencil, Trash2, Send, Eye, EyeOff, ChevronLeft, ChevronRight,
   Tag, Copy, X, Ticket, Mail, Ban, CircleAlert, Bold, Italic, Underline, Heading1, Link as LinkIcon,
-  Image as ImageIcon, Code2, Users, CheckCircle2, XCircle, Save, List, Share2, MailOpen,
+  Image as ImageIcon, Code2, Users, CheckCircle2, XCircle, Save, List, Share2, MailOpen, RefreshCw,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLocale } from "@/lib/context"
@@ -37,6 +37,15 @@ export default function AdminMarketingPage() {
   const searchParams = useSearchParams()
 
   const [tab, setTab] = useState<"coupons" | "emails">("coupons")
+  // 刷新令牌：自增后触发两个 TAB 重新拉取数据，避免用户手动 F5
+  const [refreshToken, setRefreshToken] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const handleRefresh = () => {
+    setRefreshing(true)
+    setRefreshToken(v => v + 1)
+    window.setTimeout(() => setRefreshing(false), 800)
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -46,13 +55,23 @@ export default function AdminMarketingPage() {
           <h1 className="text-2xl font-bold text-foreground">{t("admin.marketing")}</h1>
           <p className="text-sm text-muted-foreground">{t("admin.marketingDesc")}</p>
         </div>
-        <TabSwitch tab={tab} setTab={setTab} />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+            {t("common.refresh")}
+          </button>
+          <TabSwitch tab={tab} setTab={setTab} />
+        </div>
       </div>
 
       {tab === "coupons" ? (
-        <CouponsTab key="coupons" searchParams={searchParams} router={router} />
+        <CouponsTab key="coupons" searchParams={searchParams} router={router} refreshToken={refreshToken} />
       ) : (
-        <EmailsTab key="emails" searchParams={searchParams} router={router} />
+        <EmailsTab key="emails" searchParams={searchParams} router={router} refreshToken={refreshToken} />
       )}
     </div>
   )
@@ -115,7 +134,7 @@ const emptyCouponForm = (): CouponFormState => ({
   coupon_product_ids: "",
 })
 
-function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof useSearchParams>; router: ReturnType<typeof useRouter> }) {
+function CouponsTab({ searchParams, router, refreshToken }: { searchParams: ReturnType<typeof useSearchParams>; router: ReturnType<typeof useRouter>; refreshToken: number }) {
   const { t } = useLocale()
   const [list, setList] = useState<MarketingCouponItem[]>([])
   const [total, setTotal] = useState(0)
@@ -161,7 +180,7 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
     } finally {
       setLoading(false)
     }
-  }, [currentPage, keyword])
+  }, [currentPage, keyword, refreshToken])
 
   useEffect(() => {
     const timer = setTimeout(() => setCurrentPage(1), 300)
@@ -666,7 +685,7 @@ const emptyEmailForm = (): EmailFormState => ({
   coupon_ref_id: "",
 })
 
-function EmailsTab({ searchParams, router }: { searchParams: ReturnType<typeof useSearchParams>; router: ReturnType<typeof useRouter> }) {
+function EmailsTab({ searchParams, router, refreshToken }: { searchParams: ReturnType<typeof useSearchParams>; router: ReturnType<typeof useRouter>; refreshToken: number }) {
   const { t } = useLocale()
   const [list, setList] = useState<MarketingEmailItem[]>([])
   const [total, setTotal] = useState(0)
@@ -703,7 +722,7 @@ function EmailsTab({ searchParams, router }: { searchParams: ReturnType<typeof u
     adminMarketingApi.getCoupons({ page: 1, page_size: 100 })
       .then(data => setCoupons(data.list))
       .catch(() => setCoupons([]))
-  }, [])
+  }, [refreshToken])
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -718,7 +737,7 @@ function EmailsTab({ searchParams, router }: { searchParams: ReturnType<typeof u
     } finally {
       setLoading(false)
     }
-  }, [currentPage, keyword, statusFilter])
+  }, [currentPage, keyword, statusFilter, refreshToken])
 
   useEffect(() => {
     const timer = setTimeout(() => setCurrentPage(1), 300)

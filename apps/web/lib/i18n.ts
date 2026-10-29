@@ -466,6 +466,7 @@ const zh = {
 
   // Common
   "common.loading": "加载中...",
+  "common.refresh": "刷新",
   "common.error": "出错了",
   "common.retry": "重试",
   "common.confirm": "确认",
@@ -1599,6 +1600,7 @@ const en: Record<keyof typeof zh, string> = {
 
   // Common
   "common.loading": "Loading...",
+  "common.refresh": "Refresh",
   "common.error": "Error",
   "common.retry": "Retry",
   "common.confirm": "Confirm",
