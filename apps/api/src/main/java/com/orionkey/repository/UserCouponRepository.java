@@ -58,5 +58,23 @@ public interface UserCouponRepository extends JpaRepository<UserCoupon, UUID> {
     @Modifying
     @Query("UPDATE UserCoupon u SET u.status = 'USED', u.usedAt = :usedAt, u.orderId = :orderId WHERE u.id = :id AND u.status = 'CLAIMED'")
     int markUsed(@Param("id") UUID id, @Param("usedAt") LocalDateTime usedAt, @Param("orderId") UUID orderId);
+
+    /**
+     * 历史数据校正：旧版本发送营销邮件时直接把预分配的券置为 CLAIMED（claimedAt = 发送时刻），
+     * 导致「已领取」等于发送人数。此处把"命中收件人快照、领取时间≈创建时间、且未被使用"的记录
+     * 回退为 SENT（已推送未领取）；用户再次点击邮件里的领取链接即可重新领取。
+     */
+    @Modifying
+    @Query(value = "UPDATE user_coupons uc SET status = 'SENT', claimed_at = NULL "
+            + "WHERE uc.status = 'CLAIMED' AND uc.claimed_at IS NOT NULL "
+            + "AND uc.claimed_at <= uc.created_at + interval '10 seconds' "
+            + "AND EXISTS (SELECT 1 FROM marketing_recipients r "
+            + "JOIN marketing_campaigns e ON e.id = r.campaign_id "
+            + "WHERE e.coupon_ref_id = uc.campaign_id "
+            + "AND r.code = uc.code "
+            + "AND ((uc.user_id IS NOT NULL AND r.user_id = uc.user_id) "
+            + "OR (uc.email IS NOT NULL AND r.email = uc.email)))",
+            nativeQuery = true)
+    int resetLegacyPreIssuedCoupons();
 }
 

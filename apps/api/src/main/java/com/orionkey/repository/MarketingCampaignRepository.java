@@ -4,6 +4,7 @@ import com.orionkey.entity.MarketingCampaign;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -36,6 +37,16 @@ public interface MarketingCampaignRepository extends JpaRepository<MarketingCamp
 
     /** 关联了某张优惠券的营销邮件（用于统计该券已推送人数） */
     List<MarketingCampaign> findByCouponRefId(UUID couponRefId);
+
+    /** 异步发送结束后仅定向更新失败数，避免整实体回写覆盖 status/sent_count */
+    @Modifying
+    @Query("UPDATE MarketingCampaign c SET c.failedCount = :failedCount WHERE c.id = :id")
+    int updateFailedCount(@Param("id") UUID id, @Param("failedCount") int failedCount);
+
+    /** 已生成收件人快照但仍非 SENT 的营销邮件（历史异常数据自愈） */
+    @Query("SELECT c FROM MarketingCampaign c WHERE (c.recordType IS NULL OR c.recordType <> 'COUPON') "
+            + "AND c.status <> 'SENT' AND EXISTS (SELECT r.id FROM MarketingRecipient r WHERE r.campaignId = c.id)")
+    List<MarketingCampaign> findSentButNotMarked();
 
     /** 悲观写锁：领取优惠券时锁住活动行，防止并发超发（原生 SQL FOR UPDATE 兼容 PG 与 H2） */
     @Query(value = "SELECT * FROM marketing_campaigns WHERE id = :id FOR UPDATE", nativeQuery = true)

@@ -20,6 +20,8 @@ import com.orionkey.service.MarketingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +29,9 @@ import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -47,6 +52,7 @@ public class MarketingServiceImpl implements MarketingService {
     private final SiteConfigRepository siteConfigRepository;
     private final MarketingMailSender mailSender;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
 
     @Value("${app.base-url:https://noepay.cn}")
     private String baseUrlDefault;
@@ -350,10 +356,12 @@ public class MarketingServiceImpl implements MarketingService {
         if (coupon != null) {
             codeByEmail = allocateCoupons(coupon, recipients);
         }
+        LocalDateTime now = LocalDateTime.now();
         c.setStatus("SENT");
         c.setSentCount(recipients.size());
         c.setFailedCount(0);
-        c.setSendAt(LocalDateTime.now());
+        // sendAt 保留定时发送时间不变，实际发送时间记录到 sentAt
+        c.setSentAt(now);
         campaignRepository.save(c);
         // 快照收件人（用于"发送用户"弹窗与送达统计）
         List<UUID> recipientIds = new ArrayList<>(recipients.size());
@@ -367,8 +375,22 @@ public class MarketingServiceImpl implements MarketingService {
             recipientRepository.save(mr);
             recipientIds.add(mr.getId());
         }
-        // 异步逐封发送（占位符按收件人替换）
-        mailSender.sendAsync(c.getId(), coupon, recipients, codeByEmail, recipientIds);
+        // 异步逐封发送（占位符按收件人替换）。
+        // 必须等当前事务提交后再派发：否则异步线程读不到刚写入的收件人快照，且会读到旧的 DRAFT 状态。
+        final UUID campaignId = c.getId();
+        final MarketingCampaign linkedCoupon = coupon;
+        final Map<String, String> codes = codeByEmail;
+        final List<UUID> ids = recipientIds;
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    mailSender.sendAsync(campaignId, linkedCoupon, recipients, codes, ids);
+                }
+            });
+        } else {
+            mailSender.sendAsync(campaignId, linkedCoupon, recipients, codes, ids);
+        }
         return recipients.size();
     }
 
@@ -378,7 +400,8 @@ public class MarketingServiceImpl implements MarketingService {
         if (recipients.isEmpty()) {
             return;
         }
-        LocalDateTime sentAt = c.getSendAt() != null ? c.getSendAt() : c.getCreatedAt();
+        LocalDateTime sentAt = c.getSentAt() != null ? c.getSentAt()
+                : (c.getSendAt() != null ? c.getSendAt() : c.getCreatedAt());
         for (Recipient r : recipients) {
             MarketingRecipient mr = new MarketingRecipient();
             mr.setCampaignId(c.getId());
@@ -418,6 +441,7 @@ public class MarketingServiceImpl implements MarketingService {
     @Scheduled(fixedRate = 60_000)
     @Transactional
     public void processScheduledCampaigns() {
+        repairSentCampaigns();
         List<MarketingCampaign> due = campaignRepository.findByStatusAndSendAtLessThanEqual("SCHEDULED", LocalDateTime.now());
         for (MarketingCampaign c : due) {
             try {
@@ -426,6 +450,39 @@ public class MarketingServiceImpl implements MarketingService {
             } catch (Exception e) {
                 log.error("Scheduled campaign {} send failed: {}", c.getId(), e.getMessage(), e);
             }
+        }
+    }
+
+    /** 历史异常数据自愈：已生成收件人快照却仍显示草稿/定时的邮件，恢复为已发送并校正统计 */
+    private void repairSentCampaigns() {
+        for (MarketingCampaign c : campaignRepository.findSentButNotMarked()) {
+            long total = recipientRepository.countByCampaignId(c.getId());
+            long delivered = recipientRepository.countByCampaignIdAndDelivered(c.getId(), 1);
+            c.setStatus("SENT");
+            c.setSentCount((int) total);
+            c.setFailedCount((int) (total - delivered));
+            if (c.getSentAt() == null) {
+                c.setSentAt(c.getSendAt() != null ? c.getSendAt() : c.getCreatedAt());
+            }
+            campaignRepository.save(c);
+            log.info("Repaired campaign {} status → SENT ({} recipients)", c.getId(), total);
+        }
+    }
+
+    /**
+     * 一次性数据校正：旧版本发送营销邮件时把预分配给收件人的券直接置为 CLAIMED（claimedAt≈createdAt），
+     * 导致「已领取」等于发送人数。启动时把这类未被使用的记录回退为 SENT（已推送未领取），
+     * 已使用（USED）的保留不动；用户可再次点击邮件里的领取链接重新领取。
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void resetLegacyPreIssuedCoupons() {
+        try {
+            Integer n = transactionTemplate.execute(status -> couponRepository.resetLegacyPreIssuedCoupons());
+            if (n != null && n > 0) {
+                log.info("Reset {} legacy pre-issued coupons from CLAIMED to SENT", n);
+            }
+        } catch (Exception e) {
+            log.warn("Reset legacy pre-issued coupons failed: {}", e.getMessage());
         }
     }
 
@@ -957,6 +1014,7 @@ public class MarketingServiceImpl implements MarketingService {
         map.put("sent_count", c.getSentCount());
         map.put("failed_count", c.getFailedCount());
         map.put("send_at", c.getSendAt());
+        map.put("sent_at", c.getSentAt());
         map.put("is_canceled", c.getIsCanceled());
         map.put("coupon_ref_id", c.getCouponRefId());
         if (c.getCouponRefId() != null) {

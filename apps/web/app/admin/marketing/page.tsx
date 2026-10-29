@@ -892,15 +892,17 @@ function EmailsTab({ searchParams, router }: { searchParams: ReturnType<typeof u
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.emailLinkedCoupon")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.emailRecipientCount")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.emailSendAt")}</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.createdAt")}</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.emailSentAt")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.statusLabel")}</th>
                 <th className="px-4 py-3 text-right font-medium text-muted-foreground">{t("admin.actions")}</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+                <tr><td colSpan={9} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
               ) : list.length === 0 ? (
-                <tr><td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">{t("admin.campaignNoData")}</td></tr>
+                <tr><td colSpan={9} className="py-8 text-center text-sm text-muted-foreground">{t("admin.campaignNoData")}</td></tr>
               ) : (
                 list.map((c) => (
                   <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
@@ -938,6 +940,13 @@ function EmailsTab({ searchParams, router }: { searchParams: ReturnType<typeof u
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {c.send_at ? new Date(c.send_at).toLocaleString() : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {c.created_at ? new Date(c.created_at).toLocaleString() : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {c.sent_at ? new Date(c.sent_at).toLocaleString()
+                        : (c.status === "SENT" && c.send_at ? new Date(c.send_at).toLocaleString() : "—")}
                     </td>
                     <td className="px-4 py-3">{statusBadge(c)}</td>
                     <td className="px-4 py-3">
@@ -1168,7 +1177,7 @@ function EmailDetailModal({ id, onClose }: { id: string; onClose: () => void }) 
           ) : email ? (
             <>
               {/* 基本信息 */}
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <div className="rounded-lg bg-muted/50 p-3">
                   <p className="text-xs text-muted-foreground">{t("admin.statusLabel")}</p>
                   <p className="mt-0.5 text-sm font-semibold text-foreground">
@@ -1186,6 +1195,17 @@ function EmailDetailModal({ id, onClose }: { id: string; onClose: () => void }) 
                 <div className="rounded-lg bg-muted/50 p-3">
                   <p className="text-xs text-muted-foreground">{t("admin.emailLinkedCoupon")}</p>
                   <p className="mt-0.5 text-sm font-medium text-foreground">{email.coupon_ref_id ? (email as MarketingEmailItem & { coupon_title?: string }).coupon_title || t("admin.emailLinkedCoupon") : "—"}</p>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground">{t("admin.createdAt")}</p>
+                  <p className="mt-0.5 text-sm font-medium text-foreground">{email.created_at ? new Date(email.created_at).toLocaleString() : "—"}</p>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground">{t("admin.emailSentAt")}</p>
+                  <p className="mt-0.5 text-sm font-medium text-foreground">
+                    {email.sent_at ? new Date(email.sent_at).toLocaleString()
+                      : (email.status === "SENT" && email.send_at ? new Date(email.send_at).toLocaleString() : "—")}
+                  </p>
                 </div>
               </div>
 

@@ -622,6 +622,7 @@ export interface MarketingEmailItem {
   sent_count: number
   failed_count: number
   send_at: string | null
+  sent_at?: string | null
   is_canceled: number
   coupon_ref_id: string | null
   coupon_title: string | null

@@ -65,6 +65,9 @@ public class MarketingCampaign extends BaseEntity {
     /** 定时发送时间（recordType=EMAIL：sendAt 晚于当前时间时保存为 SCHEDULED，到点自动发送） */
     private LocalDateTime sendAt;
 
+    /** 实际发送时间（首次立即/定时发送时写入，创建时间为 createdAt） */
+    private LocalDateTime sentAt;
+
     /** 作废标记：1=已作废（优惠券不可再领取/使用） */
     @Column(columnDefinition = "integer not null default 0")
     private int isCanceled = 0;

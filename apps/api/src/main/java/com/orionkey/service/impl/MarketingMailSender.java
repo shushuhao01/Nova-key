@@ -65,9 +65,10 @@ public class MarketingMailSender {
             }
         }
         int failed = recipients.size() - ok;
-        if (failed > 0 && c.getFailedCount() != failed) {
-            c.setFailedCount(failed);
-            campaignRepository.save(c);
+        if (failed > 0) {
+            // 只定向更新失败数：整体 save 会把异步线程早先读到的旧状态（DRAFT / sentCount=0）写回，
+            // 导致"已发送却显示草稿"，因此这里不改动 status / sentCount。
+            campaignRepository.updateFailedCount(campaignId, failed);
         }
         log.info("Marketing campaign {} sent, {}/{} ok", campaignId, ok, recipients.size());
     }
