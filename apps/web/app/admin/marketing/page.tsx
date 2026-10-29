@@ -1492,15 +1492,16 @@ function EmailFormModal({ form, setForm, coupons, saving, onClose, onSave }: {
   }
 
   // 受众建议：指定用户 → 系统注册用户；指定邮箱 → 匿名订购邮箱
-  const loadSuggestions = async (type: AudienceType, overwrite: boolean) => {
+  const loadSuggestions = async (type: AudienceType, overwrite: boolean, base: EmailFormState = form) => {
     setLoadingSuggestions(true)
     try {
       const s = await adminMarketingApi.audienceSuggestions()
       const lines = type === "USER_IDS" ? s.registered_usernames : s.anonymous_emails
       const text = lines.join("\n")
       setForm({
-        ...form,
-        targets: (overwrite || !form.targets.trim()) ? text : form.targets,
+        ...base,
+        audience_type: type,
+        targets: (overwrite || !base.targets.trim()) ? text : base.targets,
       })
       if (lines.length === 0) {
         toast.info(type === "USER_IDS" ? t("admin.noRegisteredUsers") : t("admin.noAnonymousEmails"))
@@ -1513,12 +1514,13 @@ function EmailFormModal({ form, setForm, coupons, saving, onClose, onSave }: {
   }
 
   const handleAudienceChange = (v: AudienceType) => {
-    const isNew = !form.id
-    const wasEmpty = !form.targets.trim()
-    upd("audience_type", v)
-    // 新建邮件首次切换受众时自动加载系统数据（手动输入邮箱不预填）
-    if (isNew && wasEmpty && (v === "USER_IDS" || v === "EMAILS")) {
-      loadSuggestions(v, true)
+    if (v === form.audience_type) return
+    // 切换受众时清空上一个受众的名单，避免注册用户名 / 匿名邮箱 / 手输邮箱相互混用
+    const next: EmailFormState = { ...form, audience_type: v, targets: "" }
+    setForm(next)
+    // 新建邮件切换受众时自动加载系统数据（手动输入邮箱不预填）
+    if (!form.id && (v === "USER_IDS" || v === "EMAILS")) {
+      loadSuggestions(v, true, next)
     }
   }
 
