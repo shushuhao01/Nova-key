@@ -887,6 +887,10 @@ export const adminMarketingApi = {
     const qs = buildQuery(params)
     return request<import("@/types").RecipientsResult>(`/admin/marketing/emails/${id}/recipients?${qs}`)
   },
+  openedUsers: (id: string, params: { page?: number; page_size?: number }) => {
+    const qs = buildQuery(params)
+    return request<import("@/types").OpenedUsersResult>(`/admin/marketing/emails/${id}/opened-users?${qs}`)
+  },
   audienceSuggestions: () =>
     request<{ registered_usernames: string[]; anonymous_emails: string[] }>("/admin/marketing/emails/audience-suggestions"),
 }
@@ -1002,6 +1006,9 @@ export const adminConfigApi = {
   // 用当前 SMTP 配置发送测试邮件
   testEmail: (toEmail: string) =>
     request<null>("/admin/site-config/email/test", { method: "POST", body: JSON.stringify({ to_email: toEmail }) }),
+  // 立即拉取退信邮箱（IMAP），解析 DSN 退信并回写收件人状态
+  checkImap: () =>
+    request<{ processed: number }>("/admin/site-config/email/imap-check", { method: "POST" }),
   // 短信配置（config_group = sms）
   getSmsConfig: () =>
     request<SiteConfigKV[]>("/admin/site-config/sms"),

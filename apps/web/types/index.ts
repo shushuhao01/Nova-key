@@ -627,6 +627,9 @@ export interface MarketingEmailItem {
   coupon_ref_id: string | null
   coupon_title: string | null
   recipient_count: number
+  opened_count?: number
+  clicked_count?: number
+  bounced_count?: number
   created_at: string
   updated_at: string
 }
@@ -650,9 +653,13 @@ export interface MarketingRecipientItem {
   delivered: number
   error: string | null
   sent_at: string | null
+  opened_at?: string | null
+  clicked_at?: string | null
+  bounced?: number
+  bounce_reason?: string | null
 }
 
-/** 收件人分页结果 + 送达统计 */
+/** 收件人分页结果 + 送达/打开/点击/退信统计 */
 export interface RecipientsResult {
   list: MarketingRecipientItem[]
   total: number
@@ -661,6 +668,28 @@ export interface RecipientsResult {
   total_pages: number
   delivered: number
   failed: number
+  opened?: number
+  clicked?: number
+  bounced?: number
+}
+
+/** 营销邮件已读用户（含消费总额/订单数/推广员/优惠券领取状态） */
+export interface OpenedUserItem {
+  username: string | null
+  email: string | null
+  total_spent?: number | null
+  order_count?: number | null
+  distributor_name?: string | null
+  opened_at?: string | null
+  coupon_status?: string | null
+}
+
+export interface OpenedUsersResult {
+  list: OpenedUserItem[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
 }
 
 /** 个人中心：我的优惠券 */

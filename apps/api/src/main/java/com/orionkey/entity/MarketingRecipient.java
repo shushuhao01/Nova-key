@@ -49,4 +49,29 @@ public class MarketingRecipient extends BaseEntity {
 
     /** 实际发送时间 */
     private LocalDateTime sentAt;
+
+    /** 首次打开时间（邮件内追踪像素加载时记录） */
+    private LocalDateTime openedAt;
+
+    /** 打开次数（同一收件人多次加载像素累加） */
+    @Column(columnDefinition = "integer not null default 0")
+    private int openedCount = 0;
+
+    /** 首次点击时间（邮件内链接经追踪跳转时记录） */
+    private LocalDateTime clickedAt;
+
+    /** 点击次数 */
+    @Column(columnDefinition = "integer not null default 0")
+    private int clickedCount = 0;
+
+    /** 是否退信：0=否，1=退信（IMAP 解析 DSN 退信邮件后回写） */
+    @Column(columnDefinition = "integer not null default 0")
+    private int bounced = 0;
+
+    /** 退信时间 */
+    private LocalDateTime bouncedAt;
+
+    /** 退信原因（DSN 诊断信息摘要） */
+    @Column(columnDefinition = "TEXT")
+    private String bounceReason;
 }

@@ -98,6 +98,7 @@ export default function AdminSiteConfigPage() {
   const [wecomUploading, setWecomUploading] = useState(false)
   const [testEmailTo, setTestEmailTo] = useState("")
   const [testSending, setTestSending] = useState(false)
+  const [imapChecking, setImapChecking] = useState(false)
   const popupTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   // 短信配置（sms tab）
@@ -339,16 +340,22 @@ export default function AdminSiteConfigPage() {
   // 客户配置总开关：关闭时子项置灰且不可编辑
   const customerPhoneEnabled = getBool("customer_phone_enabled")
 
+  // 提交前过滤：system_version 为只读展示；密码类字段留空或 __SET__ 表示不修改
+  const collectConfigs = () =>
+    Object.entries(configMap)
+      .filter(([key, value]) =>
+        key !== "system_version" &&
+        !((key === "smtp_password" || key === "imap_password") && (value === "" || value === "__SET__"))
+      )
+      .map(([config_key, config_value]) => ({
+        config_key,
+        config_value,
+      }))
+
   const handleSave = async () => {
     setSaving(true)
     try {
-      // SMTP 密码：留空或 __SET__ 表示不修改，剔除后不提交（后端也跳过空值）；system_version 为只读展示，不提交
-      const configs = Object.entries(configMap)
-        .filter(([key, value]) => key !== "system_version" && !(key === "smtp_password" && (value === "" || value === "__SET__")))
-        .map(([config_key, config_value]) => ({
-          config_key,
-          config_value,
-        }))
+      const configs = collectConfigs()
       await withMockFallback(
         () => adminConfigApi.update({ configs }),
         () => null
@@ -401,9 +408,7 @@ export default function AdminSiteConfigPage() {
     }
     setTestSending(true)
     try {
-      const configs = Object.entries(configMap)
-        .filter(([key, value]) => key !== "system_version" && !(key === "smtp_password" && (value === "" || value === "__SET__")))
-        .map(([config_key, config_value]) => ({ config_key, config_value }))
+      const configs = collectConfigs()
       await withMockFallback(
         () => adminConfigApi.update({ configs }),
         () => null
@@ -417,6 +422,27 @@ export default function AdminSiteConfigPage() {
       toast.error(err instanceof Error ? err.message : "测试邮件发送失败")
     } finally {
       setTestSending(false)
+    }
+  }
+
+  // 先保存当前表单的 IMAP 配置，再立即拉取一次退信邮箱
+  const handleCheckImap = async () => {
+    setImapChecking(true)
+    try {
+      const configs = collectConfigs()
+      await withMockFallback(
+        () => adminConfigApi.update({ configs }),
+        () => null
+      )
+      const res = await withMockFallback(
+        () => adminConfigApi.checkImap(),
+        () => ({ processed: 0 })
+      )
+      toast.success(`本次处理退信 ${res?.processed ?? 0} 个`)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "检查退信失败")
+    } finally {
+      setImapChecking(false)
     }
   }
 
@@ -1352,6 +1378,132 @@ export default function AdminSiteConfigPage() {
                 />
                 <p className="text-xs text-muted-foreground">单个邮箱 24 小时内最多发送次数，超出将被拒绝，默认 10 次</p>
               </div>
+            </div>
+
+            {/* 退信检测（IMAP） */}
+            <div className="flex flex-col gap-5 border-t border-border pt-5">
+              <div>
+                <p className="text-sm font-medium text-foreground">退信检测（IMAP）</p>
+                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                  发送成功仅代表对方服务器已接受投递。对方邮箱不存在或被拒收时，服务器会异步回一封退信邮件；
+                  这里配置退信接收邮箱的 IMAP 参数，系统每 10 分钟自动拉取一次，解析退信后回写营销邮件的退信状态。
+                  QQ 邮箱 <code className="rounded bg-muted px-1">imap.qq.com</code>（993）、
+                  163 <code className="rounded bg-muted px-1">imap.163.com</code>（993）。
+                </p>
+              </div>
+
+              {/* 启用开关 */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-sm font-medium text-foreground">启用退信检测</label>
+                  <p className="text-xs text-muted-foreground">关闭后不拉取退信邮件（退信统计不更新）</p>
+                </div>
+                <button
+                  type="button"
+                  className={cn(
+                    "relative h-6 w-11 rounded-full transition-colors",
+                    getBool("bounce_enabled") ? "bg-primary" : "bg-muted"
+                  )}
+                  onClick={() => toggleBool("bounce_enabled")}
+                >
+                  <span className={cn(
+                    "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                    getBool("bounce_enabled") && "translate-x-5"
+                  )} />
+                </button>
+              </div>
+
+              {/* IMAP 服务器 + 端口 + SSL */}
+              <div className="flex gap-3">
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <label className="text-sm font-medium text-foreground">IMAP 服务器</label>
+                  <input
+                    type="text"
+                    className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="imap.qq.com"
+                    value={getValue("imap_host")}
+                    onChange={(e) => setValue("imap_host", e.target.value)}
+                  />
+                </div>
+                <div className="flex w-28 flex-col gap-1.5">
+                  <label className="text-sm font-medium text-foreground">端口</label>
+                  <input
+                    type="number"
+                    className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="993"
+                    value={getValue("imap_port")}
+                    onChange={(e) => setValue("imap_port", e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-sm font-medium text-foreground">使用 SSL（imaps）</label>
+                  <p className="text-xs text-muted-foreground">993 端口一般为 SSL 连接；关闭则使用 143 明文端口</p>
+                </div>
+                <button
+                  type="button"
+                  className={cn(
+                    "relative h-6 w-11 rounded-full transition-colors",
+                    (configMap.imap_ssl === undefined ? true : getBool("imap_ssl")) ? "bg-primary" : "bg-muted"
+                  )}
+                  onClick={() => toggleBool("imap_ssl")}
+                >
+                  <span className={cn(
+                    "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                    (configMap.imap_ssl === undefined ? true : getBool("imap_ssl")) && "translate-x-5"
+                  )} />
+                </button>
+              </div>
+
+              {/* 账号 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">IMAP 账号</label>
+                <input
+                  type="text"
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="noreply@qq.com"
+                  value={getValue("imap_username")}
+                  onChange={(e) => setValue("imap_username", e.target.value)}
+                />
+              </div>
+
+              {/* 密码 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">IMAP 授权码 / 密码</label>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={getValue("imap_password") === "__SET__" ? "已设置，留空则不修改" : "邮箱的 IMAP 授权码"}
+                  value={getValue("imap_password") === "__SET__" ? "" : getValue("imap_password")}
+                  onChange={(e) => setValue("imap_password", e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">出于安全考虑不显示已保存的授权码；留空表示不修改</p>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">退信邮箱文件夹</label>
+                <input
+                  type="text"
+                  className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="INBOX"
+                  value={getValue("imap_folder")}
+                  onChange={(e) => setValue("imap_folder", e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">默认 INBOX，留空也按 INBOX 处理</p>
+              </div>
+
+              <button
+                type="button"
+                className="flex w-fit items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                onClick={handleCheckImap}
+                disabled={imapChecking}
+              >
+                {imapChecking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                {imapChecking ? "检查中..." : "立即检查退信"}
+              </button>
             </div>
 
             {/* 测试邮件 */}

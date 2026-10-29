@@ -108,6 +108,15 @@ public class AdminMarketingController {
         return ApiResponse.success(marketingService.campaignRecipients(id, page, pageSize));
     }
 
+    /** 已读用户弹窗：已打开邮件的用户分页列表（含消费总额/订单数/推广员/优惠券领取状态） */
+    @GetMapping("/emails/{id}/opened-users")
+    public ApiResponse<?> openedUsers(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(value = "page_size", defaultValue = "10") int pageSize) {
+        return ApiResponse.success(marketingService.campaignOpenedRecipients(id, page, pageSize));
+    }
+
     /** 受众建议：注册用户用户名 + 匿名订购邮箱（新建邮件时预填受众） */
     @GetMapping("/emails/audience-suggestions")
     public ApiResponse<?> audienceSuggestions() {

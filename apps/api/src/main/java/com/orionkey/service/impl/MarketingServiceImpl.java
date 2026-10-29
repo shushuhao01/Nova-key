@@ -4,12 +4,16 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orionkey.common.PageResult;
 import com.orionkey.constant.ErrorCode;
+import com.orionkey.entity.CustomerBinding;
+import com.orionkey.entity.Distributor;
 import com.orionkey.entity.MarketingCampaign;
 import com.orionkey.entity.MarketingRecipient;
 import com.orionkey.entity.SiteConfig;
 import com.orionkey.entity.User;
 import com.orionkey.entity.UserCoupon;
 import com.orionkey.exception.BusinessException;
+import com.orionkey.repository.CustomerBindingRepository;
+import com.orionkey.repository.DistributorRepository;
 import com.orionkey.repository.MarketingCampaignRepository;
 import com.orionkey.repository.MarketingRecipientRepository;
 import com.orionkey.repository.OrderRepository;
@@ -38,6 +42,7 @@ import java.math.RoundingMode;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -49,6 +54,8 @@ public class MarketingServiceImpl implements MarketingService {
     private final UserCouponRepository couponRepository;
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
+    private final CustomerBindingRepository customerBindingRepository;
+    private final DistributorRepository distributorRepository;
     private final SiteConfigRepository siteConfigRepository;
     private final MarketingMailSender mailSender;
     private final ObjectMapper objectMapper;
@@ -331,6 +338,10 @@ public class MarketingServiceImpl implements MarketingService {
             m.put("delivered", r.getDelivered());
             m.put("error", r.getError());
             m.put("sent_at", r.getSentAt());
+            m.put("opened_at", r.getOpenedAt());
+            m.put("clicked_at", r.getClickedAt());
+            m.put("bounced", r.getBounced());
+            m.put("bounce_reason", r.getBounceReason());
             return m;
         }).toList();
         Map<String, Object> res = new LinkedHashMap<>();
@@ -341,7 +352,167 @@ public class MarketingServiceImpl implements MarketingService {
         res.put("total_pages", p.getTotalPages());
         res.put("delivered", recipientRepository.countByCampaignIdAndDelivered(id, 1));
         res.put("failed", recipientRepository.countByCampaignIdAndDelivered(id, 0));
+        res.put("opened", recipientRepository.countByCampaignIdAndOpenedAtIsNotNull(id));
+        res.put("clicked", recipientRepository.countByCampaignIdAndClickedAtIsNotNull(id));
+        res.put("bounced", recipientRepository.countByCampaignIdAndBounced(id, 1));
         return res;
+    }
+
+    /** 已读用户分页列表（含消费总额/订单数/推广员/已读时间/优惠券领取状态） */
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> campaignOpenedRecipients(UUID id, int page, int pageSize) {
+        requireEmailCampaign(id);
+        Pageable pageable = PageRequest.of(Math.max(page - 1, 0), Math.min(Math.max(pageSize, 1), 100));
+        Page<MarketingRecipient> p = recipientRepository.findByCampaignIdAndOpenedAtIsNotNullOrderByOpenedAtDesc(id, pageable);
+        List<MarketingRecipient> rows = p.getContent();
+
+        Set<UUID> userIds = new HashSet<>();
+        Set<String> emails = new HashSet<>();
+        Set<String> codes = new HashSet<>();
+        for (MarketingRecipient r : rows) {
+            if (r.getUserId() != null) {
+                userIds.add(r.getUserId());
+            }
+            if (r.getEmail() != null) {
+                emails.add(r.getEmail());
+            }
+            if (r.getCode() != null) {
+                codes.add(r.getCode());
+            }
+        }
+
+        Map<UUID, User> userMap = new HashMap<>();
+        if (!userIds.isEmpty()) {
+            for (User u : userRepository.findAllById(userIds)) {
+                userMap.put(u.getId(), u);
+            }
+        }
+
+        // 推广员绑定：注册用户按 userId 绑定优先，其次按客户邮箱绑定；多条时取最新创建的一条
+        Map<UUID, CustomerBinding> bindingByUser = new HashMap<>();
+        if (!userIds.isEmpty()) {
+            for (CustomerBinding b : customerBindingRepository.findByCustomerUserIdIn(userIds)) {
+                bindingByUser.merge(b.getCustomerUserId(), b, MarketingServiceImpl::latestBinding);
+            }
+        }
+        Map<String, CustomerBinding> bindingByEmail = new HashMap<>();
+        if (!emails.isEmpty()) {
+            for (CustomerBinding b : customerBindingRepository.findByCustomerEmailIn(emails)) {
+                if (b.getCustomerEmail() != null) {
+                    bindingByEmail.merge(b.getCustomerEmail().toLowerCase(), b, MarketingServiceImpl::latestBinding);
+                }
+            }
+        }
+        Set<UUID> distributorIds = new HashSet<>();
+        Map<String, CustomerBinding> bindingOfRow = new HashMap<>();
+        for (MarketingRecipient r : rows) {
+            CustomerBinding b = r.getUserId() != null ? bindingByUser.get(r.getUserId()) : null;
+            if (b == null && r.getEmail() != null) {
+                b = bindingByEmail.get(r.getEmail().toLowerCase());
+            }
+            if (b != null) {
+                distributorIds.add(b.getDistributorId());
+                bindingOfRow.put(recipientKey(r), b);
+            }
+        }
+
+        Map<UUID, Distributor> distributorMap = new HashMap<>();
+        if (!distributorIds.isEmpty()) {
+            for (Distributor d : distributorRepository.findAllById(distributorIds)) {
+                distributorMap.put(d.getId(), d);
+            }
+        }
+        Set<UUID> distributorUserIds = distributorMap.values().stream()
+                .map(Distributor::getUserId).filter(Objects::nonNull).collect(Collectors.toSet());
+        if (!distributorUserIds.isEmpty()) {
+            for (User u : userRepository.findAllById(distributorUserIds)) {
+                userMap.putIfAbsent(u.getId(), u);
+            }
+        }
+
+        // 优惠券领取状态（按收件人快照里的核销码反查）
+        Map<String, String> couponStatusByCode = new HashMap<>();
+        if (!codes.isEmpty()) {
+            for (UserCoupon uc : couponRepository.findByCodeIn(codes)) {
+                couponStatusByCode.put(uc.getCode(), uc.getStatus());
+            }
+        }
+
+        List<Map<String, Object>> list = new ArrayList<>(rows.size());
+        for (MarketingRecipient r : rows) {
+            User u = r.getUserId() == null ? null : userMap.get(r.getUserId());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("username", u != null && u.getUsername() != null ? u.getUsername() : r.getUsername());
+            m.put("email", u != null && u.getEmail() != null ? u.getEmail() : r.getEmail());
+            if (r.getUserId() != null) {
+                m.put("total_spent", orderRepository.sumPaidByUserId(r.getUserId()));
+                m.put("order_count", orderRepository.countPaidByUserId(r.getUserId()));
+            } else if (r.getEmail() != null) {
+                m.put("total_spent", orderRepository.sumPaidByEmail(r.getEmail()));
+                m.put("order_count", orderRepository.countPaidByEmail(r.getEmail()));
+            }
+            CustomerBinding b = bindingOfRow.get(recipientKey(r));
+            if (b != null) {
+                Distributor d = distributorMap.get(b.getDistributorId());
+                User du = d == null ? null : userMap.get(d.getUserId());
+                String name = null;
+                if (du != null) {
+                    name = du.getUsername() != null ? du.getUsername() : du.getEmail();
+                }
+                if (name == null && d != null) {
+                    name = d.getDistributorCode();
+                }
+                m.put("distributor_name", name);
+            }
+            m.put("opened_at", r.getOpenedAt());
+            m.put("coupon_status", r.getCode() == null ? null : couponStatusByCode.get(r.getCode()));
+            list.add(m);
+        }
+
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("list", list);
+        res.put("total", p.getTotalElements());
+        res.put("page", page);
+        res.put("page_size", pageSize);
+        res.put("total_pages", p.getTotalPages());
+        return res;
+    }
+
+    private static String recipientKey(MarketingRecipient r) {
+        return r.getUserId() != null ? "u:" + r.getUserId() : "e:" + r.getEmail();
+    }
+
+    private static CustomerBinding latestBinding(CustomerBinding a, CustomerBinding b) {
+        if (a.getCreatedAt() == null) {
+            return b;
+        }
+        if (b.getCreatedAt() == null) {
+            return a;
+        }
+        return b.getCreatedAt().isAfter(a.getCreatedAt()) ? b : a;
+    }
+
+    @Override
+    @Transactional
+    public void recordEmailOpen(String recipientId) {
+        UUID id = parseUuid(recipientId);
+        if (id == null) {
+            return;
+        }
+        recipientRepository.markOpened(id, LocalDateTime.now());
+    }
+
+    @Override
+    @Transactional
+    public String recordEmailClick(String recipientId, String path) {
+        UUID id = parseUuid(recipientId);
+        if (id != null) {
+            recipientRepository.markClicked(id, LocalDateTime.now());
+        }
+        // 仅允许站内相对路径，避免被当作开放重定向
+        String p = (path != null && path.startsWith("/") && !path.startsWith("//")) ? path : "/";
+        return siteUrl() + p;
     }
 
     /** 立即发送（也供定时任务调用）。返回收件人数。 */
@@ -1022,6 +1193,9 @@ public class MarketingServiceImpl implements MarketingService {
                     .map(MarketingCampaign::getTitle).orElse(null));
         }
         map.put("recipient_count", recipientRepository.countByCampaignId(c.getId()));
+        map.put("opened_count", recipientRepository.countByCampaignIdAndOpenedAtIsNotNull(c.getId()));
+        map.put("clicked_count", recipientRepository.countByCampaignIdAndClickedAtIsNotNull(c.getId()));
+        map.put("bounced_count", recipientRepository.countByCampaignIdAndBounced(c.getId(), 1));
         map.put("created_at", c.getCreatedAt());
         map.put("updated_at", c.getUpdatedAt());
         return map;

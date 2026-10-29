@@ -23,6 +23,9 @@ public interface UserCouponRepository extends JpaRepository<UserCoupon, UUID> {
     /** 按核销码 + 状态查找（营销邮件预分配为 SENT，领取后转 CLAIMED） */
     Optional<UserCoupon> findFirstByCodeAndStatusOrderByCreatedAtDesc(String code, String status);
 
+    /** 按一批核销码批量查（已读用户列表展示领取状态用） */
+    List<UserCoupon> findByCodeIn(java.util.Collection<String> codes);
+
     long countByCampaignId(UUID campaignId);
 
     long countByCampaignIdAndStatus(UUID campaignId, String status);

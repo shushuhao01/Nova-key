@@ -62,6 +62,9 @@ public class SiteConfigServiceImpl implements SiteConfigService {
             // 邮箱发件（SMTP）— 供管理后台「网站设置 → 邮箱发件」配置
             "mail_enabled", "smtp_host", "smtp_port", "smtp_username", "smtp_password",
             "mail_from", "mail_from_name", "mail_site_url",
+            // 退信检测（IMAP）— 拉取 DSN 退信邮件并回写退信状态
+            "bounce_enabled", "imap_host", "imap_port", "imap_ssl",
+            "imap_username", "imap_password", "imap_folder",
             // 系统参数
             "order_expire_minutes", "max_pending_orders_per_user", "max_pending_orders_per_ip",
             "rate_limit_per_second",
@@ -249,8 +252,10 @@ public class SiteConfigServiceImpl implements SiteConfigService {
                     Map<String, Object> map = new LinkedHashMap<>();
                     map.put("config_key", c.getConfigKey());
                     String value = c.getConfigValue();
-                    // SMTP 密码 / 短信 AccessKeySecret 不回传明文，已配置时标记 __SET__（前端显示"已设置，留空则不修改"）
-                    if (("smtp_password".equals(c.getConfigKey()) || "sms_access_key_secret".equals(c.getConfigKey()))
+                    // SMTP 密码 / IMAP 密码 / 短信 AccessKeySecret 不回传明文，已配置时标记 __SET__（前端显示"已设置，留空则不修改"）
+                    if (("smtp_password".equals(c.getConfigKey())
+                            || "imap_password".equals(c.getConfigKey())
+                            || "sms_access_key_secret".equals(c.getConfigKey()))
                             && value != null && !value.isBlank()) {
                         value = "__SET__";
                     }
@@ -281,6 +286,10 @@ public class SiteConfigServiceImpl implements SiteConfigService {
             }
             // SMTP 密码：前端空值或 __SET__ 表示不修改，保留原密码
             if ("smtp_password".equals(key) && (value == null || value.isBlank() || "__SET__".equals(value))) {
+                continue;
+            }
+            // IMAP 密码：同上，留空或 __SET__ 表示保留已保存的密码
+            if ("imap_password".equals(key) && (value == null || value.isBlank() || "__SET__".equals(value))) {
                 continue;
             }
             // 短信 AccessKeySecret：同上，留空或 __SET__ 表示保留已保存的密钥

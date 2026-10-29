@@ -103,6 +103,14 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE o.userId = :userId AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED)")
     BigDecimal sumPaidByUserId(@Param("userId") UUID userId);
 
+    /** 按邮箱统计成交订单数（匿名客户，已支付/已发货/已完成） */
+    @Query("SELECT COUNT(o) FROM Order o WHERE LOWER(o.email) = LOWER(:email) AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED)")
+    long countPaidByEmail(@Param("email") String email);
+
+    /** 按邮箱统计累计消费金额（匿名客户，已支付/已发货/已完成） */
+    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE LOWER(o.email) = LOWER(:email) AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED)")
+    BigDecimal sumPaidByEmail(@Param("email") String email);
+
     /** 成交注册客户数 */
     @Query("SELECT COUNT(DISTINCT o.userId) FROM Order o WHERE o.userId IS NOT NULL AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED)")
     long countPaidRegisteredCustomers();

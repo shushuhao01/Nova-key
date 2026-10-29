@@ -4,10 +4,16 @@ import com.orionkey.common.ApiResponse;
 import com.orionkey.context.RequestContext;
 import com.orionkey.service.MarketingService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.net.URI;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -18,7 +24,30 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class MarketingController {
 
+    /** 1x1 透明 GIF（邮件追踪像素） */
+    private static final byte[] TRACKING_PIXEL =
+            Base64.getDecoder().decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
+
     private final MarketingService marketingService;
+
+    /** 邮件追踪像素：客户端加载图片即记为已打开，返回 1x1 透明图 */
+    @GetMapping("/track/open")
+    public ResponseEntity<byte[]> trackOpen(@RequestParam(value = "rid", required = false) String rid) {
+        marketingService.recordEmailOpen(rid);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store, no-cache, must-revalidate")
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .contentType(MediaType.IMAGE_GIF)
+                .body(TRACKING_PIXEL);
+    }
+
+    /** 邮件内链接追踪：记录点击后 302 跳转到站内路径 */
+    @GetMapping("/track/click")
+    public ResponseEntity<Void> trackClick(@RequestParam(value = "rid", required = false) String rid,
+                                           @RequestParam(value = "p", required = false) String path) {
+        String target = marketingService.recordEmailClick(rid, path);
+        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(target)).build();
+    }
 
     /** 领取优惠券：登录用户自动绑定账户；未登录需传 email */
     @PostMapping("/coupons/claim")

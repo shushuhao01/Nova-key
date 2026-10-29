@@ -46,8 +46,21 @@ public interface MarketingService {
     /** 营销邮件收件人分页列表（发送用户超链接弹窗用，默认 10 条/页，含送达统计） */
     Map<String, Object> campaignRecipients(UUID id, int page, int pageSize);
 
+    /** 营销邮件已读用户分页列表（含消费总额/订单数/推广员/已读时间/优惠券领取状态） */
+    Map<String, Object> campaignOpenedRecipients(UUID id, int page, int pageSize);
+
     /** 营销邮件受众建议：注册用户用户名列表 + 匿名订购邮箱列表（新建邮件时预填受众用） */
     Map<String, Object> audienceSuggestions();
+
+    /** 记录邮件被打开（追踪像素加载，幂等：首次记录时间，次数累加） */
+    void recordEmailOpen(String recipientId);
+
+    /**
+     * 记录邮件内链接被点击，返回跳转地址。
+     *
+     * @param path 站内相对路径（如 /coupons/claim?code=xxx），为空时跳转到站点首页
+     */
+    String recordEmailClick(String recipientId, String path);
 
     // ═══════════ 前台：优惠券领取 / 我的优惠券 / 核销校验 ═══════════
 

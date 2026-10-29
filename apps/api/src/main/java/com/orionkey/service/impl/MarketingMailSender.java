@@ -13,10 +13,14 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 营销邮件异步发送器（独立 Bean，保证 @Async 通过 Spring 代理生效）。
@@ -55,7 +59,7 @@ public class MarketingMailSender {
                 String subject = (c.getSubject() == null || c.getSubject().isBlank())
                         ? "【" + siteName + "】" + title
                         : c.getSubject();
-                String html = renderForRecipient(c, r, coupon, code, siteUrl, siteName);
+                String html = renderForRecipient(c, r, coupon, code, siteUrl, siteName, recipientIds.get(i));
                 emailService.sendMarketingEmail(r.email(), subject, html);
                 recipientRepository.markDelivered(recipientIds.get(i), 1, LocalDateTime.now());
                 ok++;
@@ -73,8 +77,11 @@ public class MarketingMailSender {
         log.info("Marketing campaign {} sent, {}/{} ok", campaignId, ok, recipients.size());
     }
 
+    /** 匹配 href="..." 属性（用于把站内链接改写为追踪跳转） */
+    private static final Pattern HREF_PATTERN = Pattern.compile("href=\"([^\"]*)\"", Pattern.CASE_INSENSITIVE);
+
     private String renderForRecipient(MarketingCampaign c, MarketingServiceImpl.Recipient r, MarketingCampaign coupon,
-                                      String code, String siteUrl, String siteName) {
+                                      String code, String siteUrl, String siteName, UUID recipientId) {
         String html = c.getContent() == null ? "" : c.getContent();
         // 富文本中上传的图片为相对路径（/api/uploads/xxx.png），邮件客户端无法解析 → 补全为绝对 URL
         String uploadBase = siteUrl + "/api/uploads/";
@@ -93,7 +100,54 @@ public class MarketingMailSender {
                     + "<a href=\"" + siteUrl + "\" style=\"color:#999;\">" + escapeHtml(siteName) + " 官网</a> · "
                     + siteUrl + "</div>";
         }
+        // 站内链接改为追踪跳转（记录点击），并在末尾插入 1x1 追踪像素（记录打开）
+        if (recipientId != null) {
+            html = rewriteInternalLinks(html, siteUrl, recipientId);
+            html = appendTrackingPixel(html, siteUrl, recipientId);
+        }
         return html;
+    }
+
+    /** 把邮件中的站内链接改写为 /api/marketing/track/click 跳转，用于统计点击 */
+    private String rewriteInternalLinks(String html, String siteUrl, UUID recipientId) {
+        Matcher m = HREF_PATTERN.matcher(html);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            String href = m.group(1);
+            String path = toInternalPath(href, siteUrl);
+            String replaced = path == null ? href
+                    : siteUrl + "/api/marketing/track/click?rid=" + recipientId
+                      + "&amp;p=" + URLEncoder.encode(path, StandardCharsets.UTF_8);
+            m.appendReplacement(sb, Matcher.quoteReplacement("href=\"" + replaced + "\""));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    /** 站内链接（绝对站点地址或相对路径）转相对路径；外部链接返回 null 保持原样 */
+    private String toInternalPath(String href, String siteUrl) {
+        if (href == null || href.isBlank()) {
+            return null;
+        }
+        String h = href.trim();
+        if (h.startsWith("#") || h.startsWith("mailto:") || h.startsWith("tel:") || h.startsWith("javascript:")) {
+            return null;
+        }
+        if (h.equals(siteUrl)) {
+            return "/";
+        }
+        if (h.startsWith(siteUrl + "/")) {
+            return h.substring(siteUrl.length());
+        }
+        if (h.startsWith("/") && !h.startsWith("//")) {
+            return h;
+        }
+        return null;
+    }
+
+    private String appendTrackingPixel(String html, String siteUrl, UUID recipientId) {
+        return html + "<img src=\"" + siteUrl + "/api/marketing/track/open?rid=" + recipientId
+                + "\" width=\"1\" height=\"1\" alt=\"\" style=\"display:none;border:0;\" />";
     }
 
     private String escapeHtml(String s) {

@@ -22,6 +22,12 @@ public interface CustomerBindingRepository extends JpaRepository<CustomerBinding
 
     long countByDistributorId(UUID distributorId);
 
+    /** 批量按客户邮箱查绑定（已读用户列表展示推广员用） */
+    List<CustomerBinding> findByCustomerEmailIn(java.util.Collection<String> customerEmails);
+
+    /** 批量按注册客户查绑定（已读用户列表展示推广员用） */
+    List<CustomerBinding> findByCustomerUserIdIn(java.util.Collection<UUID> customerUserIds);
+
     /** 账号合并：某注册客户的全部绑定关系 */
     List<CustomerBinding> findByCustomerUserId(UUID customerUserId);
 

@@ -4,6 +4,7 @@ import com.orionkey.annotation.LogOperation;
 import com.orionkey.common.ApiResponse;
 import com.orionkey.context.RequestContext;
 import com.orionkey.service.EmailService;
+import com.orionkey.service.MailBounceService;
 import com.orionkey.service.OperationLogService;
 import com.orionkey.service.SiteConfigService;
 import com.orionkey.service.SmsService;
@@ -17,6 +18,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +36,7 @@ public class AdminSiteConfigController {
     private final EmailService emailService;
     private final SmsService smsService;
     private final OperationLogService operationLogService;
+    private final MailBounceService mailBounceService;
 
     @GetMapping
     public ApiResponse<?> getAllConfigs() {
@@ -76,6 +79,24 @@ public class AdminSiteConfigController {
         } catch (Exception e) {
             log.error("Test email send failed: {}", e.getMessage());
             return ApiResponse.error(500, "测试邮件发送失败：" + e.getMessage());
+        }
+    }
+
+    /** 立即拉取退信邮箱（IMAP），解析 DSN 退信并回写收件人退信状态 */
+    @LogOperation(action = "config.update", targetType = "SITE_CONFIG", detail = "'检查退信邮箱'")
+    @PostMapping("/email/imap-check")
+    public ApiResponse<Map<String, Object>> checkBounces() {
+        if (!mailBounceService.isEnabled()) {
+            return ApiResponse.error(400, "请先开启退信检测并保存 IMAP 配置");
+        }
+        try {
+            int processed = mailBounceService.pollBounces();
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("processed", processed);
+            return ApiResponse.success("本次处理退信 " + processed + " 个", data);
+        } catch (Exception e) {
+            log.error("Check bounce mailbox failed: {}", e.getMessage());
+            return ApiResponse.error(500, "检查退信失败：" + e.getMessage());
         }
     }
 
@@ -190,7 +211,8 @@ public class AdminSiteConfigController {
                 continue;
             }
             String incomingValue = item.get("config_value");
-            if ("smtp_password".equals(key) || "sms_access_key_secret".equals(key)) {
+            if ("smtp_password".equals(key) || "imap_password".equals(key)
+                    || "sms_access_key_secret".equals(key)) {
                 // 脱敏占位或空值表示未修改
                 if (!StringUtils.hasText(incomingValue) || "__SET__".equals(incomingValue)) {
                     continue;
