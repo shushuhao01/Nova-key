@@ -807,7 +807,7 @@ export const adminSystemApi = {
     request<SystemStaffDetail>(`/admin/system/users/${id}`),
   createStaff: (data: { username: string; email: string; password: string; role_id: string }) =>
     request<{ id: string }>("/admin/system/users", { method: "POST", body: JSON.stringify(data) }),
-  updateStaff: (id: string, data: { username?: string; role_id?: string }) =>
+  updateStaff: (id: string, data: { username?: string; email?: string; role_id?: string }) =>
     request<SystemStaffDetail>(`/admin/system/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   resetPassword: (id: string, password: string) =>
     request<null>(`/admin/system/users/${id}/password`, { method: "POST", body: JSON.stringify({ password }) }),

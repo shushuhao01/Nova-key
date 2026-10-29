@@ -208,6 +208,21 @@ public class AdminSystemServiceImpl implements AdminSystemService {
             }
             u.setUsername(username.trim());
         }
+        if (body.containsKey("email")) {
+            String email = str(body.get("email"));
+            if (email == null || email.isBlank()) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "邮箱不能为空");
+            }
+            String e = email.trim().toLowerCase();
+            if (!e.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "邮箱格式不正确");
+            }
+            User dup = userRepository.findByEmail(e).orElse(null);
+            if (dup != null && !dup.getId().equals(id)) {
+                throw new BusinessException(ErrorCode.EMAIL_EXISTS, "该邮箱已使用");
+            }
+            u.setEmail(e);
+        }
         userRepository.save(u);
         return staffDetail(id);
     }

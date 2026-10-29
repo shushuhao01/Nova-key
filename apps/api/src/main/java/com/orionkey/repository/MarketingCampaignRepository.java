@@ -34,6 +34,9 @@ public interface MarketingCampaignRepository extends JpaRepository<MarketingCamp
     /** 到点待发的定时邮件 */
     List<MarketingCampaign> findByStatusAndSendAtLessThanEqual(String status, LocalDateTime time);
 
+    /** 关联了某张优惠券的营销邮件（用于统计该券已推送人数） */
+    List<MarketingCampaign> findByCouponRefId(UUID couponRefId);
+
     /** 悲观写锁：领取优惠券时锁住活动行，防止并发超发（原生 SQL FOR UPDATE 兼容 PG 与 H2） */
     @Query(value = "SELECT * FROM marketing_campaigns WHERE id = :id FOR UPDATE", nativeQuery = true)
     Optional<MarketingCampaign> findByIdForUpdate(@Param("id") UUID id);

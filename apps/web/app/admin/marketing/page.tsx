@@ -363,6 +363,7 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponCode")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponIssueLimit")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponClaimed")}</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponSent")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponUsedCount")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponValidFrom")} ~ {t("admin.couponValidTo")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.couponScope")}</th>
@@ -372,9 +373,9 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
+                <tr><td colSpan={11} className="py-12"><div className="flex items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></td></tr>
               ) : list.length === 0 ? (
-                <tr><td colSpan={10} className="py-8 text-center text-sm text-muted-foreground">{t("admin.couponNoData")}</td></tr>
+                <tr><td colSpan={11} className="py-8 text-center text-sm text-muted-foreground">{t("admin.couponNoData")}</td></tr>
               ) : (
                 list.map((c) => (
                   <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
@@ -399,6 +400,7 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
                       <span className="block">限领 {c.coupon_per_user_limit == null ? 1 : c.coupon_per_user_limit === 0 ? "不限" : c.coupon_per_user_limit}</span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{c.coupon_claimed}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{c.coupon_sent ?? 0}</td>
                     <td className="px-4 py-3 text-muted-foreground">{c.coupon_used}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {c.coupon_valid_from && c.coupon_valid_to
@@ -477,6 +479,7 @@ function CouponsTab({ searchParams, router }: { searchParams: ReturnType<typeof 
                 [t("admin.couponIssueQuantity"), detail.coupon_quantity > 0 ? String(detail.coupon_quantity) : "不限量"],
                 [t("admin.couponPerUserLimit"), detail.coupon_per_user_limit == null ? "1" : detail.coupon_per_user_limit === 0 ? "不限" : String(detail.coupon_per_user_limit)],
                 [t("admin.couponClaimed"), `${detail.coupon_claimed}`],
+                [t("admin.couponSent"), `${detail.coupon_sent ?? 0}`],
                 [t("admin.couponUsedCount"), `${detail.coupon_used}`],
                 [t("admin.couponValidFrom"), detail.coupon_valid_from ? new Date(detail.coupon_valid_from).toLocaleString() : "长期"],
                 [t("admin.couponValidTo"), detail.coupon_valid_to ? new Date(detail.coupon_valid_to).toLocaleString() : "长期"],

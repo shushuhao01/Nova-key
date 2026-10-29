@@ -68,7 +68,9 @@ function ClaimContent() {
 
   const expired = info ? (info.coupon_valid_to && new Date(info.coupon_valid_to).getTime() < Date.now()) : false
   const notStarted = info ? (info.coupon_valid_from && new Date(info.coupon_valid_from).getTime() > Date.now()) : false
-  const soldOut = info ? (info.coupon_quantity > 0 && info.coupon_claimed >= info.coupon_quantity) : false
+  // 领完判断看已发行（含邮件预分配），已领取仅反映真实领取量
+  const issued = info ? (info.coupon_issued ?? info.coupon_claimed) : 0
+  const soldOut = info ? (info.coupon_quantity > 0 && issued >= info.coupon_quantity) : false
   const blocked = !!info && (info.is_canceled === 1 || expired || notStarted || soldOut)
 
   const loginRedirect = `/login?redirect=${encodeURIComponent(`/coupons/claim?code=${encodeURIComponent(code)}`)}`

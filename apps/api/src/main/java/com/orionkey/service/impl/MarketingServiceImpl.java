@@ -506,6 +506,8 @@ public class MarketingServiceImpl implements MarketingService {
      * 优惠券分配：校验发行数量 ≥ 收件人数（不足报"分配不足"），
      * 并按收件人预创建 UserCoupon（唯一码模式：每个收件人一个自动生成的唯一核销码；
      * 单码模式：使用活动核销码，数量上限仍按发行数量控制）。
+     * 预创建记录状态为 SENT（已推送未领取），用户点击邮件链接领取后才转为 CLAIMED，
+     * 因此「已领取」统计只反映真实领取量。
      */
     private Map<String, String> allocateCoupons(MarketingCampaign coupon, List<Recipient> recipients) {
         if (coupon.getIsCanceled() == 1) {
@@ -547,8 +549,9 @@ public class MarketingServiceImpl implements MarketingService {
         uc.setEmail(r.email());
         uc.setType(coupon.getCouponType());
         uc.setValue(coupon.getCouponValue());
-        uc.setStatus("CLAIMED");
-        uc.setClaimedAt(LocalDateTime.now());
+        // 预分配仅表示已推送，用户点击领取链接后才变为 CLAIMED
+        uc.setStatus("SENT");
+        uc.setClaimedAt(null);
         uc.setValidFrom(coupon.getCouponValidFrom());
         uc.setValidTo(coupon.getCouponValidTo());
         uc.setScope(coupon.getCouponScope() == null ? "ALL" : coupon.getCouponScope());
@@ -597,7 +600,10 @@ public class MarketingServiceImpl implements MarketingService {
         m.put("coupon_valid_to", campaign.getCouponValidTo());
         m.put("coupon_quantity", campaign.getCouponQuantity());
         m.put("coupon_per_user_limit", campaign.getCouponPerUserLimit());
-        m.put("coupon_claimed", couponRepository.countByCampaignId(campaign.getId()));
+        // 已领取仅统计真实领取（排除邮件推送后未点击领取的 SENT 记录）
+        m.put("coupon_claimed", couponRepository.countByCampaignIdAndStatusNot(campaign.getId(), "SENT"));
+        // 已发行（含预分配给收件人的记录），用于领取页判断是否领完
+        m.put("coupon_issued", couponRepository.countByCampaignId(campaign.getId()));
         m.put("coupon_scope", campaign.getCouponScope());
         m.put("coupon_product_ids", campaign.getCouponProductIds());
         m.put("is_canceled", campaign.getIsCanceled());
@@ -630,10 +636,25 @@ public class MarketingServiceImpl implements MarketingService {
         if (campaign.getCouponValidTo() != null && now.isAfter(campaign.getCouponValidTo())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "优惠券已过有效期");
         }
-        // 幂等：该用户/邮箱已领取（含邮件预分配）→ 直接返回成功
+        // 幂等：该用户/邮箱已领取 → 直接返回成功
         Optional<UserCoupon> existing = findClaimed(c, userId, email);
         if (existing.isPresent()) {
             return toClaimResult(existing.get(), campaign);
+        }
+        // 邮件预分配（SENT）→ 用户点击领取链接后转为真实领取（CLAIMED）
+        Optional<UserCoupon> preIssued = findPreIssued(c, campaign, userId, email);
+        if (preIssued.isPresent()) {
+            UserCoupon pre = preIssued.get();
+            if (userId != null) {
+                pre.setUserId(userId);
+            }
+            if (email != null && !email.isBlank()) {
+                pre.setEmail(email.trim().toLowerCase());
+            }
+            pre.setStatus("CLAIMED");
+            pre.setClaimedAt(now);
+            couponRepository.save(pre);
+            return toClaimResult(pre, campaign);
         }
         // 数量限制
         long claimed = couponRepository.countByCampaignId(campaign.getId());
@@ -693,6 +714,23 @@ public class MarketingServiceImpl implements MarketingService {
         return Optional.empty();
     }
 
+    /**
+     * 查找邮件预分配的优惠券（状态 SENT）。
+     * 唯一码模式：核销码与收件人一一绑定，凭码即可领取（收件人可能用不同邮箱注册）；
+     * 单码模式：所有收件人共用一个码，按用户/邮箱匹配各自预分配记录。
+     */
+    private Optional<UserCoupon> findPreIssued(String code, MarketingCampaign campaign, UUID userId, String email) {
+        if (!code.equals(campaign.getCouponCode())) {
+            return couponRepository.findFirstByCodeAndStatusOrderByCreatedAtDesc(code, "SENT");
+        }
+        Optional<UserCoupon> uc = userId == null ? Optional.empty()
+                : couponRepository.findFirstByCodeAndUserIdAndStatusOrderByCreatedAtDesc(code, userId, "SENT");
+        if (uc.isEmpty() && email != null && !email.isBlank()) {
+            uc = couponRepository.findFirstByCodeAndEmailAndStatusOrderByCreatedAtDesc(code, email.trim().toLowerCase(), "SENT");
+        }
+        return uc;
+    }
+
     private Map<String, Object> toClaimResult(UserCoupon uc, MarketingCampaign campaign) {
         // 使用 LinkedHashMap 而非 Map.of：valid_from/valid_to 可能为 null，Map.of 不接受 null 值
         Map<String, Object> m = new LinkedHashMap<>();
@@ -716,7 +754,8 @@ public class MarketingServiceImpl implements MarketingService {
         } else if ("CLAIMED".equals(status) || "EXPIRED".equals(status)) {
             p = couponRepository.findByUserIdAndStatusOrderByCreatedAtDesc(userId, "CLAIMED", pageable);
         } else {
-            p = couponRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable);
+            // 全部：排除仅推送未领取的 SENT 记录
+            p = couponRepository.findByUserIdAndStatusNotOrderByCreatedAtDesc(userId, "SENT", pageable);
         }
         List<Map<String, Object>> list = p.getContent().stream().map(this::toMyCouponMap).toList();
         return PageResult.of(p, list);
@@ -887,7 +926,14 @@ public class MarketingServiceImpl implements MarketingService {
         map.put("coupon_code", c.getCouponCode());
         map.put("coupon_quantity", c.getCouponQuantity());
         map.put("coupon_per_user_limit", c.getCouponPerUserLimit());
-        map.put("coupon_claimed", couponRepository.countByCampaignId(c.getId()));
+        // 已领取：仅统计用户真实点击链接领取的数量
+        map.put("coupon_claimed", couponRepository.countByCampaignIdAndStatusNot(c.getId(), "SENT"));
+        // 已推送：关联该券的营销邮件实际发送的收件人数
+        long sentCount = 0;
+        for (MarketingCampaign mail : campaignRepository.findByCouponRefId(c.getId())) {
+            sentCount += recipientRepository.countByCampaignId(mail.getId());
+        }
+        map.put("coupon_sent", sentCount);
         map.put("coupon_used", couponRepository.countByCampaignIdAndStatus(c.getId(), "USED"));
         map.put("coupon_valid_from", c.getCouponValidFrom());
         map.put("coupon_valid_to", c.getCouponValidTo());

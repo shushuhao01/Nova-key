@@ -20,9 +20,15 @@ public interface UserCouponRepository extends JpaRepository<UserCoupon, UUID> {
     /** 按核销码查找任意领取记录（自动生成的唯一码通过它反查活动） */
     Optional<UserCoupon> findFirstByCodeOrderByCreatedAtDesc(String code);
 
+    /** 按核销码 + 状态查找（营销邮件预分配为 SENT，领取后转 CLAIMED） */
+    Optional<UserCoupon> findFirstByCodeAndStatusOrderByCreatedAtDesc(String code, String status);
+
     long countByCampaignId(UUID campaignId);
 
     long countByCampaignIdAndStatus(UUID campaignId, String status);
+
+    /** 已领取数量（排除仅推送未领取的 SENT 记录） */
+    long countByCampaignIdAndStatusNot(UUID campaignId, String status);
 
     /** 某用户在某活动下已领取数量（每人限领校验） */
     long countByCampaignIdAndUserId(UUID campaignId, UUID userId);
@@ -36,6 +42,9 @@ public interface UserCouponRepository extends JpaRepository<UserCoupon, UUID> {
     org.springframework.data.domain.Page<UserCoupon> findByUserIdOrderByCreatedAtDesc(UUID userId, org.springframework.data.domain.Pageable pageable);
 
     org.springframework.data.domain.Page<UserCoupon> findByUserIdAndStatusOrderByCreatedAtDesc(UUID userId, String status, org.springframework.data.domain.Pageable pageable);
+
+    /** 个人中心优惠券（全部）：排除仅推送未领取的 SENT 记录 */
+    org.springframework.data.domain.Page<UserCoupon> findByUserIdAndStatusNotOrderByCreatedAtDesc(UUID userId, String status, org.springframework.data.domain.Pageable pageable);
 
     boolean existsByCodeAndUserId(String code, UUID userId);
 

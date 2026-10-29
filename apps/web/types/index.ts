@@ -566,6 +566,7 @@ export interface CouponInfo {
   coupon_valid_to: string | null
   coupon_quantity: number
   coupon_claimed: number
+  coupon_issued?: number
   coupon_scope: CouponScope | null
   coupon_product_ids: string | null
   is_canceled: number
@@ -583,6 +584,7 @@ export interface MarketingCouponItem {
   coupon_quantity: number
   coupon_per_user_limit?: number
   coupon_claimed: number
+  coupon_sent?: number
   coupon_used: number
   coupon_valid_from: string | null
   coupon_valid_to: string | null

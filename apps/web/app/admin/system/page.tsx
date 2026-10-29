@@ -145,8 +145,9 @@ export default function AdminSystemPage() {
   const saveStaff = async () => {
     if (!staffModal) return
     if (!staffForm.username.trim()) return toast.error(t("admin.staffUsername") + " *")
+    if (!staffForm.email.trim()) return toast.error(t("admin.staffEmail") + " *")
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(staffForm.email.trim())) return toast.error(t("admin.staffEmailInvalid"))
     if (staffModal.mode === "create") {
-      if (!staffForm.email.trim()) return toast.error(t("admin.staffEmail") + " *")
       if (!staffForm.password || staffForm.password.length < 6) return toast.error(t("admin.staffPasswordHint"))
       if (!staffForm.role_id) return toast.error(t("admin.selectRole"))
     } else if (!staffForm.role_id && staffModal.staff?.role !== "ADMIN") {
@@ -170,6 +171,7 @@ export default function AdminSystemPage() {
         await withMockFallback(
           () => adminSystemApi.updateStaff(staffModal.staff!.id, {
             username: staffForm.username.trim(),
+            email: staffForm.email.trim(),
             // 编辑自己时后端禁止修改自身角色，故不提交 role_id
             ...(!isSelf && staffForm.role_id ? { role_id: staffForm.role_id } : {}),
           }),
@@ -684,11 +686,12 @@ export default function AdminSystemPage() {
                 <div>
                   <label className="mb-1 block text-sm font-medium text-foreground">{t("admin.staffEmail")}</label>
                   <input
-                    type="text"
+                    type="email"
                     value={staffForm.email}
-                    disabled
-                    className="h-10 w-full rounded-lg border border-input bg-muted px-3 text-sm text-muted-foreground"
+                    onChange={(e) => setStaffForm(f => ({ ...f, email: e.target.value }))}
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   />
+                  <p className="mt-1 text-xs text-muted-foreground">{t("admin.staffEmailEditHint")}</p>
                 </div>
               )}
               <div>
