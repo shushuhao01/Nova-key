@@ -463,7 +463,7 @@ export default function AdminOrdersPage() {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.user")}</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">推广员</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.amount")}</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.orderSource")}</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.orderSource")}</th>
                 <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.paymentMethod")}</th>
                 <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">设备</th>
                 <th className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground">{t("admin.statusLabel")}</th>
@@ -534,9 +534,9 @@ export default function AdminOrdersPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="whitespace-nowrap px-4 py-3">
                       <span className={cn(
-                        "rounded-full px-2.5 py-0.5 text-xs font-medium",
+                        "inline-block whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium",
                         order.order_type === "CART"
                           ? "bg-purple-500/10 text-purple-600"
                           : "bg-blue-500/10 text-blue-600"
