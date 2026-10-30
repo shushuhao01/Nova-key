@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
+import { RefreshCw } from "lucide-react"
 import { useLocale } from "@/lib/context"
 import { DashboardStats, LowStockAlert } from "@/components/admin/dashboard-stats"
 import { SalesChart } from "@/components/admin/sales-chart"
@@ -15,53 +16,59 @@ export default function AdminDashboardPage() {
   const [trends, setTrends] = useState<SalesTrend[]>([])
   const [recentOrders, setRecentOrders] = useState<AdminOrderItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [period, setPeriod] = useState<"week" | "month">("month")
 
-  useEffect(() => {
-    let cancelled = false
-    async function loadStats() {
-      try {
-        const [statsData, orderData] = await Promise.all([
-          withMockFallback(
-            () => adminDashboardApi.getStats(),
-            () => mockDashboardStats
-          ),
-          withMockFallback(
-            () => adminOrderApi.getList({ page: 1, page_size: 5 }),
-            () => mockAdminOrderList({ page: 1, page_size: 5 })
-          ),
-        ])
-        if (!cancelled) {
-          setStats(statsData)
-          setRecentOrders(orderData.list)
-        }
-      } catch {
-        // withMockFallback handles network errors; business errors reach here
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+  // 概览数据（统计卡片 + 最近订单）
+  const loadOverview = useCallback(async () => {
+    try {
+      const [statsData, orderData] = await Promise.all([
+        withMockFallback(
+          () => adminDashboardApi.getStats(),
+          () => mockDashboardStats
+        ),
+        withMockFallback(
+          () => adminOrderApi.getList({ page: 1, page_size: 5 }),
+          () => mockAdminOrderList({ page: 1, page_size: 5 })
+        ),
+      ])
+      setStats(statsData)
+      setRecentOrders(orderData.list)
+    } catch {
+      // withMockFallback handles network errors; business errors reach here
     }
-    loadStats()
-    return () => { cancelled = true }
   }, [])
 
-  // 趋势图：随「周/月」切换重新加载
-  useEffect(() => {
-    let cancelled = false
-    async function loadTrend() {
-      try {
-        const trendData = await withMockFallback(
-          () => adminDashboardApi.getSalesTrend({ period }),
-          () => mockSalesTrend
-        )
-        if (!cancelled) setTrends(trendData)
-      } catch {
-        // 忽略
-      }
+  // 趋势图数据：随「周/月」切换重新加载
+  const loadTrend = useCallback(async () => {
+    try {
+      const trendData = await withMockFallback(
+        () => adminDashboardApi.getSalesTrend({ period }),
+        () => mockSalesTrend
+      )
+      setTrends(trendData)
+    } catch {
+      // 忽略
     }
-    loadTrend()
-    return () => { cancelled = true }
   }, [period])
+
+  useEffect(() => {
+    loadOverview().finally(() => setLoading(false))
+  }, [loadOverview])
+
+  useEffect(() => {
+    loadTrend()
+  }, [loadTrend])
+
+  // 手动刷新：同时更新统计、趋势图与最近订单
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      await Promise.all([loadOverview(), loadTrend()])
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -80,9 +87,20 @@ export default function AdminDashboardPage() {
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">仪表盘</h1>
-        <p className="text-sm text-muted-foreground">欢迎回来，管理员</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">仪表盘</h1>
+          <p className="text-sm text-muted-foreground">欢迎回来，管理员</p>
+        </div>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          {t("common.refresh")}
+        </button>
       </div>
 
       {/* Stats Cards */}
