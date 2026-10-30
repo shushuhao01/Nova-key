@@ -8,6 +8,9 @@ import { adminNotificationApi } from "@/services/api"
 import { confirmDialog } from "@/components/ui/confirm-dialog"
 import type { SystemMessageItem } from "@/types"
 
+const BELL_POS_KEY = "admin.notificationBell.pos"
+const BELL_SIZE = 40
+
 function formatTime(iso: string): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso
@@ -32,7 +35,7 @@ function typeLabel(type: string): string {
   }
 }
 
-/** 管理后台右上角消息铃铛：未读角标 + 下拉消息列表（详情/已读/清空） */
+/** 管理后台消息铃铛：未读角标 + 下拉消息列表（详情/已读/清空），支持拖动并记忆位置 */
 export function AdminNotificationBell() {
   const [open, setOpen] = useState(false)
   const [unread, setUnread] = useState(0)
@@ -41,6 +44,94 @@ export function AdminNotificationBell() {
   const [loading, setLoading] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
+
+  // 铃铛位置（左上角坐标）：默认右下角，拖动后写入 localStorage 记忆
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null)
+
+  const clamp = (value: number, max: number) => Math.max(8, Math.min(value, Math.max(8, max)))
+
+  // 初始化位置：读取记忆位置，没有则放在右上角（页面标题/刷新按钮下方，避免重叠）
+  useEffect(() => {
+    let saved: { x: number; y: number } | null = null
+    try {
+      const raw = localStorage.getItem(BELL_POS_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as { x?: number; y?: number }
+        if (typeof parsed?.x === "number" && typeof parsed?.y === "number") {
+          saved = { x: parsed.x, y: parsed.y }
+        }
+      }
+    } catch {
+      saved = null
+    }
+    const fallback = {
+      x: window.innerWidth - BELL_SIZE - 20,
+      y: 96,
+    }
+    const p = saved ?? fallback
+    setPos({
+      x: clamp(p.x, window.innerWidth - BELL_SIZE - 8),
+      y: clamp(p.y, window.innerHeight - BELL_SIZE - 8),
+    })
+  }, [])
+
+  // 窗口尺寸变化时把铃铛拉回可视范围
+  useEffect(() => {
+    const onResize = () => {
+      setPos((p) =>
+        p
+          ? {
+              x: clamp(p.x, window.innerWidth - BELL_SIZE - 8),
+              y: clamp(p.y, window.innerHeight - BELL_SIZE - 8),
+            }
+          : p
+      )
+    }
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [])
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!pos || e.button !== 0) return
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y, moved: false }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current
+    if (!drag) return
+    const dx = e.clientX - drag.startX
+    const dy = e.clientY - drag.startY
+    if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 4) return
+    drag.moved = true
+    setPos({
+      x: clamp(drag.origX + dx, window.innerWidth - BELL_SIZE - 8),
+      y: clamp(drag.origY + dy, window.innerHeight - BELL_SIZE - 8),
+    })
+  }
+
+  const handlePointerUp = () => {
+    const drag = dragRef.current
+    dragRef.current = null
+    if (!drag) return
+    if (drag.moved) {
+      // 拖动结束：记忆最后位置
+      setPos((p) => {
+        if (p) {
+          try {
+            localStorage.setItem(BELL_POS_KEY, JSON.stringify(p))
+          } catch {
+            // 忽略存储失败
+          }
+        }
+        return p
+      })
+      return
+    }
+    handleToggle()
+  }
+
 
   const refreshUnread = useCallback(async () => {
     try {
@@ -131,16 +222,29 @@ export function AdminNotificationBell() {
     }
   }
 
+  if (!pos) return null
+
+  // 下拉面板方向：靠近屏幕底部时向上展开，靠近右侧时右对齐
+  const openUp = pos.y > window.innerHeight / 2
+  const alignRight = pos.x + BELL_SIZE / 2 > window.innerWidth / 2
+
   return (
-    <div ref={wrapRef} className="fixed right-4 top-4 z-50">
+    <div
+      ref={wrapRef}
+      className="fixed z-50"
+      style={{ left: `${pos.x}px`, top: `${pos.y}px` }}
+    >
       <button
         type="button"
-        onClick={handleToggle}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={() => { dragRef.current = null }}
         className={cn(
-          "relative flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:text-foreground",
+          "relative flex h-10 w-10 cursor-grab touch-none items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:text-foreground active:cursor-grabbing",
           open && "text-foreground"
         )}
-        title="系统消息"
+        title="系统消息（可拖动到任意位置，位置会自动记忆）"
         aria-label="系统消息"
       >
         <Bell className="h-5 w-5" />
@@ -152,7 +256,13 @@ export function AdminNotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-12 w-[min(92vw,420px)] overflow-hidden rounded-xl border border-border bg-card shadow-xl">
+        <div
+          className={cn(
+            "absolute w-[min(92vw,420px)] overflow-hidden rounded-xl border border-border bg-card shadow-xl",
+            openUp ? "bottom-12" : "top-12",
+            alignRight ? "right-0" : "left-0"
+          )}
+        >
           {/* 头部 */}
           <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
             <div className="flex items-center gap-2">

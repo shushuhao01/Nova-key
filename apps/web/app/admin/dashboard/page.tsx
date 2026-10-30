@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { RefreshCw } from "lucide-react"
+import { toast } from "sonner"
 import { useLocale } from "@/lib/context"
 import { DashboardStats, LowStockAlert } from "@/components/admin/dashboard-stats"
 import { SalesChart } from "@/components/admin/sales-chart"
@@ -62,9 +63,15 @@ export default function AdminDashboardPage() {
 
   // 手动刷新：同时更新统计、趋势图与最近订单
   const handleRefresh = async () => {
+    if (refreshing) return
     setRefreshing(true)
     try {
-      await Promise.all([loadOverview(), loadTrend()])
+      // 保证至少 500ms 的刷新反馈，避免请求过快看不到变化
+      await Promise.all([
+        Promise.all([loadOverview(), loadTrend()]),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ])
+      toast.success("数据已刷新")
     } finally {
       setRefreshing(false)
     }
