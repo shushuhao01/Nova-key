@@ -282,8 +282,9 @@ export default function AdminProductsPage() {
 
       const payload = {
         title: formData.title,
-        description: formData.description || undefined,
-        detail_md: formData.detail_md || undefined,
+        // 空字符串需原样提交（不能转成 undefined，否则字段会被 JSON 丢弃，后端保留旧值导致无法清空）
+        description: formData.description,
+        detail_md: formData.detail_md,
         detail_images: formData.detail_images,
         category_id: formData.category_id,
         base_price: basePrice,
