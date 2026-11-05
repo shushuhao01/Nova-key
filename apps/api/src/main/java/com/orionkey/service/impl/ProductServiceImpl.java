@@ -128,6 +128,7 @@ public class ProductServiceImpl implements ProductService {
         product.setDetailMd((String) req.get("detail_md"));
         product.setDetailImages(toDetailImagesJson(req.get("detail_images")));
         product.setCoverUrl((String) req.get("cover_url"));
+        product.setGalleryImages(toGalleryImagesJson(req.get("gallery_images")));
         product.setVideoUrl((String) req.get("video_url"));
         product.setBasePrice(new BigDecimal(req.get("base_price").toString()));
         if (req.containsKey("currency")) product.setCurrency((String) req.get("currency"));
@@ -156,6 +157,7 @@ public class ProductServiceImpl implements ProductService {
         if (req.containsKey("detail_md")) product.setDetailMd((String) req.get("detail_md"));
         if (req.containsKey("detail_images")) product.setDetailImages(toDetailImagesJson(req.get("detail_images")));
         if (req.containsKey("cover_url")) product.setCoverUrl((String) req.get("cover_url"));
+        if (req.containsKey("gallery_images")) product.setGalleryImages(toGalleryImagesJson(req.get("gallery_images")));
         if (req.containsKey("video_url")) product.setVideoUrl((String) req.get("video_url"));
         if (req.containsKey("base_price")) product.setBasePrice(new BigDecimal(req.get("base_price").toString()));
         if (req.containsKey("currency")) product.setCurrency((String) req.get("currency"));
@@ -343,6 +345,7 @@ public class ProductServiceImpl implements ProductService {
         Map<String, Object> map = new LinkedHashMap<>(toProductCard(p));
         map.put("detail_md", p.getDetailMd());
         map.put("detail_images", parseDetailImages(p.getDetailImages()));
+        map.put("gallery_images", parseDetailImages(p.getGalleryImages()));
         List<ProductSpec> specs = productSpecRepository.findByProductIdAndIsDeletedOrderBySortOrderAsc(p.getId(), 0);
         map.put("specs", specs.stream().map(this::toSpecMap).toList());
         map.put("spec_enabled", p.isSpecEnabled());
@@ -388,6 +391,18 @@ public class ProductServiceImpl implements ProductService {
             return s;
         }
         return null;
+    }
+
+    /** 将请求中的 gallery_images 转为 JSON 数组字符串存储（最多保留 5 张） */
+    private String toGalleryImagesJson(Object value) {
+        List<String> list = parseDetailImages(toDetailImagesJson(value));
+        if (list.isEmpty()) return null;
+        List<String> limited = list.size() > 5 ? list.subList(0, 5) : list;
+        try {
+            return objectMapper.writeValueAsString(limited);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** 解析详情图 JSON 数组字符串为列表；空值返回空列表 */

@@ -46,6 +46,7 @@ export default function AdminProductsPage() {
   const [uploading, setUploading] = useState(false)
   const [detailUploading, setDetailUploading] = useState(false)
   const [detailImagesUploading, setDetailImagesUploading] = useState(false)
+  const [galleryUploading, setGalleryUploading] = useState(false)
   const [specsEnabled, setSpecsEnabled] = useState(false)
   const detailTextareaRef = useRef<HTMLTextAreaElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -63,6 +64,7 @@ export default function AdminProductsPage() {
     base_price: "",
     currency: "CNY",
     cover_url: "",
+    gallery_images: [] as string[],
     video_url: "",
     low_stock_threshold: "10",
     wholesale_enabled: false,
@@ -158,6 +160,7 @@ export default function AdminProductsPage() {
       base_price: String(product.base_price),
       currency: product.currency || "CNY",
       cover_url: product.cover_url || "",
+      gallery_images: product.gallery_images || [],
       video_url: product.video_url || "",
       low_stock_threshold: String(product.low_stock_threshold ?? 10),
       wholesale_enabled: false,
@@ -286,6 +289,7 @@ export default function AdminProductsPage() {
         description: formData.description,
         detail_md: formData.detail_md,
         detail_images: formData.detail_images,
+        gallery_images: formData.gallery_images,
         category_id: formData.category_id,
         base_price: basePrice,
         currency: formData.currency,
@@ -359,7 +363,7 @@ export default function AdminProductsPage() {
   const handleCloseModal = () => {
     setShowModal(false)
     setEditingProduct(null)
-    setFormData({ title: "", description: "", detail_md: "", detail_images: [], category_id: "", base_price: "", currency: "CNY", cover_url: "", video_url: "", low_stock_threshold: "10", wholesale_enabled: false, is_enabled: true, homepage_visible: true, initial_sales: "", sort_order: "", delivery_type: "AUTO" })
+    setFormData({ title: "", description: "", detail_md: "", detail_images: [], gallery_images: [], category_id: "", base_price: "", currency: "CNY", cover_url: "", video_url: "", low_stock_threshold: "10", wholesale_enabled: false, is_enabled: true, homepage_visible: true, initial_sales: "", sort_order: "", delivery_type: "AUTO" })
     setFormSpecs([])
     setSpecsEnabled(false)
     setSpecDeleteConfirm(null)
@@ -676,6 +680,67 @@ export default function AdminProductsPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">建议 1:1 正方形图片，支持 JPG/PNG/GIF/WebP，用于商品卡和详情页展示</p>
                 </div>
+              </div>
+              {/* 商品主图（最多 5 张，详情页缩略图切换） */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-foreground">
+                    商品主图 <span className="text-xs font-normal text-muted-foreground">（最多 5 张，封面图固定作为第一张）</span>
+                  </label>
+                  <label className={cn("flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors", (galleryUploading || formData.gallery_images.length >= 5) && "pointer-events-none opacity-50")}>
+                    {galleryUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                    上传主图
+                    <input
+                      type="file"
+                      multiple
+                      accept={ALLOWED_IMAGE_ACCEPT}
+                      className="hidden"
+                      onChange={async (e) => {
+                        const files = Array.from(e.target.files || [])
+                        e.target.value = ""
+                        if (files.length === 0) return
+                        const remaining = 5 - formData.gallery_images.length
+                        if (remaining <= 0) { toast.error("主图最多 5 张"); return }
+                        if (files.length > remaining) toast.error(`主图最多 5 张，已忽略多余的 ${files.length - remaining} 张`)
+                        const urls: string[] = []
+                        setGalleryUploading(true)
+                        try {
+                          for (const file of files.slice(0, remaining)) {
+                            const err = validateImageFile(file)
+                            if (err) { toast.error(`${file.name}：${err}`); continue }
+                            const result = await adminProductApi.uploadImage(file)
+                            urls.push(result.url)
+                          }
+                          if (urls.length > 0) {
+                            setFormData(prev => ({ ...prev, gallery_images: [...prev.gallery_images, ...urls].slice(0, 5) }))
+                          }
+                        } catch (err: unknown) {
+                          toast.error(err instanceof Error ? err.message : "上传失败")
+                        } finally {
+                          setGalleryUploading(false)
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+                {formData.gallery_images.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {formData.gallery_images.map((url, idx) => (
+                      <div key={`${url}-${idx}`} className="group relative h-20 w-20 overflow-hidden rounded-lg border border-border">
+                        <img src={url} alt={`主图 ${idx + 1}`} className="h-full w-full object-cover" />
+                        <button
+                          type="button"
+                          className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity hover:bg-destructive group-hover:opacity-100"
+                          onClick={() => setFormData(prev => ({ ...prev, gallery_images: prev.gallery_images.filter((_, i) => i !== idx) }))}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">详情页封面图下方会显示缩略图，点击可切换大图</p>
+                )}
               </div>
               {/* 商品视频 */}
               <div className="flex flex-col gap-1.5">

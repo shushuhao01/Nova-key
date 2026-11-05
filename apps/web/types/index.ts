@@ -139,6 +139,8 @@ export interface ProductCard {
 export interface ProductDetail extends ProductCard {
   detail_md?: string
   detail_images?: string[]
+  /** 主图列表（详情页缩略图切换，封面图固定作为第一张） */
+  gallery_images?: string[]
   specs: ProductSpec[]
   spec_enabled?: boolean
   wholesale_enabled: boolean

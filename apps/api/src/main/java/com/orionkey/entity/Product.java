@@ -32,6 +32,10 @@ public class Product extends BaseEntity {
 
     private String coverUrl;
 
+    /** 商品主图列表（JSON 数组字符串，详情页缩略图切换用，封面图固定作为第一张） */
+    @Column(columnDefinition = "TEXT")
+    private String galleryImages;
+
     /** 商品展示视频 URL（支持 MP4/WebM/MOV 等，在详情页首图位置展示，点击播放） */
     @Column(columnDefinition = "TEXT")
     private String videoUrl;
