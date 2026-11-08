@@ -34,6 +34,13 @@ public interface DistributionClickRepository extends JpaRepository<DistributionC
             "AND c.createdAt >= :from AND c.createdAt < :to")
     long countProductClicksBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 
+    /**
+     * 区间内推广点击总数（全部埋点：商品推广链接进店 + 全店推广链接进店 + 进店后的商品点击）。
+     * 用于「点击次数」汇总卡片，覆盖推广全店与单品两种链接产生的全部点击。
+     */
+    @Query("SELECT COUNT(c) FROM DistributionClick c WHERE c.createdAt >= :from AND c.createdAt < :to")
+    long countClicksBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
     /** 全店推广链接进店后的商品点击埋点数，按商品聚合（限定分销员；用于前台已推广商品统计） */
     @Query("SELECT c.productId, COUNT(c) FROM DistributionClick c JOIN PromotionLink pl ON pl.id = c.promotionLinkId " +
             "WHERE c.distributorId = :distId AND pl.productId IS NULL AND c.productId IS NOT NULL GROUP BY c.productId")

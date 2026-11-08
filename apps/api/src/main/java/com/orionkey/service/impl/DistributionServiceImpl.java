@@ -237,7 +237,7 @@ public class DistributionServiceImpl implements DistributionService {
         BigDecimal withdrawingCommission = nullSafe(commissionRecordRepository
                 .sumByDistributorAndStatusAll(distId, CommissionStatus.WITHDRAWING));
         long subCount = distributorRepository.findByParentId(distId).size();
-        long customerCount = customerBindingRepository.countByDistributorId(distId);
+        long customerCount = customerBindingRepository.countTeamCustomers(distId);
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("promotion_product_count", promotionProductCount);
@@ -286,7 +286,7 @@ public class DistributionServiceImpl implements DistributionService {
             User u = userMap.get(d.getUserId());
             Map<String, Object> m = distributorToMap(d, u);
             m.put("applied_at", d.getCreatedAt());
-            m.put("customer_count", customerBindingRepository.countByDistributorId(d.getId()));
+            m.put("customer_count", customerBindingRepository.countTeamCustomers(d.getId()));
             m.put("subordinate_count", distributorRepository.findByParentId(d.getId()).size());
             // 成交数据（佣金记录/订单口径，含全店推广与商品推广链接成交）：
             // 总佣金不依赖 Distributor 冗余字段（仅结算时累加，未结算显示 0），改从佣金记录实时聚合
@@ -309,7 +309,7 @@ public class DistributionServiceImpl implements DistributionService {
         User user = userRepository.findById(d.getUserId()).orElse(null);
         Map<String, Object> m = distributorToMap(d, user);
         m.put("applied_at", d.getCreatedAt());
-        m.put("customer_count", customerBindingRepository.countByDistributorId(d.getId()));
+        m.put("customer_count", customerBindingRepository.countTeamCustomers(d.getId()));
         m.put("subordinate_count", distributorRepository.findByParentId(d.getId()).size());
         // 成交数据（佣金记录/订单口径，含全店推广与商品推广链接成交），与列表口径一致
         m.put("total_sales", nullSafe(orderRepository.sumSalesByDistributorAll(d.getId())).setScale(2, RoundingMode.HALF_UP));
@@ -370,46 +370,112 @@ public class DistributionServiceImpl implements DistributionService {
     public Map<String, Object> adminListCustomers(UUID distributorId, String keyword, int page, int pageSize) {
         Distributor d = distributorRepository.findById(distributorId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "分销员不存在"));
-        Pageable pageable = toPageable(page, pageSize);
-        Page<CustomerBinding> bindings = customerBindingRepository.findAdminPage(d.getId(),
-                keyword != null ? keyword.trim().toLowerCase() : "", pageable);
 
         // 该推广员有效的佣金比例（用于客户行"抽成比例"展示，具体订单可能按阶梯有差异）
         BigDecimal effRate = d.getCustomRate() != null ? d.getCustomRate() : getOrCreateRule().getDefaultRate();
         BigDecimal displayRate = rateToPercent(effRate);
 
-        List<Map<String, Object>> items = bindings.getContent().stream().map(cb -> {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("id", cb.getId());
-            m.put("customer_email", cb.getCustomerEmail());
-            User cu = cb.getCustomerUserId() != null
-                    ? userRepository.findById(cb.getCustomerUserId()).orElse(null) : null;
+        // 客户来源一：客户绑定（链接/邀请码绑定）
+        List<CustomerBinding> bindings = customerBindingRepository.findByDistributorIdOrderByCreatedAtDesc(d.getId());
+        // 客户来源二：订单归属（后台手动绑定推广员、注册用户无邮箱等未生成绑定的历史订单）
+        List<Order> attributedOrders = orderRepository.findAttributedByDistributor(d.getId());
+
+        // 批量加载客户资料与绑定来源链接
+        Set<UUID> userIds = new HashSet<>();
+        bindings.forEach(cb -> {
+            if (cb.getCustomerUserId() != null) userIds.add(cb.getCustomerUserId());
+        });
+        attributedOrders.forEach(o -> {
+            if (o.getUserId() != null) userIds.add(o.getUserId());
+        });
+        Map<UUID, User> userMap = userIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(userIds).stream().collect(Collectors.toMap(User::getId, u -> u));
+        Set<UUID> linkIds = bindings.stream().map(CustomerBinding::getPromotionLinkId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<UUID, PromotionLink> linkMap = linkIds.isEmpty() ? Map.of()
+                : promotionLinkRepository.findAllById(linkIds).stream().collect(Collectors.toMap(PromotionLink::getId, l -> l));
+
+        // 两类来源按客户标识合并：注册用户按 user_id，匿名客户按邮箱/手机号
+        Map<String, TeamCustomerAgg> aggMap = new LinkedHashMap<>();
+        for (CustomerBinding cb : bindings) {
+            User cu = cb.getCustomerUserId() != null ? userMap.get(cb.getCustomerUserId()) : null;
+            String email = normalizeEmail(cb.getCustomerEmail());
+            String phone = cu != null ? normalizeContact(cu.getPhone()) : null;
+            String key = customerKey(cb.getCustomerUserId(), email, phone);
+            if (key == null) continue;
+            TeamCustomerAgg agg = aggMap.computeIfAbsent(key, k -> new TeamCustomerAgg());
+            agg.bindingId = cb.getId();
+            agg.userId = cb.getCustomerUserId();
+            if (agg.email == null) agg.email = email;
+            if (agg.phone == null) agg.phone = phone;
+            agg.firstBindAt = cb.getCreatedAt();
+            agg.lastPurchaseAt = cb.getLastPurchaseAt();
+            agg.bindingPurchaseCount = cb.getPurchaseCount();
+            if (cb.getPromotionLinkId() != null) {
+                PromotionLink pl = linkMap.get(cb.getPromotionLinkId());
+                if (pl != null) agg.linkCode = pl.getLinkCode();
+            }
+        }
+        for (Order o : attributedOrders) {
+            String email = normalizeEmail(o.getEmail());
+            String phone = normalizeContact(o.getPhone());
+            String key = customerKey(o.getUserId(), email, phone);
+            if (key == null) continue;
+            TeamCustomerAgg agg = aggMap.computeIfAbsent(key, k -> new TeamCustomerAgg());
+            if (agg.userId == null) agg.userId = o.getUserId();
+            if (agg.email == null) agg.email = email;
+            if (agg.phone == null) agg.phone = phone;
+            if (agg.firstBindAt == null || (o.getCreatedAt() != null && o.getCreatedAt().isBefore(agg.firstBindAt))) {
+                agg.firstBindAt = o.getCreatedAt();
+            }
+            agg.orders.add(o);
+            if (isPaidOrder(o)) {
+                LocalDateTime paid = o.getPaidAt() != null ? o.getPaidAt() : o.getCreatedAt();
+                if (paid != null && (agg.lastPurchaseAt == null || paid.isAfter(agg.lastPurchaseAt))) {
+                    agg.lastPurchaseAt = paid;
+                }
+            }
+        }
+
+        String kw = keyword != null ? keyword.trim().toLowerCase() : "";
+        Comparator<TeamCustomerAgg> cmp = Comparator
+                .comparing((TeamCustomerAgg a) -> a.lastPurchaseAt, Comparator.nullsLast(Comparator.<LocalDateTime>reverseOrder()))
+                .thenComparing((TeamCustomerAgg a) -> a.firstBindAt, Comparator.nullsLast(Comparator.<LocalDateTime>reverseOrder()));
+        List<TeamCustomerAgg> filtered = aggMap.values().stream()
+                .filter(a -> kw.isEmpty() || matchesCustomerKeyword(a, kw, userMap.get(a.userId)))
+                .sorted(cmp)
+                .toList();
+
+        List<Map<String, Object>> items = paginate(filtered, page, pageSize).stream().map(a -> {
+            User cu = a.userId != null ? userMap.get(a.userId) : null;
             String username = cu != null ? cu.getUsername() : null;
-            String phone = cu != null && cu.getPhone() != null && !cu.getPhone().isBlank() ? cu.getPhone() : null;
+            String phone = a.phone != null ? a.phone : (cu != null ? normalizeContact(cu.getPhone()) : null);
+            // 客户标识：优先手机号，无手机号回落到邮箱/用户名
+            String contact = phone != null ? phone : (a.email != null ? a.email : username);
+
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", a.bindingId != null ? a.bindingId
+                    : (a.orders.isEmpty() ? null : "order-" + a.orders.get(0).getId()));
+            m.put("customer_email", a.email);
             m.put("username", username);
             m.put("customer_phone", phone);
-            // 客户标识：优先手机号，无手机号回落到邮箱
-            String contact = phone != null ? phone : cb.getCustomerEmail();
             m.put("customer_contact", contact);
-            m.put("purchase_count", cb.getPurchaseCount());
-            m.put("first_bind_at", cb.getCreatedAt());
-            m.put("last_purchase_at", cb.getLastPurchaseAt());
 
-            // 聚合该客户在该推广员名下的购买明细（订单按推广员 + 客户邮箱/手机号双口径合并去重）
-            List<Order> orders = distributorCustomerOrders(d.getId(), cb.getCustomerEmail(), phone);
+            // 聚合该客户在该推广员名下的购买明细（订单已按归属预加载）
             BigDecimal paidAmount = BigDecimal.ZERO;
             BigDecimal commission = BigDecimal.ZERO;
             int quantity = 0;
+            long paidCount = 0;
             boolean hasRate = false;
             BigDecimal lastRate = displayRate;
             LinkedHashSet<String> productTitles = new LinkedHashSet<>();
             List<String> cardContents = new ArrayList<>();
-            for (Order o : orders) {
+            for (Order o : a.orders) {
                 if (isPaidOrder(o)) {
                     paidAmount = paidAmount.add(nullSafe(o.getActualAmount()));
+                    paidCount++;
                 }
-                List<OrderItem> ois = orderItemRepository.findByOrderId(o.getId());
-                for (OrderItem oi : ois) {
+                for (OrderItem oi : orderItemRepository.findByOrderId(o.getId())) {
                     quantity += oi.getQuantity();
                     if (oi.getProductTitle() != null && !oi.getProductTitle().isBlank()) {
                         productTitles.add(oi.getProductTitle());
@@ -419,8 +485,7 @@ public class DistributionServiceImpl implements DistributionService {
                     if (ck.getContent() != null) cardContents.add(ck.getContent());
                 });
                 // 佣金：取该推广员在此订单下的佣金记录（可能为空，如订单取消）
-                List<CommissionRecord> crs = commissionRecordRepository.findByDistributorIdAndOrderId(d.getId(), o.getId());
-                for (CommissionRecord cr : crs) {
+                for (CommissionRecord cr : commissionRecordRepository.findByDistributorIdAndOrderId(d.getId(), o.getId())) {
                     commission = commission.add(nullSafe(cr.getCommissionAmount()));
                     if (!hasRate && cr.getCommissionRate() != null) {
                         lastRate = cr.getCommissionRate();
@@ -428,10 +493,12 @@ public class DistributionServiceImpl implements DistributionService {
                     }
                 }
             }
-            m.put("product_titles", productTitles.stream().collect(Collectors.joining("、")));
+            m.put("purchase_count", Math.max(a.bindingPurchaseCount, (int) paidCount));
+            m.put("first_bind_at", a.firstBindAt);
+            m.put("last_purchase_at", a.lastPurchaseAt);
+            m.put("product_titles", String.join("、", productTitles));
             m.put("quantity", quantity);
             // 付款单数量：该客户在此推广员名下的有效成交订单（已付款/已发货/已完成）单数
-            long paidCount = orders.stream().filter(this::isPaidOrder).count();
             m.put("order_count", paidCount);
             m.put("paid_amount", paidAmount.setScale(2, RoundingMode.HALF_UP));
             m.put("commission", commission.setScale(2, RoundingMode.HALF_UP));
@@ -439,7 +506,49 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("card_keys", cardContents);
             return m;
         }).toList();
-        return pageResult(items, bindings.getTotalElements(), page, pageSize);
+        return pageResult(items, filtered.size(), page, pageSize);
+    }
+
+    /** 团队-客户合并聚合（客户绑定 ∪ 订单归属） */
+    private static final class TeamCustomerAgg {
+        private UUID userId;
+        private String email;
+        private String phone;
+        private UUID bindingId;
+        private String linkCode;
+        private LocalDateTime firstBindAt;
+        private LocalDateTime lastPurchaseAt;
+        private int bindingPurchaseCount;
+        private final List<Order> orders = new ArrayList<>();
+    }
+
+    /** 客户唯一标识：注册用户优先 user_id，其次邮箱，最后手机号 */
+    private static String customerKey(UUID userId, String email, String phone) {
+        if (userId != null) return "u:" + userId;
+        if (email != null && !email.isBlank()) return "e:" + email.trim().toLowerCase();
+        if (phone != null && !phone.isBlank()) return "p:" + phone.trim();
+        return null;
+    }
+
+    private static String normalizeEmail(String email) {
+        return email != null && !email.isBlank() ? email.trim().toLowerCase() : null;
+    }
+
+    private static String normalizeContact(String value) {
+        return value != null && !value.isBlank() ? value.trim() : null;
+    }
+
+    private boolean matchesCustomerKeyword(TeamCustomerAgg a, String kw, User u) {
+        return containsIgnoreCase(a.email, kw)
+                || containsIgnoreCase(a.phone, kw)
+                || containsIgnoreCase(a.linkCode, kw)
+                || (u != null && (containsIgnoreCase(u.getUsername(), kw)
+                        || containsIgnoreCase(u.getEmail(), kw)
+                        || containsIgnoreCase(u.getPhone(), kw)));
+    }
+
+    private static boolean containsIgnoreCase(String value, String kw) {
+        return value != null && value.toLowerCase().contains(kw);
     }
 
     @Override
@@ -487,22 +596,6 @@ public class DistributionServiceImpl implements DistributionService {
             case PAID, DELIVERED, COMPLETED -> true;
             default -> false;
         };
-    }
-
-    /** 该推广员名下某客户的全部订单：邮箱 + 手机号双口径合并去重（最近下单在前） */
-    private List<Order> distributorCustomerOrders(UUID distributorId, String email, String phone) {
-        Map<UUID, Order> merged = new LinkedHashMap<>();
-        if (email != null && !email.isBlank()) {
-            orderRepository.findDistributorOrdersByContact(distributorId, email.trim().toLowerCase())
-                    .forEach(o -> merged.put(o.getId(), o));
-        }
-        if (phone != null && !phone.isBlank()) {
-            orderRepository.findDistributorOrdersByContact(distributorId, phone.trim())
-                    .forEach(o -> merged.put(o.getId(), o));
-        }
-        List<Order> list = new ArrayList<>(merged.values());
-        list.sort(Comparator.comparing(Order::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())));
-        return list;
     }
 
     @Override
@@ -745,9 +838,9 @@ public class DistributionServiceImpl implements DistributionService {
         }
 
         // 分销推广统计（商品推广 + 全店推广，凡是通过分销推广链接成交的数据均计入）
-        // 点击口径与商品佣金列表一致：distribution_click 中落到具体商品上的点击埋点
-        // （商品推广链接 resolve 点击 + 全店推广链接进店后的商品点击），不含全店链接本身的进店点击
-        long clicks = clickRepository.countProductClicksBetween(fromDt != null ? fromDt : RANGE_FROM_MIN,
+        // 点击口径：distribution_click 全部埋点，含商品推广链接进店点击、全店推广链接进店点击、
+        // 以及全店链接进店后的商品点击，覆盖「推广全店」与「单品」两种链接产生的点击
+        long clicks = clickRepository.countClicksBetween(fromDt != null ? fromDt : RANGE_FROM_MIN,
                 toDt != null ? toDt : RANGE_TO_MAX);
         long paid = orderRepository.countDistributionOrdersRange(fromDt != null ? fromDt : RANGE_FROM_MIN,
                 toDt != null ? toDt : RANGE_TO_MAX);
@@ -758,14 +851,14 @@ public class DistributionServiceImpl implements DistributionService {
                 fromDt != null ? fromDt : LocalDateTime.of(1970, 1, 1, 0, 0),
                 toDt != null ? toDt : now.plusYears(100)));
 
-        long todayClicks = clickRepository.countProductClicksBetween(todayStart, now);
+        long todayClicks = clickRepository.countClicksBetween(todayStart, now);
         long todayPaid = orderRepository.countDistributionOrdersRange(todayStart, now);
         BigDecimal todayConversion = todayClicks > 0
                 ? new BigDecimal(todayPaid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(todayClicks), 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO.setScale(2);
         BigDecimal todayCommission = nullSafe(commissionRecordRepository.sumCommissionAmountBetween(todayStart, now));
 
-        long prevClicks = prevFrom != null ? clickRepository.countProductClicksBetween(prevFrom, prevTo) : 0;
+        long prevClicks = prevFrom != null ? clickRepository.countClicksBetween(prevFrom, prevTo) : 0;
         long prevPaid = prevFrom != null ? orderRepository.countDistributionOrdersRange(prevFrom, prevTo) : 0;
         BigDecimal prevConversion = prevClicks > 0
                 ? new BigDecimal(prevPaid).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(prevClicks), 2, RoundingMode.HALF_UP)
@@ -1252,6 +1345,8 @@ public class DistributionServiceImpl implements DistributionService {
         Map<UUID, PromotionLink> linkMap = linkIds.isEmpty() ? Map.of()
                 : promotionLinkRepository.findAllById(linkIds).stream().collect(Collectors.toMap(PromotionLink::getId, l -> l));
         Set<UUID> distIds = linkMap.values().stream().map(PromotionLink::getDistributorId).collect(Collectors.toSet());
+        // 后台订单管理手动绑定推广员时只写 referral_distributor_id，也要一并纳入映射
+        orders.stream().map(Order::getReferralDistributorId).filter(java.util.Objects::nonNull).forEach(distIds::add);
         Map<UUID, Distributor> distMap = distIds.isEmpty() ? Map.of()
                 : distributorRepository.findAllById(distIds).stream().collect(Collectors.toMap(Distributor::getId, d -> d));
         Set<UUID> distUserIds = distMap.values().stream().map(Distributor::getUserId).filter(java.util.Objects::nonNull).collect(Collectors.toSet());
@@ -1272,9 +1367,11 @@ public class DistributionServiceImpl implements DistributionService {
             List<OrderItem> ois = orderItemRepository.findByOrderId(o.getId());
             it.put("product_title", ois.isEmpty() ? "—" : ois.get(0).getProductTitle());
             it.put("quantity", ois.isEmpty() ? 0 : ois.stream().mapToInt(OrderItem::getQuantity).sum());
-            // 分销人：显示用户名（无则邮箱，再兜底推广员编号）
+            // 分销人：链接成交取链接所属推广员，手动绑定订单回落到 referral_distributor_id
             PromotionLink pl = o.getPromotionLinkId() != null ? linkMap.get(o.getPromotionLinkId()) : null;
-            Distributor dist = pl != null ? distMap.get(pl.getDistributorId()) : null;
+            Distributor dist = pl != null
+                    ? distMap.get(pl.getDistributorId())
+                    : (o.getReferralDistributorId() != null ? distMap.get(o.getReferralDistributorId()) : null);
             User du = dist != null && dist.getUserId() != null ? distUserMap.get(dist.getUserId()) : null;
             it.put("distributor_name", du != null
                     ? (du.getUsername() != null && !du.getUsername().isBlank() ? du.getUsername() : du.getEmail())
@@ -2266,7 +2363,7 @@ public class DistributionServiceImpl implements DistributionService {
             m.put("withdrawn_amount", sub.getWithdrawnAmount());
             m.put("created_at", sub.getCreatedAt());
             // 下级推广数据
-            m.put("customer_count", customerBindingRepository.countByDistributorId(sub.getId()));
+            m.put("customer_count", customerBindingRepository.countTeamCustomers(sub.getId()));
             m.put("subordinate_count", distributorRepository.findByParentId(sub.getId()).size());
             Page<PromotionLink> links = promotionLinkRepository.findByDistributorId(sub.getId(), Pageable.unpaged());
             long paid = 0;

@@ -2056,7 +2056,7 @@ function ProductsTab() {
   }
 
   const statCards: { key: "clicks" | "paid_count" | "conversion_rate" | "commission_amount"; label: string; tip: string; render: (item: StatItem | undefined) => string }[] = [
-    { key: "clicks", label: "点击次数", tip: "商品推广链接 + 全店链接进店后点商品的埋点合计", render: (i) => `${Number(i?.total || 0).toLocaleString()} 次` },
+    { key: "clicks", label: "点击次数", tip: "推广链接点击合计（含单品链接进店、全店链接进店及进店后的商品点击）", render: (i) => `${Number(i?.total || 0).toLocaleString()} 次` },
     { key: "paid_count", label: "下单数量", tip: "分销链接成交且已付款的订单数", render: (i) => `${Number(i?.total || 0).toLocaleString()} 单` },
     { key: "conversion_rate", label: "转化率", tip: "付款订单数 ÷ 点击次数 × 100%", render: (i) => `${Number(i?.total || 0).toFixed(2)}%` },
     { key: "commission_amount", label: "佣金金额", tip: "分销佣金合计（不含已取消）", render: (i) => fmtMoney(Number(i?.total || 0)) },

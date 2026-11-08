@@ -86,12 +86,17 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             "AND o.paidAt IS NOT NULL")
     long countPaidOrdersByDistributorAll(@Param("distId") UUID distId);
 
-    /** 某推广员名下、客户联系方式（邮箱或手机号）匹配的订单（按创建时间倒序），用于团队-客户聚合购买明细 */
+    /** 某推广员名下、客户联系方式（邮箱/手机号/用户名）匹配的订单（按创建时间倒序），用于团队-客户聚合购买明细 */
     @Query("SELECT o FROM Order o WHERE o.referralDistributorId = :distId " +
-            "AND (LOWER(o.email) = :contact OR o.phone = :contact) " +
+            "AND (LOWER(o.email) = :contact OR o.phone = :contact " +
+            "  OR o.userId IN (SELECT u.id FROM User u WHERE LOWER(u.username) = :contact)) " +
             "ORDER BY o.createdAt DESC")
     List<Order> findDistributorOrdersByContact(@Param("distId") UUID distId,
                                                @Param("contact") String contact);
+
+    /** 某推广员名下全部归属订单（含后台手动绑定、链接成交），用于团队-客户合并与最近订单映射 */
+    @Query("SELECT o FROM Order o WHERE o.referralDistributorId = :distId ORDER BY o.createdAt DESC")
+    List<Order> findAttributedByDistributor(@Param("distId") UUID distId);
 
     // ── 客户管理（注册用户 / 匿名邮箱统计） ──
 

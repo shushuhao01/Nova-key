@@ -25,15 +25,17 @@ export default function PromotionRedirectPage({ params }: { params: Promise<{ li
 
     distributionApi.resolveLink(linkCode)
       .then((data: any) => {
-        // 设置推广员 Cookie（30天有效，Secure 确保仅 HTTPS 传输）
+        // 仅 HTTPS 下才加 Secure，避免 HTTP 部署（内网/预览环境）Cookie 被浏览器丢弃导致埋点与归因丢失
+        const secure = typeof window !== "undefined" && window.location.protocol === "https:" ? "; Secure" : ""
+        // 设置推广员 Cookie（30天有效）
         if (data?.distributor_id) {
           const maxAge = 30 * 24 * 60 * 60
-          document.cookie = `dist_ref=${data.distributor_id}; path=/; max-age=${maxAge}; SameSite=Lax; Secure`
+          document.cookie = `dist_ref=${data.distributor_id}; path=/; max-age=${maxAge}; SameSite=Lax${secure}`
         }
         // 记录推广链接 ID（用于下单时关联统计 paid_count/total_sales/total_commission）
         if (data?.promotion_link_id) {
           const maxAge = 30 * 24 * 60 * 60
-          document.cookie = `dist_link=${data.promotion_link_id}; path=/; max-age=${maxAge}; SameSite=Lax; Secure`
+          document.cookie = `dist_link=${data.promotion_link_id}; path=/; max-age=${maxAge}; SameSite=Lax${secure}`
         }
         // 根据链接类型跳转
         if (data?.product_id) {

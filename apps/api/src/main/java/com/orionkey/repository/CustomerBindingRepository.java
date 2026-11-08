@@ -22,6 +22,26 @@ public interface CustomerBindingRepository extends JpaRepository<CustomerBinding
 
     long countByDistributorId(UUID distributorId);
 
+    /** 某推广员全部客户绑定（团队-客户合并读取用） */
+    List<CustomerBinding> findByDistributorIdOrderByCreatedAtDesc(UUID distributorId);
+
+    /**
+     * 推广员团队客户数 = 客户绑定 ∪ 订单归属（后台手动绑定推广员的历史订单也会计入），
+     * 按客户标识去重：注册用户按 user_id，匿名客户按邮箱/手机号。
+     */
+    @Query(value = "SELECT COUNT(*) FROM (" +
+            "SELECT CASE WHEN customer_user_id IS NOT NULL THEN 'u:' || customer_user_id::text " +
+            "            ELSE 'e:' || LOWER(COALESCE(customer_email, '')) END AS k " +
+            "FROM customer_bindings WHERE distributor_id = :distId " +
+            "UNION " +
+            "SELECT CASE WHEN o.user_id IS NOT NULL THEN 'u:' || o.user_id::text " +
+            "            WHEN NULLIF(LOWER(o.email), '') IS NOT NULL THEN 'e:' || LOWER(o.email) " +
+            "            ELSE 'p:' || o.phone END AS k " +
+            "FROM orders o WHERE o.referral_distributor_id = :distId " +
+            "AND (o.user_id IS NOT NULL OR NULLIF(LOWER(o.email), '') IS NOT NULL OR NULLIF(o.phone, '') IS NOT NULL)" +
+            ") t", nativeQuery = true)
+    long countTeamCustomers(@Param("distId") UUID distId);
+
     /** 批量按客户邮箱查绑定（已读用户列表展示推广员用） */
     List<CustomerBinding> findByCustomerEmailIn(java.util.Collection<String> customerEmails);
 
