@@ -422,7 +422,10 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         order.setReferralDistributorId(d.getId());
         orderRepository.save(order);
 
-        // 已支付订单：立即按分销规则补算佣金（onOrderPaid 幂等，会创建客户绑定、阶梯/二级抽成并通知推广员）；
+        // 立即建立客户归属绑定（无论订单是否支付），使推广员的客户列表能看到该客户
+        distributionService.bindCustomer(d.getId(), order.getEmail(), order.getUserId(), order.getPromotionLinkId());
+
+        // 已支付订单：立即按分销规则补算佣金（onOrderPaid 幂等，会刷新客户绑定、阶梯/二级抽成并通知推广员）；
         // 未支付订单：支付时由同一规则按新归属计算。
         if (order.getPaidAt() != null && order.getActualAmount() != null
                 && order.getActualAmount().compareTo(BigDecimal.ZERO) > 0) {

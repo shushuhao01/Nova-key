@@ -43,7 +43,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     // ── 分销推广：分销订单（推广链接成交）统计与列表 ──
 
     /** 分销订单（promotionLinkId 非空、已支付/已发货/已完成，按支付时间区间） */
-    @Query("SELECT o FROM Order o WHERE o.promotionLinkId IS NOT NULL " +
+    @Query("SELECT o FROM Order o WHERE (o.promotionLinkId IS NOT NULL OR o.referralDistributorId IS NOT NULL) " +
             "AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) " +
             "AND o.paidAt IS NOT NULL AND o.paidAt >= :from AND o.paidAt < :to " +
             "ORDER BY o.paidAt DESC")
@@ -52,14 +52,14 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
                                        Pageable pageable);
 
     /** 分销订单销售额合计（按支付时间区间） */
-    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE o.promotionLinkId IS NOT NULL " +
+    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM Order o WHERE (o.promotionLinkId IS NOT NULL OR o.referralDistributorId IS NOT NULL) " +
             "AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) " +
             "AND o.paidAt IS NOT NULL AND o.paidAt >= :from AND o.paidAt < :to")
     BigDecimal sumDistributionSales(@Param("from") LocalDateTime from,
                                     @Param("to") LocalDateTime to);
 
     /** 分销成交订单数（按支付时间区间，from/to 由服务层传入非空哨兵值=不限） */
-    @Query("SELECT COUNT(o) FROM Order o WHERE o.promotionLinkId IS NOT NULL " +
+    @Query("SELECT COUNT(o) FROM Order o WHERE (o.promotionLinkId IS NOT NULL OR o.referralDistributorId IS NOT NULL) " +
             "AND (o.status = com.orionkey.constant.OrderStatus.PAID OR o.status = com.orionkey.constant.OrderStatus.DELIVERED OR o.status = com.orionkey.constant.OrderStatus.COMPLETED) " +
             "AND o.paidAt IS NOT NULL AND o.paidAt >= :from AND o.paidAt < :to")
     long countDistributionOrdersRange(@Param("from") LocalDateTime from,

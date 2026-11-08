@@ -2365,6 +2365,30 @@ public class DistributionServiceImpl implements DistributionService {
 
     @Override
     @Transactional
+    public void bindCustomer(UUID distributorId, String customerEmail, UUID customerUserId, UUID promotionLinkId) {
+        if (customerEmail == null || customerEmail.isBlank()) {
+            return;
+        }
+        String email = customerEmail.trim().toLowerCase();
+        // 同邮箱同推广员已有绑定记录则跳过（保护期刷新由 onOrderPaid 负责）
+        if (customerBindingRepository.findByCustomerEmailAndDistributorId(email, distributorId).isPresent()) {
+            return;
+        }
+        DistributionRule rule = getOrCreateRule();
+        CustomerBinding binding = new CustomerBinding();
+        binding.setDistributorId(distributorId);
+        binding.setCustomerEmail(email);
+        binding.setCustomerUserId(customerUserId);
+        binding.setProductId(null);
+        binding.setPromotionLinkId(promotionLinkId);
+        binding.setProtectionExpiresAt(LocalDateTime.now().plusDays(rule.getBindingProtectionDays()));
+        binding.setPurchaseCount(0);
+        customerBindingRepository.save(binding);
+        log.info("Admin bound customer {} to distributor {}", email, distributorId);
+    }
+
+    @Override
+    @Transactional
     public void recordProductClick(UUID promotionLinkId, UUID productId, String ip, String userAgent) {
         if (promotionLinkId == null || productId == null) {
             return;

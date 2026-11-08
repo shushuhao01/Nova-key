@@ -130,6 +130,9 @@ public interface DistributionService {
     // ── 佣金计算（订单支付成功时调用） ──
     void onOrderPaid(UUID orderId);
 
+    /** 管理员手动绑定订单推广员时同步建立客户归属（保护期按分销规则；已存在绑定则跳过） */
+    void bindCustomer(UUID distributorId, String customerEmail, UUID customerUserId, UUID promotionLinkId);
+
     // ── 佣金结算（定时任务） ──
     void settlePendingCommissions();
 
