@@ -784,6 +784,11 @@ export const adminOrderApi = {
   },
   getDetail: (id: string) =>
     request<AdminOrderItem>(`/admin/orders/${id}`),
+  /** 绑定/更换订单推广员（已产生佣金记录的订单不可更换），返回更新后的订单详情 */
+  bindPromoter: (id: string, distributorId: string) =>
+    request<AdminOrderItem>(`/admin/orders/${id}/bind-promoter`, {
+      method: "POST", body: JSON.stringify({ distributor_id: distributorId })
+    }),
   markPaid: (id: string) =>
     request<null>(`/admin/orders/${id}/mark-paid`, { method: "POST" }),
   refund: (id: string, data: { amount: number; reason: string }) =>

@@ -1,6 +1,7 @@
 package com.orionkey.service.impl;
 
 import com.orionkey.common.PageResult;
+import com.orionkey.constant.DistributorStatus;
 import com.orionkey.constant.ErrorCode;
 import com.orionkey.constant.OrderStatus;
 import com.orionkey.constant.OrderType;
@@ -10,6 +11,8 @@ import com.orionkey.entity.PaymentChannel;
 import com.orionkey.entity.Distributor;
 import com.orionkey.entity.User;
 import com.orionkey.exception.BusinessException;
+import com.orionkey.repository.CommissionRecordRepository;
+import com.orionkey.repository.CustomerBindingRepository;
 import com.orionkey.repository.DistributorRepository;
 import com.orionkey.repository.OrderItemRepository;
 import com.orionkey.repository.OrderRepository;
@@ -56,6 +59,8 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     private final OrderItemRepository orderItemRepository;
     private final UserRepository userRepository;
     private final DistributorRepository distributorRepository;
+    private final CommissionRecordRepository commissionRecordRepository;
+    private final CustomerBindingRepository customerBindingRepository;
     private final NotificationService notificationService;
     private final DistributionService distributionService;
     private final WxpayService wxpayService;
@@ -378,6 +383,53 @@ public class AdminOrderServiceImpl implements AdminOrderService {
                 ? resolvePromoters(Set.of(order.getReferralDistributorId()))
                 : Map.of();
         return toAdminOrder(order, promoterMap);
+    }
+
+    @Override
+    @Transactional
+    public Object bindPromoter(UUID id, UUID distributorId) {
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
+        Distributor d = distributorRepository.findById(distributorId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "推广员不存在"));
+        if (d.getStatus() != DistributorStatus.APPROVED) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "该推广员未通过审核，无法绑定");
+        }
+        // 自购不返佣
+        if (order.getUserId() != null && order.getUserId().equals(d.getUserId())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "不能绑定订单所属用户本人为推广员（自购不返佣）");
+        }
+        // 已绑定同一推广员 → 幂等返回
+        if (distributorId.equals(order.getReferralDistributorId())) {
+            return getOrderDetail(id);
+        }
+        // 已产生佣金记录的订单不允许更换推广员（佣金可能已结算/提现，避免数据错乱）
+        if (!commissionRecordRepository.findByOrderId(id).isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "该订单已产生佣金记录，无法更换推广员");
+        }
+
+        // 解除该客户邮箱处于保护期的其它绑定，避免后续被保护期规则重新归属到原推广员
+        if (order.getEmail() != null && !order.getEmail().isBlank()) {
+            String email = order.getEmail().trim().toLowerCase();
+            customerBindingRepository.findActiveBindingByEmail(email).ifPresent(cb -> {
+                if (!cb.getDistributorId().equals(distributorId)) {
+                    cb.setProtectionExpiresAt(LocalDateTime.now());
+                    customerBindingRepository.save(cb);
+                }
+            });
+        }
+
+        order.setReferralDistributorId(d.getId());
+        orderRepository.save(order);
+
+        // 已支付订单：立即按分销规则补算佣金（onOrderPaid 幂等，会创建客户绑定、阶梯/二级抽成并通知推广员）；
+        // 未支付订单：支付时由同一规则按新归属计算。
+        if (order.getPaidAt() != null && order.getActualAmount() != null
+                && order.getActualAmount().compareTo(BigDecimal.ZERO) > 0) {
+            distributionService.onOrderPaid(order.getId());
+        }
+        log.info("Admin bound promoter {} to order {}", distributorId, id);
+        return getOrderDetail(id);
     }
 
     /** 批量解析分销员 id → 展示名（优先用户名，其次邮箱，其次分销编号） */

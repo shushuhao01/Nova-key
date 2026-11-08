@@ -43,6 +43,16 @@ public interface AdminOrderService {
 
     Object getOrderDetail(UUID id);
 
+    /**
+     * 管理员为订单绑定/更换推广员（修正未通过推广链接下单的归属）。
+     * 绑定后佣金、客户绑定关系、阶梯/二级抽成等均按既有分销规则处理：
+     * 已支付的订单立即补算佣金；未支付订单在支付时按新归属计算。
+     * 已产生佣金记录的订单不允许更换推广员。
+     *
+     * @return 更新后的订单详情
+     */
+    Object bindPromoter(UUID id, UUID distributorId);
+
     void markPaid(UUID id);
 
     /**

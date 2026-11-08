@@ -105,6 +105,18 @@ public class AdminOrderController {
         return ApiResponse.success(adminOrderService.getOrderDetail(id));
     }
 
+    @LogOperation(action = "order.bind_promoter", targetType = "ORDER", targetId = "#id",
+            detail = "'绑定推广员 ' + #body?.get('distributor_id')")
+    @PostMapping("/{id}/bind-promoter")
+    public ApiResponse<?> bindPromoter(@PathVariable UUID id, @RequestBody Map<String, Object> body) {
+        if (body.get("distributor_id") == null) {
+            throw new com.orionkey.exception.BusinessException(
+                    com.orionkey.constant.ErrorCode.BAD_REQUEST, "请选择要绑定的推广员");
+        }
+        UUID distributorId = UUID.fromString(body.get("distributor_id").toString());
+        return ApiResponse.success(adminOrderService.bindPromoter(id, distributorId));
+    }
+
     @LogOperation(action = "order.mark_paid", targetType = "ORDER", targetId = "#id", detail = "'手动标记已付'")
     @PostMapping("/{id}/mark-paid")
     public ApiResponse<Void> markPaid(@PathVariable UUID id) {

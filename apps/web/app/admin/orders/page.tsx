@@ -654,6 +654,10 @@ export default function AdminOrdersPage() {
         onClose={() => setShowDetail(null)}
         showActions
         onMarkPaid={(orderId) => setMarkPaidConfirm(orderId)}
+        onOrderUpdated={(updated) => {
+          setShowDetail(updated)
+          setOrders((prev) => prev.map((o) => (o.id === updated.id ? { ...o, promoter: updated.promoter } : o)))
+        }}
       />
 
       {/* Mark Paid Confirmation */}
