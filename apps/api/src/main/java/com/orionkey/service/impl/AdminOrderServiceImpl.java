@@ -84,7 +84,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         LocalDateTime from = rangeStart(startDate);
         LocalDateTime to = rangeEnd(endDate);
         if (keyword != null && !keyword.isBlank()) {
-            orderPage = orderRepository.findAdminOrdersByKeyword(statusParam, containsRefunded, ot, pm, isRiskFlagged, "%" + keyword + "%", from, to, pageable);
+            orderPage = orderRepository.findAdminOrdersByKeyword(statusParam, containsRefunded, ot, pm, isRiskFlagged, keywordPattern(keyword), from, to, pageable);
         } else {
             orderPage = orderRepository.findAdminOrders(statusParam, containsRefunded, ot, pm, isRiskFlagged, from, to, pageable);
         }
@@ -108,7 +108,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
                 statuses.isEmpty() ? null : statuses,
                 statuses.contains(OrderStatus.REFUNDED),
                 ot, pm, isRiskFlagged,
-                hasKeyword, hasKeyword ? "%" + keyword + "%" : "",
+                hasKeyword, hasKeyword ? keywordPattern(keyword) : "",
                 rangeStart(startDate), rangeEnd(endDate));
         Object[] row = rows.isEmpty() ? null : rows.get(0);
         Map<String, Object> stats = new LinkedHashMap<>();
@@ -137,7 +137,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         boolean hasKeyword = keyword != null && !keyword.isBlank();
         Page<Order> orderPage = hasKeyword
                 ? orderRepository.findAdminOrdersByKeyword(statusParam, containsRefunded, ot, pm, isRiskFlagged,
-                        "%" + keyword + "%", from, to, pageable)
+                        keywordPattern(keyword), from, to, pageable)
                 : orderRepository.findAdminOrders(statusParam, containsRefunded, ot, pm, isRiskFlagged,
                         from, to, pageable);
         List<Order> orders = orderPage.getContent();
@@ -373,6 +373,11 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     /** 日期上限（不含）：endDate 次日 00:00；未指定时用固定哨兵值 */
     private static LocalDateTime rangeEnd(LocalDate endDate) {
         return endDate != null ? endDate.plusDays(1).atStartOfDay() : LocalDateTime.of(2999, 12, 31, 23, 59);
+    }
+
+    /** 搜索词转 LIKE 模式（统一小写，配合查询里的 LOWER() 实现忽略大小写匹配） */
+    private static String keywordPattern(String keyword) {
+        return "%" + keyword.trim().toLowerCase() + "%";
     }
 
     @Override

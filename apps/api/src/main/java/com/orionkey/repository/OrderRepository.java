@@ -269,17 +269,21 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
                                 @Param("to") LocalDateTime to,
                                 Pageable pageable);
 
-    // 管理后台订单列表 — 带搜索词（按订单ID、邮箱、手机号、商品名称或推广员搜索，keyword 保证非 null）
+    // 管理后台订单列表 — 带搜索词（按订单ID、客户账号用户名/邮箱/手机号、下单邮箱/手机号、商品名称或推广员搜索，keyword 保证非 null）
     @Query("SELECT DISTINCT o FROM Order o LEFT JOIN OrderItem oi ON oi.orderId = o.id WHERE " +
             "(:statuses IS NULL OR o.status IN :statuses " +
             " OR (:containsRefunded = TRUE AND o.status = com.orionkey.constant.OrderStatus.PARTIALLY_REFUNDED)) " +
             "AND (:orderType IS NULL OR o.orderType = :orderType) " +
             "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o.paymentMethod = :paymentMethod) " +
             "AND (:isRiskFlagged IS NULL OR o.riskFlagged = :isRiskFlagged) " +
-            "AND (str(o.id) LIKE :keywordPattern OR o.email LIKE :keywordPattern OR o.phone LIKE :keywordPattern " +
-            " OR oi.productTitle LIKE :keywordPattern " +
-            " OR o.referralDistributorId IN (SELECT d.id FROM Distributor d WHERE d.distributorCode LIKE :keywordPattern " +
-            "   OR d.userId IN (SELECT u.id FROM User u WHERE u.username LIKE :keywordPattern OR u.email LIKE :keywordPattern " +
+            "AND (str(o.id) LIKE :keywordPattern OR LOWER(o.email) LIKE :keywordPattern OR o.phone LIKE :keywordPattern " +
+            " OR LOWER(oi.productTitle) LIKE :keywordPattern " +
+            // 下单用户账号：用户名 / 邮箱 / 手机号
+            " OR o.userId IN (SELECT u.id FROM User u WHERE LOWER(u.username) LIKE :keywordPattern " +
+            "   OR LOWER(u.email) LIKE :keywordPattern OR u.phone LIKE :keywordPattern) " +
+            // 推广员：分销编号 / 用户名 / 邮箱 / 手机号
+            " OR o.referralDistributorId IN (SELECT d.id FROM Distributor d WHERE LOWER(d.distributorCode) LIKE :keywordPattern " +
+            "   OR d.userId IN (SELECT u.id FROM User u WHERE LOWER(u.username) LIKE :keywordPattern OR LOWER(u.email) LIKE :keywordPattern " +
             "       OR u.phone LIKE :keywordPattern))) " +
             "AND o.createdAt >= :from AND o.createdAt < :to " +
             "ORDER BY o.createdAt DESC")
@@ -308,11 +312,13 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             "AND (:orderType IS NULL OR o2.orderType = :orderType) " +
             "AND (:paymentMethod IS NULL OR :paymentMethod = '' OR o2.paymentMethod = :paymentMethod) " +
             "AND (:isRiskFlagged IS NULL OR o2.riskFlagged = :isRiskFlagged) " +
-            "AND (:hasKeyword = FALSE OR str(o2.id) LIKE :keywordPattern OR o2.email LIKE :keywordPattern " +
+            "AND (:hasKeyword = FALSE OR str(o2.id) LIKE :keywordPattern OR LOWER(o2.email) LIKE :keywordPattern " +
             " OR o2.phone LIKE :keywordPattern " +
-            " OR oi.productTitle LIKE :keywordPattern " +
-            " OR o2.referralDistributorId IN (SELECT d.id FROM Distributor d WHERE d.distributorCode LIKE :keywordPattern " +
-            "   OR d.userId IN (SELECT u.id FROM User u WHERE u.username LIKE :keywordPattern OR u.email LIKE :keywordPattern " +
+            " OR LOWER(oi.productTitle) LIKE :keywordPattern " +
+            " OR o2.userId IN (SELECT u.id FROM User u WHERE LOWER(u.username) LIKE :keywordPattern " +
+            "   OR LOWER(u.email) LIKE :keywordPattern OR u.phone LIKE :keywordPattern) " +
+            " OR o2.referralDistributorId IN (SELECT d.id FROM Distributor d WHERE LOWER(d.distributorCode) LIKE :keywordPattern " +
+            "   OR d.userId IN (SELECT u.id FROM User u WHERE LOWER(u.username) LIKE :keywordPattern OR LOWER(u.email) LIKE :keywordPattern " +
             "       OR u.phone LIKE :keywordPattern))) " +
             ") AND o.createdAt >= :from AND o.createdAt < :to")
     List<Object[]> statAdminOrders(@Param("statuses") List<OrderStatus> statuses,

@@ -75,17 +75,22 @@ public interface CardKeyRepository extends JpaRepository<CardKey, UUID> {
                                     @Param("keyword") String keyword,
                                     Pageable pageable);
 
-    /** 全局已售出记录（按售出时间倒序），支持商品名/卡密/用户邮箱/推广员综合搜索 */
+    /** 全局已售出记录（按售出时间倒序），支持商品名/卡密/客户账号（用户名/邮箱/手机号）/下单邮箱/推广员综合搜索 */
     @Query("SELECT ck FROM CardKey ck LEFT JOIN Order o ON o.id = ck.orderId " +
             "WHERE ck.status = com.orionkey.constant.CardKeyStatus.SOLD " +
             "AND (:keyword IS NULL OR :keyword = '' " +
             "  OR LOWER(ck.content) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
             "  OR (o.email IS NOT NULL AND LOWER(o.email) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            "  OR (o.phone IS NOT NULL AND o.phone LIKE CONCAT('%', :keyword, '%')) " +
+            "  OR o.userId IN (SELECT u.id FROM User u WHERE LOWER(u.username) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+            "       OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+            "       OR (u.phone IS NOT NULL AND u.phone LIKE CONCAT('%', :keyword, '%'))) " +
             "  OR ck.productId IN (SELECT p.id FROM Product p WHERE LOWER(p.title) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
             "  OR o.referralDistributorId IN (SELECT d.id FROM Distributor d " +
             "       WHERE LOWER(d.distributorCode) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
             "       OR d.userId IN (SELECT u.id FROM User u WHERE LOWER(u.username) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
-            "                        OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%'))))) " +
+            "                        OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+            "                        OR (u.phone IS NOT NULL AND u.phone LIKE CONCAT('%', :keyword, '%'))))) " +
             "ORDER BY ck.soldAt DESC")
     Page<CardKey> findSoldRecords(@Param("keyword") String keyword, Pageable pageable);
 

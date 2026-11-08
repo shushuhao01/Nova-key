@@ -31,9 +31,16 @@ public interface CustomerBindingRepository extends JpaRepository<CustomerBinding
     /** 账号合并：某注册客户的全部绑定关系 */
     List<CustomerBinding> findByCustomerUserId(UUID customerUserId);
 
-    /** 管理后台：某推广员绑定的客户分页（可按邮箱模糊搜索，新绑定在前） */
+    /** 管理后台：某推广员绑定的客户分页（可按邮箱 / 注册账号用户名·邮箱·手机号模糊搜索，新绑定在前） */
     @Query("SELECT cb FROM CustomerBinding cb WHERE cb.distributorId = :distId " +
-            "AND (:keyword IS NULL OR :keyword = '' OR LOWER(cb.customerEmail) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            "AND (:keyword IS NULL OR :keyword = '' " +
+            "  OR LOWER(cb.customerEmail) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+            "  OR cb.customerUserId IN (SELECT u.id FROM User u WHERE LOWER(u.username) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+            "       OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+            "       OR (u.phone IS NOT NULL AND u.phone LIKE CONCAT('%', :keyword, '%'))) " +
+            "  OR cb.promotionLinkId IN (SELECT pl.id FROM PromotionLink pl " +
+            "       WHERE LOWER(pl.linkCode) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            ") " +
             "ORDER BY cb.createdAt DESC")
     Page<CustomerBinding> findAdminPage(@Param("distId") UUID distId,
                                         @Param("keyword") String keyword,
