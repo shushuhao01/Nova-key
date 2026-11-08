@@ -5,6 +5,7 @@ import { Zap, Package, AlertTriangle, Play } from "lucide-react"
 import type { ProductCard as ProductCardType } from "@/types"
 import { useLocale } from "@/lib/context"
 import { cn, getCurrencySymbol } from "@/lib/utils"
+import { reportProductClick } from "@/lib/distribution-click"
 
 interface ProductCardProps {
   product: ProductCardType
@@ -25,26 +26,9 @@ export function ProductCard({ product }: ProductCardProps) {
   const productUrl = `/product/${product.id}`
 
   // 推广链接进店会话（dist_link cookie）下点击商品 → 上报埋点，计入分销员对应商品点击/转化统计（含全店推广链接流量）
+  // 同时写入会话去重标记，避免进入详情页后兜底埋点重复计数
   const handleCardClick = () => {
-    try {
-      if (typeof document === "undefined" || typeof window === "undefined") return
-      const m = document.cookie.match(/(?:^|;\s*)dist_link=([^;]+)/)
-      if (!m) return
-      // 用 fetch 代替 sendBeacon：sendBeacon 发 JSON 时 Content-Type 常被当 text/plain，
-      // Spring @RequestBody 收不到 application/json 会返回 415 被后端静默吞掉，导致点击埋点丢失。
-      // keepalive 保证跳转商品页时请求仍发出；credentials 带上会话 Cookie。
-      fetch("/api/distribution/product-click", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ link_id: decodeURIComponent(m[1]), product_id: product.id }),
-        keepalive: true,
-        credentials: "include",
-      }).catch(() => {
-        /* 埋点失败静默，不影响用户操作 */
-      })
-    } catch {
-      /* 埋点失败静默，不影响用户操作 */
-    }
+    reportProductClick(product.id)
   }
 
   return (

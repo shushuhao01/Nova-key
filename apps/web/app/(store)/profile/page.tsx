@@ -4,7 +4,7 @@ import React from "react"
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { User, Lock, Star, Eye, EyeOff, Save, Ticket, Copy, UserPlus, Gift, Send, Phone, Mail, ChevronRight, Package } from "lucide-react"
+import { User, Lock, Star, Eye, EyeOff, Save, Ticket, Copy, UserPlus, Gift, Send, Phone, Mail, ChevronRight, Package, Pencil } from "lucide-react"
 import { toast } from "sonner"
 import { useLocale } from "@/lib/context"
 import { useAuth } from "@/lib/context"
@@ -21,6 +21,8 @@ type BindType = "phone" | "email"
 
 const PHONE_PATTERN = /^1[3-9]\d{9}$/
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+/** 用户名：3-50 位中文、字母、数字、下划线或连字符（与后端校验一致） */
+const USERNAME_PATTERN = /^[\u4e00-\u9fa5A-Za-z0-9_-]{3,50}$/
 
 export default function ProfilePage() {
   const { t } = useLocale()
@@ -29,6 +31,7 @@ export default function ProfilePage() {
   const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState<Tab>("info")
   const [bindType, setBindType] = useState<BindType | null>(null)
+  const [editUsernameOpen, setEditUsernameOpen] = useState(false)
 
   // 绑定成功后重新拉取个人资料（刷新手机号/邮箱与绑定状态）
   const refreshProfile = useCallback(async () => {
@@ -111,9 +114,20 @@ export default function ProfilePage() {
                   <User className="h-8 w-8 text-primary" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-card-foreground">
-                    {user?.username || "-"}
-                  </h2>
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="text-lg font-semibold text-card-foreground">
+                      {user?.username || "-"}
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => setEditUsernameOpen(true)}
+                      title={t("profile.editUsername")}
+                      aria-label={t("profile.editUsername")}
+                      className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                   {(user?.email || user?.phone) && (
                     <p className="text-sm text-muted-foreground">
                       {user?.email || user?.phone}
@@ -208,6 +222,9 @@ export default function ProfilePage() {
       {/* Invite Binding Tab */}
       {activeTab === "invite" && <InviteBinding />}
 
+      {/* 修改用户名弹窗 */}
+      <EditUsernameModal open={editUsernameOpen} onClose={() => setEditUsernameOpen(false)} />
+
       {/* 绑定手机号 / 邮箱弹窗 */}
       <BindAccountModal
         type={bindType}
@@ -215,6 +232,94 @@ export default function ProfilePage() {
         onSuccess={refreshProfile}
       />
     </div>
+  )
+}
+
+function EditUsernameModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useLocale()
+  const { user, setUser } = useAuth()
+  const [username, setUsername] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+
+  // 每次打开时回填当前用户名
+  useEffect(() => {
+    if (open) setUsername(user?.username || "")
+  }, [open, user?.username])
+
+  const trimmed = username.trim()
+  const invalid = trimmed.length > 0 && !USERNAME_PATTERN.test(trimmed)
+  const unchanged = trimmed === (user?.username || "").trim()
+  const canSubmit = trimmed.length > 0 && !invalid && !unchanged && !isLoading
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!USERNAME_PATTERN.test(trimmed)) {
+      toast.error(t("profile.usernameInvalid"))
+      return
+    }
+    if (unchanged) {
+      onClose()
+      return
+    }
+    setIsLoading(true)
+    try {
+      const profile = await userApi.updateProfile({ username: trimmed })
+      setUser(profile)
+      toast.success(t("profile.usernameSaved"))
+      onClose()
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, t))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} className="max-w-md">
+      <form onSubmit={handleSubmit} className="p-5">
+        <h3 className="mb-4 text-base font-semibold text-foreground">{t("profile.editUsername")}</h3>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">
+            {t("profile.username")}
+          </label>
+          <input
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder={t("profile.usernamePlaceholder")}
+            maxLength={50}
+            autoComplete="username"
+            className={cn(
+              "w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary",
+              invalid ? "border-destructive" : "border-border"
+            )}
+          />
+          {invalid ? (
+            <p className="mt-1 text-xs text-destructive">{t("profile.usernameInvalid")}</p>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">{t("profile.usernameRule")}</p>
+          )}
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted"
+          >
+            {t("common.cancel")}
+          </button>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
+          >
+            {isLoading ? t("common.loading") : t("profile.save")}
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 

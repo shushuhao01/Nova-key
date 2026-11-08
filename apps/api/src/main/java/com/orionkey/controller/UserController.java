@@ -6,6 +6,7 @@ import com.orionkey.context.RequestContext;
 import com.orionkey.model.request.BindEmailRequest;
 import com.orionkey.model.request.BindPhoneRequest;
 import com.orionkey.model.request.ChangePasswordRequest;
+import com.orionkey.model.request.UpdateProfileRequest;
 import com.orionkey.model.response.UserProfileResponse;
 import com.orionkey.service.UserService;
 import jakarta.validation.Valid;
@@ -24,6 +25,11 @@ public class UserController {
     @GetMapping("/profile")
     public ApiResponse<UserProfileResponse> getProfile() {
         return ApiResponse.success(userService.getProfile(RequestContext.getUserId()));
+    }
+
+    @PutMapping("/profile")
+    public ApiResponse<UserProfileResponse> updateProfile(@Valid @RequestBody UpdateProfileRequest request) {
+        return ApiResponse.success(userService.updateProfile(RequestContext.getUserId(), request));
     }
 
     @PutMapping("/password")

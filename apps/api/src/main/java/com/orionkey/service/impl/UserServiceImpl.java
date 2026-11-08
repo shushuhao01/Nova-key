@@ -10,6 +10,7 @@ import com.orionkey.exception.BusinessException;
 import com.orionkey.model.request.BindEmailRequest;
 import com.orionkey.model.request.BindPhoneRequest;
 import com.orionkey.model.request.ChangePasswordRequest;
+import com.orionkey.model.request.UpdateProfileRequest;
 import com.orionkey.model.response.UserProfileResponse;
 import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.PointsLogRepository;
@@ -43,6 +44,26 @@ public class UserServiceImpl implements UserService {
     public UserProfileResponse getProfile(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "用户不存在"));
+        return UserProfileResponse.from(user, permissionResolver.resolve(user));
+    }
+
+    /** 用户名格式：3-50 位中文、字母、数字、下划线或连字符（不允许空格与其它符号） */
+    private static final String USERNAME_REGEX = "^[\\u4e00-\\u9fa5A-Za-z0-9_-]{3,50}$";
+
+    @Override
+    @Transactional
+    public UserProfileResponse updateProfile(UUID userId, UpdateProfileRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "用户不存在"));
+        String username = request.getUsername() == null ? "" : request.getUsername().trim();
+        if (!username.matches(USERNAME_REGEX)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "用户名需为 3-50 位中文、字母、数字、下划线或连字符");
+        }
+        if (!username.equals(user.getUsername()) && userRepository.existsByUsername(username)) {
+            throw new BusinessException(ErrorCode.USERNAME_EXISTS, "用户名已存在");
+        }
+        user.setUsername(username);
+        userRepository.save(user);
         return UserProfileResponse.from(user, permissionResolver.resolve(user));
     }
 

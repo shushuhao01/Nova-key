@@ -390,6 +390,9 @@ export const authApi = {
 export const userApi = {
   getProfile: () =>
     request<UserProfile>("/user/profile"),
+  /** 修改个人资料（当前仅支持用户名） */
+  updateProfile: (data: { username: string }) =>
+    request<UserProfile>("/user/profile", { method: "PUT", body: JSON.stringify(data) }),
   updatePassword: (data: { old_password: string; new_password: string }) =>
     request<null>("/user/password", { method: "PUT", body: JSON.stringify(data) }),
   getOrders: (params: { page?: number; page_size?: number; status?: string }) => {

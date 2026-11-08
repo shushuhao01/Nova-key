@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, use } from "react"
 import { useRouter } from "next/navigation"
 import { distributionApi } from "@/services/api"
+import { markProductClick } from "@/lib/distribution-click"
 
 /**
  * 推广链接跳转页
@@ -39,6 +40,10 @@ export default function PromotionRedirectPage({ params }: { params: Promise<{ li
         }
         // 根据链接类型跳转
         if (data?.product_id) {
+          // 单品推广链接：后端 resolve 已记录一条带 product_id 的点击，标记会话避免详情页兜底埋点重复计数
+          if (data?.promotion_link_id) {
+            markProductClick(data.promotion_link_id, data.product_id)
+          }
           router.replace(`/product/${data.product_id}`)
         } else {
           router.replace("/")

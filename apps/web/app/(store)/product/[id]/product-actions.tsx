@@ -9,6 +9,7 @@ import { orderApi, marketingApi, withMockFallback, getApiErrorMessage, setTurnst
 import { mockCreateOrder } from "@/lib/mock-data"
 import { Turnstile, useTurnstile } from "@/components/shared/turnstile"
 import { cn, validateEmail, validatePhone, normalizePhone, generateIdempotencyKey, getCurrencySymbol, detectPaymentDevice, isMobileDevice } from "@/lib/utils"
+import { reportProductClick } from "@/lib/distribution-click"
 import { PaymentSelector } from "@/components/shared/payment-selector"
 import { ShareCommissionButton } from "@/components/store/share-commission"
 import type { ProductDetail, ProductSpec, PaymentChannelItem, MyCouponItem } from "@/types"
@@ -26,6 +27,12 @@ export function ProductActions({ product, channels }: ProductActionsProps) {
   const router = useRouter()
   const emailInputRef = useRef<HTMLInputElement>(null)
   const phoneInputRef = useRef<HTMLInputElement>(null)
+
+  // 分销商品点击兜底埋点：全店推广进店后若未经首页商品卡片、直接从收藏/历史/直链打开详情页，
+  // 也计入该商品的推广点击；同一「推广链接 + 商品」会话内只上报一次，避免与卡片点击重复计数。
+  useEffect(() => {
+    reportProductClick(product.id, true)
+  }, [product.id])
 
   // 手机号下单通道：需后台「客户配置」同时开启
   const phoneChannelEnabled = config?.customer_phone_enabled === true && config?.phone_purchase_enabled === true
