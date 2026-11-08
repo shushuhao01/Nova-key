@@ -9,6 +9,7 @@ import com.orionkey.repository.*;
 import com.orionkey.service.DeliverService;
 import com.orionkey.service.EmailService;
 import com.orionkey.service.NotificationService;
+import com.orionkey.service.UserMessageService;
 import com.orionkey.util.PhoneUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +39,7 @@ public class DeliverServiceImpl implements DeliverService {
     private final UnmatchedTransactionRepository unmatchedTransactionRepository;
     private final EmailService emailService;
     private final NotificationService notificationService;
+    private final UserMessageService userMessageService;
     private final TransactionTemplate transactionTemplate;
 
     /** 管理员通知：订单发货完成（事务提交后调用） */
@@ -54,6 +56,8 @@ public class DeliverServiceImpl implements DeliverService {
                     "order_no", order.getId().toString().substring(0, 8),
                     "product", product,
                     "quantity", totalQty));
+            // 用户站内信：订单发货完成（仅订单归属用户）
+            userMessageService.sendOrderDeliveredNotice(order, product, totalQty);
         } catch (Exception e) {
             log.warn("Delivered notification failed: {}", e.getMessage());
         }

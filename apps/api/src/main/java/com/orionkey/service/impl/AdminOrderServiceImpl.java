@@ -478,11 +478,14 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         // 管理员通知：订单支付成功
         try {
             BigDecimal amount = order.getActualAmount() != null ? order.getActualAmount() : order.getTotalAmount();
+            String methodLabel = paymentMethodLabel(order.getPaymentMethod());
             notificationService.sendTemplate("ORDER_PAID", Map.of(
                     "order_no", order.getId().toString().substring(0, 8),
                     "amount", amount != null ? amount.toPlainString() : "0",
-                    "payment_method", paymentMethodLabel(order.getPaymentMethod()),
+                    "payment_method", methodLabel,
                     "promoter", distributionService.getPromoterDisplayName(order.getReferralDistributorId())));
+            // 用户站内信：订单支付成功（仅订单归属用户）
+            userMessageService.sendOrderPaidNotice(order, methodLabel);
         } catch (Exception e) {
             log.warn("Order paid notification failed: {}", e.getMessage());
         }

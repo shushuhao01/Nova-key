@@ -20,6 +20,7 @@ import com.orionkey.service.AlipayService.AlipayOrderQueryResult;
 import com.orionkey.service.DistributionService;
 import com.orionkey.service.NotificationService;
 import com.orionkey.service.TxidVerifyService;
+import com.orionkey.service.UserMessageService;
 import com.orionkey.service.WebhookService;
 import com.orionkey.service.WxpayService;
 import com.orionkey.service.WxpayService.WxpayConfig;
@@ -57,6 +58,7 @@ public class WebhookServiceImpl implements WebhookService {
     private final NotificationService notificationService;
     private final DistributionService distributionService;
     private final AdminOrderService adminOrderService;
+    private final UserMessageService userMessageService;
 
     @Override
     @Transactional
@@ -728,11 +730,14 @@ public class WebhookServiceImpl implements WebhookService {
     private void sendPaidNotice(Order order) {
         try {
             BigDecimal amount = order.getActualAmount() != null ? order.getActualAmount() : order.getTotalAmount();
+            String methodLabel = paymentMethodLabel(order.getPaymentMethod());
             notificationService.sendTemplate("ORDER_PAID", Map.of(
                     "order_no", order.getId().toString().substring(0, 8),
                     "amount", amount != null ? amount.toPlainString() : "0",
-                    "payment_method", paymentMethodLabel(order.getPaymentMethod()),
+                    "payment_method", methodLabel,
                     "promoter", distributionService.getPromoterDisplayName(order.getReferralDistributorId())));
+            // 用户站内信：订单支付成功（仅订单归属用户）
+            userMessageService.sendOrderPaidNotice(order, methodLabel);
         } catch (Exception e) {
             log.warn("Order paid notification failed: {}", e.getMessage());
         }

@@ -12,6 +12,7 @@ import com.orionkey.repository.UnmatchedTransactionRepository;
 import com.orionkey.service.DistributionService;
 import com.orionkey.service.NotificationService;
 import com.orionkey.service.TxidVerifyService;
+import com.orionkey.service.UserMessageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,7 @@ public class TxidVerifyServiceImpl implements TxidVerifyService {
     private final ObjectMapper objectMapper;
     private final NotificationService notificationService;
     private final DistributionService distributionService;
+    private final UserMessageService userMessageService;
 
     /**
      * TRC20 USDT 合约地址
@@ -169,6 +171,8 @@ public class TxidVerifyServiceImpl implements TxidVerifyService {
                         "amount", amount != null ? amount.toPlainString() : "0",
                         "payment_method", "USDT 链上转账",
                         "promoter", distributionService.getPromoterDisplayName(order.getReferralDistributorId())));
+                // 用户站内信：订单支付成功（仅订单归属用户）
+                userMessageService.sendOrderPaidNotice(order, "USDT 链上转账");
             } catch (Exception e) {
                 log.warn("Order paid notification failed: {}", e.getMessage());
             }

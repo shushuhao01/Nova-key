@@ -2,6 +2,7 @@ package com.orionkey.service.impl;
 
 import com.orionkey.constant.UserMessageCategory;
 import com.orionkey.entity.NotificationTemplate;
+import com.orionkey.entity.Order;
 import com.orionkey.entity.UserMessage;
 import com.orionkey.service.EmailService;
 import com.orionkey.repository.NotificationTemplateRepository;
@@ -15,8 +16,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +31,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserMessageServiceImpl implements UserMessageService {
 
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
     private final UserMessageRepository messageRepository;
     private final NotificationTemplateRepository templateRepository;
     private final SiteConfigRepository siteConfigRepository;
@@ -36,9 +42,10 @@ public class UserMessageServiceImpl implements UserMessageService {
     @Override
     public void sendUserMessage(UUID userId, String email, String templateCode, Map<String, Object> vars) {
         try {
-            // 1. 查模板
+            // 1. 查模板（站内信与系统消息一致：模板存在即写入，不受 enabled 开关影响；
+            //    enabled 只决定是否向外部分发邮件，避免后台未启用模板时用户铃铛收不到任何消息）
             NotificationTemplate t = templateRepository.findByCode(templateCode).orElse(null);
-            if (t == null || !t.isEnabled()) {
+            if (t == null) {
                 return;
             }
 
@@ -46,7 +53,7 @@ public class UserMessageServiceImpl implements UserMessageService {
             Map<String, Object> merged = new LinkedHashMap<>();
             if (vars != null) merged.putAll(vars);
             merged.putIfAbsent("site_name", siteName());
-            merged.putIfAbsent("time", LocalDateTime.now().toString());
+            merged.putIfAbsent("time", LocalDateTime.now().format(TIME_FMT));
 
             String title = render(t.getTitle(), merged);
             String content = render(t.getContent(), merged);
@@ -60,8 +67,9 @@ public class UserMessageServiceImpl implements UserMessageService {
             msg.setTitle(title);
             msg.setContent(content);
 
-            // 4. 邮件同步（仅当管理后台启用邮箱发件 且 用户有邮箱时）
-            if (email != null && !email.isBlank() && mailEnabled() && t.getChannels().contains("EMAIL")) {
+            // 4. 邮件同步（受模板启用 + EMAIL 渠道 + 全局邮件开关控制；站内信不受影响）
+            if (email != null && !email.isBlank() && mailEnabled() && t.isEnabled()
+                    && t.getChannels() != null && t.getChannels().contains("EMAIL")) {
                 try {
                     emailService.sendNoticeEmail(email, "【" + siteName() + "】" + title, content);
                 } catch (Exception e) {
@@ -69,7 +77,10 @@ public class UserMessageServiceImpl implements UserMessageService {
                 }
             }
 
-            messageRepository.save(msg);
+            // 5. 站内消息：必须绑定用户；匿名订单（userId 为空）只发邮件，不落站内消息，避免产生无人可见的孤立记录
+            if (userId != null) {
+                messageRepository.save(msg);
+            }
         } catch (Exception e) {
             log.error("Failed to send user message {}: {}", templateCode, e.getMessage());
         }
@@ -92,13 +103,42 @@ public class UserMessageServiceImpl implements UserMessageService {
     }
 
     @Override
+    public void sendOrderPaidNotice(Order order, String paymentMethodLabel) {
+        if (order == null || order.getUserId() == null) return;
+        BigDecimal amount = order.getActualAmount() != null ? order.getActualAmount() : order.getTotalAmount();
+        Map<String, Object> vars = new LinkedHashMap<>();
+        vars.put("order_no", shortOrderNo(order));
+        vars.put("amount", amount != null ? amount.toPlainString() : "0");
+        vars.put("payment_method", paymentMethodLabel != null ? paymentMethodLabel : "");
+        sendUserMessage(order.getUserId(), null, "ORDER_PAID_USER", vars);
+    }
+
+    @Override
+    public void sendOrderDeliveredNotice(Order order, String product, int quantity) {
+        if (order == null || order.getUserId() == null) return;
+        Map<String, Object> vars = new LinkedHashMap<>();
+        vars.put("order_no", shortOrderNo(order));
+        vars.put("product", product != null && !product.isBlank() ? product : "-");
+        vars.put("quantity", quantity);
+        sendUserMessage(order.getUserId(), null, "ORDER_DELIVERED_USER", vars);
+    }
+
+    /** 与后台订单通知保持一致，取订单号前 8 位 */
+    private static String shortOrderNo(Order order) {
+        return order.getId() != null ? order.getId().toString().substring(0, 8) : "-";
+    }
+
+    @Override
     public long unreadCount(UUID userId) {
         return messageRepository.countByUserIdAndReadFalse(userId);
     }
 
     @Override
     public List<UserMessage> recentMessages(UUID userId, int limit) {
-        return messageRepository.findTop5ByUserIdOrderByCreatedAtDesc(userId);
+        if (userId == null) return List.of();
+        int size = Math.min(Math.max(limit, 1), 50);
+        return messageRepository.findByUserId(userId, null, false,
+                PageRequest.of(0, size, Sort.by(Sort.Direction.DESC, "createdAt"))).getContent();
     }
 
     @Override
@@ -127,15 +167,15 @@ public class UserMessageServiceImpl implements UserMessageService {
     }
 
     @Override
+    @Transactional
     public int markAllRead(UUID userId) {
         return messageRepository.markAllRead(userId);
     }
 
     @Override
+    @Transactional
     public void clearAll(UUID userId) {
-        List<UserMessage> msgs = messageRepository.findByUserId(userId, null, false,
-                PageRequest.of(0, Integer.MAX_VALUE)).getContent();
-        messageRepository.deleteAll(msgs);
+        messageRepository.deleteAll(messageRepository.findAllByUserId(userId));
     }
 
     // ═══════════ Helpers ═══════════

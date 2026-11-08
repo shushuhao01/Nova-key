@@ -12,6 +12,7 @@ import com.orionkey.exception.BusinessException;
 import com.orionkey.repository.OrderRepository;
 import com.orionkey.repository.UnmatchedTransactionRepository;
 import com.orionkey.service.DistributionService;
+import com.orionkey.service.UserMessageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -30,6 +31,7 @@ public class AdminTxidReviewController {
     private final UnmatchedTransactionRepository unmatchedTransactionRepository;
     private final OrderRepository orderRepository;
     private final DistributionService distributionService;
+    private final UserMessageService userMessageService;
 
     @GetMapping
     public ApiResponse<?> listTxidReviews(
@@ -105,6 +107,12 @@ public class AdminTxidReviewController {
                     distributionService.onOrderPaid(order.getId());
                 } catch (Exception e) {
                     log.error("Failed to calculate commission for order {}: {}", order.getId(), e.getMessage());
+                }
+                // 用户站内信：订单支付成功（仅订单归属用户）
+                try {
+                    userMessageService.sendOrderPaidNotice(order, "USDT 链上转账");
+                } catch (Exception e) {
+                    log.warn("Order paid notification failed: {}", e.getMessage());
                 }
             }
         }

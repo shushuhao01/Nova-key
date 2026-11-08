@@ -1,6 +1,7 @@
 package com.orionkey.service;
 
 import com.orionkey.constant.UserMessageCategory;
+import com.orionkey.entity.Order;
 import com.orionkey.entity.UserMessage;
 import org.springframework.data.domain.Page;
 
@@ -15,6 +16,12 @@ public interface UserMessageService {
 
     /** 直接写入站内消息（不依赖通知模板开关，用于系统/管理员操作通知） */
     void sendDirectMessage(UUID userId, String email, UserMessageCategory category, String title, String content);
+
+    /** 订单支付成功站内信（仅发给订单归属用户，匿名订单不产生站内信） */
+    void sendOrderPaidNotice(Order order, String paymentMethodLabel);
+
+    /** 订单发货完成站内信（仅发给订单归属用户，匿名订单不产生站内信） */
+    void sendOrderDeliveredNotice(Order order, String product, int quantity);
 
     /** 未读数 */
     long unreadCount(UUID userId);
