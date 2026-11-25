@@ -4,6 +4,7 @@ import com.orionkey.constant.CardKeyStatus;
 import com.orionkey.constant.OrderStatus;
 import com.orionkey.entity.Order;
 import com.orionkey.entity.Product;
+import com.orionkey.entity.ProductSpec;
 import com.orionkey.entity.VisitStats;
 import com.orionkey.repository.*;
 import com.orionkey.service.DashboardService;
@@ -62,20 +63,50 @@ public class DashboardServiceImpl implements DashboardService {
         double monthConversionRate = pct(monthOrders, monthUv);
         double yesterdayConversionRate = pct(yesterdayOrders, yesterdayUv);
 
-        // Low stock products — count ALL available keys per product (across all specs)
+        // Low stock products — 多规格商品按 SKU 维度判断：任一 SKU 可用库存 <= 阈值即预警
         List<Product> products = productRepository.findAll().stream()
                 .filter(p -> p.getIsDeleted() == 0 && p.isEnabled())
                 .toList();
         List<Map<String, Object>> lowStock = new ArrayList<>();
         for (Product p : products) {
-            long available = cardKeyRepository.countByProductIdAndStatus(p.getId(), CardKeyStatus.AVAILABLE);
-            if (available <= p.getLowStockThreshold()) {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("product_id", p.getId());
-                m.put("title", p.getTitle());
-                m.put("available_stock", available);
-                m.put("threshold", p.getLowStockThreshold());
-                lowStock.add(m);
+            int threshold = p.getLowStockThreshold();
+            List<ProductSpec> specs = productSpecRepository.findByProductIdAndIsDeletedOrderBySortOrderAsc(p.getId(), 0);
+            boolean hasSpecs = p.isSpecEnabled() && !specs.isEmpty();
+            if (hasSpecs) {
+                long totalAvailable = 0;
+                List<Map<String, Object>> lowSpecs = new ArrayList<>();
+                for (ProductSpec s : specs) {
+                    long specAvailable = cardKeyRepository.countByProductIdAndSpecIdAndStatus(
+                            p.getId(), s.getId(), CardKeyStatus.AVAILABLE);
+                    totalAvailable += specAvailable;
+                    if (specAvailable <= threshold) {
+                        Map<String, Object> sm = new LinkedHashMap<>();
+                        sm.put("spec_id", s.getId());
+                        sm.put("name", s.getName());
+                        sm.put("available_stock", specAvailable);
+                        lowSpecs.add(sm);
+                    }
+                }
+                if (!lowSpecs.isEmpty()) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("product_id", p.getId());
+                    m.put("title", p.getTitle());
+                    m.put("available_stock", totalAvailable);
+                    m.put("threshold", threshold);
+                    m.put("low_stock_specs", lowSpecs);
+                    lowStock.add(m);
+                }
+            } else {
+                long available = cardKeyRepository.countByProductIdAndSpecIdIsNullAndStatus(p.getId(), CardKeyStatus.AVAILABLE);
+                if (available <= threshold) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("product_id", p.getId());
+                    m.put("title", p.getTitle());
+                    m.put("available_stock", available);
+                    m.put("threshold", threshold);
+                    m.put("low_stock_specs", List.of());
+                    lowStock.add(m);
+                }
             }
         }
 

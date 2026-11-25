@@ -125,11 +125,25 @@ export function LowStockAlert({ products }: { products: LowStockProduct[] }) {
       ) : (
         <div className="flex flex-col gap-3">
           {products.map((item) => (
-            <div key={item.product_id} className="flex items-center justify-between rounded-lg bg-amber-500/5 px-3 py-2">
-              <span className="text-sm text-foreground">{item.title}</span>
-              <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600">
-                {t("admin.remaining")} {item.available_stock}
-              </span>
+            <div key={item.product_id} className="rounded-lg bg-amber-500/5 px-3 py-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-foreground">{item.title}</span>
+                <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600">
+                  {t("admin.remaining")} {item.available_stock}
+                </span>
+              </div>
+              {item.low_stock_specs && item.low_stock_specs.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {item.low_stock_specs.map((spec) => (
+                    <span
+                      key={spec.spec_id}
+                      className="rounded bg-amber-500/10 px-2 py-0.5 text-xs text-amber-600"
+                    >
+                      {spec.name} · {t("admin.remaining")} {spec.available_stock}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

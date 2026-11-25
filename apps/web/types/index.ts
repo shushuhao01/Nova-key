@@ -844,11 +844,19 @@ export interface PointsData {
 // Admin Dashboard
 // ============================================================
 
+export interface LowStockSpec {
+  spec_id: string
+  name: string
+  available_stock: number
+}
+
 export interface LowStockProduct {
   product_id: string
   title: string
   available_stock: number
   threshold: number
+  /** 多规格商品中低于预警阈值的 SKU 明细；无规格商品为空数组 */
+  low_stock_specs?: LowStockSpec[]
 }
 
 export interface DashboardStats {

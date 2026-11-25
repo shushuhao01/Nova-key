@@ -24,6 +24,15 @@ function validateImageFile(file: File): string | null {
   return null
 }
 
+/** 低库存判断：多规格商品任一 SKU 可用库存低于阈值即视为低库存 */
+function isLowStock(product: ProductDetail): boolean {
+  const threshold = product.low_stock_threshold ?? 10
+  if (product.has_specs && product.specs?.length) {
+    return product.specs.some((s) => s.stock_available <= threshold)
+  }
+  return product.stock_available > 0 && product.stock_available <= threshold
+}
+
 export default function AdminProductsPage() {
   const { t } = useLocale()
   const [products, setProducts] = useState<ProductDetail[]>([])
@@ -506,7 +515,7 @@ export default function AdminProductsPage() {
                           >
                             ID: {product.id.slice(0, 8)}…
                           </button>
-                          {product.stock_available <= (product.low_stock_threshold ?? 10) && product.stock_available > 0 && (
+                          {isLowStock(product) && (
                             <span className="text-xs text-amber-500 flex items-center gap-1">
                               <AlertCircle className="h-3 w-3" />
                               {t("admin.lowStock")}

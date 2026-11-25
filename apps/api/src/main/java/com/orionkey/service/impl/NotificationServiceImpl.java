@@ -58,6 +58,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final UserRepository userRepository;
     private final VisitStatsRepository visitStatsRepository;
     private final ProductRepository productRepository;
+    private final ProductSpecRepository productSpecRepository;
     private final CardKeyRepository cardKeyRepository;
     private final EmailService emailService;
     private final ObjectMapper objectMapper;
@@ -900,15 +901,33 @@ public class NotificationServiceImpl implements NotificationService {
                 .filter(p -> p.getIsDeleted() == 0 && p.isEnabled())
                 .toList();
         for (Product p : products) {
-            long available = cardKeyRepository.countByProductIdAndStatus(p.getId(), CardKeyStatus.AVAILABLE);
-            if (available <= p.getLowStockThreshold()) {
-                Map<String, Object> vars = new LinkedHashMap<>();
-                vars.put("product", p.getTitle());
-                vars.put("stock", available);
-                vars.put("threshold", p.getLowStockThreshold());
-                sendTemplate("LOW_STOCK", vars);
+            int threshold = p.getLowStockThreshold();
+            List<ProductSpec> specs = productSpecRepository.findByProductIdAndIsDeletedOrderBySortOrderAsc(p.getId(), 0);
+            boolean hasSpecs = p.isSpecEnabled() && !specs.isEmpty();
+            if (hasSpecs) {
+                // 多规格：逐个 SKU 判断，任一 SKU 低于阈值即预警一次
+                for (ProductSpec s : specs) {
+                    long available = cardKeyRepository.countByProductIdAndSpecIdAndStatus(
+                            p.getId(), s.getId(), CardKeyStatus.AVAILABLE);
+                    if (available <= threshold) {
+                        sendLowStockNotice(p.getTitle() + " - " + s.getName(), available, threshold);
+                    }
+                }
+            } else {
+                long available = cardKeyRepository.countByProductIdAndSpecIdIsNullAndStatus(p.getId(), CardKeyStatus.AVAILABLE);
+                if (available <= threshold) {
+                    sendLowStockNotice(p.getTitle(), available, threshold);
+                }
             }
         }
+    }
+
+    private void sendLowStockNotice(String productName, long available, int threshold) {
+        Map<String, Object> vars = new LinkedHashMap<>();
+        vars.put("product", productName);
+        vars.put("stock", available);
+        vars.put("threshold", threshold);
+        sendTemplate("LOW_STOCK", vars);
     }
 
     private Map<String, Object> baseReportVars() {
